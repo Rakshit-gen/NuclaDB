@@ -1,0 +1,15 @@
+services:
+  nucladbd:
+    build: .
+    ports:
+      - "9090:9090" # gRPC
+      - "8080:8080" # REST + /metrics
+    volumes:
+      - nucladb-data:/data
+    command:
+      - "-data-dir=/data"
+      - "-dim=128"
+      - "-metric=cosine"
+
+volumes:
+  nucladb-data:

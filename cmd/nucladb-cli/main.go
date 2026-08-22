@@ -140,7 +140,7 @@ func runCreateTenant(addr string, args []string) error {
 	id := fs.String("id", "", "tenant id (required)")
 	maxVectors := fs.Int64("max-vectors", 0, "storage quota: max vectors this tenant may hold (0 = unlimited)")
 	maxQPS := fs.Float64("max-qps", 0, "rate limit: max requests/sec for this tenant (0 = unlimited)")
-	fs.Parse(args)
+	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *id == "" {
 		return fmt.Errorf("create-tenant: -id is required")
@@ -150,7 +150,7 @@ func runCreateTenant(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := pb.NewNuclaDBClient(conn)
 
 	ctx, cancel := ctxWithTimeout()
@@ -173,7 +173,7 @@ func runInsert(addr string, args []string) error {
 	tenant := fs.String("tenant", "", "tenant id (default: the reserved \"default\" tenant)")
 	var meta kvFlags
 	fs.Var(&meta, "meta", "metadata key=value pair; repeatable")
-	fs.Parse(args)
+	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *id == "" || *vec == "" {
 		return fmt.Errorf("insert: -id and -vector are required")
@@ -187,7 +187,7 @@ func runInsert(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := pb.NewNuclaDBClient(conn)
 
 	ctx, cancel := ctxWithTimeout()
@@ -206,7 +206,7 @@ func runBatchUpsert(addr string, args []string) error {
 	fs := flag.NewFlagSet("batch-upsert", flag.ExitOnError)
 	file := fs.String("file", "", `path to a JSON file: [{"id":"1","values":[0.1,0.2],"metadata":{"k":"v"}}, ...] (required)`)
 	tenant := fs.String("tenant", "", "tenant id applied to every item that doesn't set its own \"tenant_id\"")
-	fs.Parse(args)
+	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *file == "" {
 		return fmt.Errorf("batch-upsert: -file is required")
@@ -238,7 +238,7 @@ func runBatchUpsert(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := pb.NewNuclaDBClient(conn)
 
 	ctx, cancel := ctxWithTimeout()
@@ -259,7 +259,7 @@ func runSearch(addr string, args []string) error {
 	tenant := fs.String("tenant", "", "tenant id (default: the reserved \"default\" tenant)")
 	var filters kvFlags
 	fs.Var(&filters, "filter", "metadata key=value the result must match; repeatable")
-	fs.Parse(args)
+	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *vec == "" {
 		return fmt.Errorf("search: -vector is required")
@@ -278,7 +278,7 @@ func runSearch(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := pb.NewNuclaDBClient(conn)
 
 	ctx, cancel := ctxWithTimeout()
@@ -299,7 +299,7 @@ func runDelete(addr string, args []string) error {
 	fs := flag.NewFlagSet("delete", flag.ExitOnError)
 	id := fs.String("id", "", "vector id to delete (required)")
 	tenant := fs.String("tenant", "", "tenant id (default: the reserved \"default\" tenant)")
-	fs.Parse(args)
+	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *id == "" {
 		return fmt.Errorf("delete: -id is required")
@@ -309,7 +309,7 @@ func runDelete(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := pb.NewNuclaDBClient(conn)
 
 	ctx, cancel := ctxWithTimeout()
@@ -327,7 +327,7 @@ func runPing(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := healthpb.NewHealthClient(conn)
 
 	ctx, cancel := ctxWithTimeout()

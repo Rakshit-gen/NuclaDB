@@ -60,7 +60,7 @@ func (b *QdrantBackend) waitReady(timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		resp, err := b.httpClient.Get(b.baseURL + "/readyz")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}
@@ -180,11 +180,11 @@ func (b *QdrantBackend) doJSON(method, path string, body, out any) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 300 {
 		var errBody bytes.Buffer
-		errBody.ReadFrom(resp.Body)
+		_, _ = errBody.ReadFrom(resp.Body)
 		return fmt.Errorf("qdrant %s %s: HTTP %d: %s", method, path, resp.StatusCode, errBody.String())
 	}
 	if out != nil {

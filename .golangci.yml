@@ -1,0 +1,26 @@
+version: "2"
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+  settings:
+    errcheck:
+      # Ignoring the return value of a deferred cleanup call (Close,
+      # Unmap, RemoveAll) is the standard, widely-accepted Go exception to
+      # errcheck — there's rarely a meaningful recovery action available
+      # in a defer, and checking every one is noise that buries the
+      # errcheck findings that are actually actionable.
+      exclude-functions:
+        - (*os.File).Close
+        - os.RemoveAll
+  exclusions:
+    rules:
+      # Test cleanup (defer store.Close(), t.Cleanup(...)) has the same
+      # "nothing meaningful to do with the error" property as the
+      # deferred cleanup calls excluded above, just spread across custom
+      # types (Engine, Store) that exclude-functions can't
+      # pattern-match broadly.
+      - path: _test\.go
+        linters: [errcheck]

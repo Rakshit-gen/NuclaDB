@@ -11,6 +11,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -46,7 +47,6 @@ func main() {
 	log.Println("compare: starting nucladbd...")
 	nuclaBackend, err := bench.StartNuclaDB(*nucladbdBin, nucladbDataDir, dim, "l2", "127.0.0.1:19200")
 	must(err)
-	defer nuclaBackend.Close()
 
 	log.Println("compare: benchmarking NuclaDB...")
 	nuclaReport, err := bench.Run(nuclaBackend, base, queries, groundtruth, efValues, *topK)
@@ -60,7 +60,6 @@ func main() {
 	log.Println("compare: starting qdrant...")
 	qdrantBackend, err := bench.StartQdrant(*qdrantBin, qdrantStorageDir, dim, "Euclid", 19201, 19202, *m, *efConstruct)
 	must(err)
-	defer qdrantBackend.Close()
 
 	log.Println("compare: benchmarking Qdrant...")
 	qdrantReport, err := bench.Run(qdrantBackend, base, queries, groundtruth, efValues, *topK)
@@ -70,7 +69,7 @@ func main() {
 	printReport(nuclaReport, *topK)
 	printReport(qdrantReport, *topK)
 	printComparison(nuclaReport, qdrantReport, *topK)
-	writeMarkdown(nuclaReport, qdrantReport, *topK)
+	must(writeMarkdown(nuclaReport, qdrantReport, *topK))
 }
 
 func printReport(r *bench.Report, topK int) {
@@ -92,45 +91,65 @@ func printComparison(a, b *bench.Report, topK int) {
 	}
 }
 
-func writeMarkdown(a, b *bench.Report, topK int) {
+// errWriter accumulates the first write error across many sequential
+// Fprintf calls, so each call site doesn't need its own error check —
+// checked once at the end instead of fifteen times inline.
+type errWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (ew *errWriter) printf(format string, args ...any) {
+	if ew.err != nil {
+		return
+	}
+	_, ew.err = fmt.Fprintf(ew.w, format, args...)
+}
+
+func writeMarkdown(a, b *bench.Report, topK int) error {
 	path := "results.md"
 	f, err := os.Create(path)
 	if err != nil {
-		log.Printf("compare: could not write %s: %v", path, err)
-		return
+		return fmt.Errorf("creating %s: %w", path, err)
 	}
 	defer f.Close()
 
-	fmt.Fprintf(f, "# NuclaDB vs Qdrant: SIFT-small benchmark\n\n")
-	fmt.Fprintf(f, "Real measurements from running both systems over their own network APIs ")
-	fmt.Fprintf(f, "on the same machine, same dataset, same recall@%d target — not estimates.\n\n", topK)
-	fmt.Fprintf(f, "%d base vectors, %d queries, dim=%d.\n\n", a.NumVectors, a.NumQueries, a.Dim)
+	ew := &errWriter{w: f}
+	ew.printf("# NuclaDB vs Qdrant: SIFT-small benchmark\n\n")
+	ew.printf("Real measurements from running both systems over their own network APIs ")
+	ew.printf("on the same machine, same dataset, same recall@%d target — not estimates.\n\n", topK)
+	ew.printf("%d base vectors, %d queries, dim=%d.\n\n", a.NumVectors, a.NumQueries, a.Dim)
 
-	fmt.Fprintf(f, "## Build\n\n")
-	fmt.Fprintf(f, "| Backend | Build time | RSS after build |\n|---|---|---|\n")
-	fmt.Fprintf(f, "| %s | %s | %.1f MB |\n", a.Backend, a.BuildDuration, float64(a.BuildRSSBytes)/1e6)
-	fmt.Fprintf(f, "| %s | %s | %.1f MB |\n\n", b.Backend, b.BuildDuration, float64(b.BuildRSSBytes)/1e6)
+	ew.printf("## Build\n\n")
+	ew.printf("| Backend | Build time | RSS after build |\n|---|---|---|\n")
+	ew.printf("| %s | %s | %.1f MB |\n", a.Backend, a.BuildDuration, float64(a.BuildRSSBytes)/1e6)
+	ew.printf("| %s | %s | %.1f MB |\n\n", b.Backend, b.BuildDuration, float64(b.BuildRSSBytes)/1e6)
 
-	fmt.Fprintf(f, "## Recall / QPS / memory vs ef\n\n")
-	fmt.Fprintf(f, "| ef | %s recall@%d | %s recall@%d | %s QPS | %s QPS | %s RSS | %s RSS |\n",
+	ew.printf("## Recall / QPS / memory vs ef\n\n")
+	ew.printf("| ef | %s recall@%d | %s recall@%d | %s QPS | %s QPS | %s RSS | %s RSS |\n",
 		a.Backend, topK, b.Backend, topK, a.Backend, b.Backend, a.Backend, b.Backend)
-	fmt.Fprintf(f, "|---|---|---|---|---|---|---|\n")
+	ew.printf("|---|---|---|---|---|---|---|\n")
 	for i := range a.Points {
 		pa, pb := a.Points[i], b.Points[i]
-		fmt.Fprintf(f, "| %d | %.4f | %.4f | %.1f | %.1f | %.1f MB | %.1f MB |\n",
+		ew.printf("| %d | %.4f | %.4f | %.1f | %.1f | %.1f MB | %.1f MB |\n",
 			pa.EF, pa.Recall, pb.Recall, pa.QPS, pb.QPS, float64(pa.RSSBytes)/1e6, float64(pb.RSSBytes)/1e6)
 	}
 
-	fmt.Fprintf(f, "\n## Notes\n\n")
-	fmt.Fprintf(f, "- **Qdrant's `full_scan_threshold` is set explicitly to 10 (its API-enforced minimum) here.** ")
-	fmt.Fprintf(f, "Its default (10,000 KB) is comfortably above this dataset's raw size (~%.0f KB), which means ", float64(a.NumVectors*a.Dim*4)/1000)
-	fmt.Fprintf(f, "an out-of-the-box comparison at this scale would silently have been exact-search-vs-HNSW, not HNSW-vs-HNSW. ")
-	fmt.Fprintf(f, "Discovered by noticing suspiciously perfect 1.0 recall at every ef on the first run; see the writeup.\n")
-	fmt.Fprintf(f, "- **Build time is the standout gap.** %s's WAL fsyncs on every single write for crash-safety durability; ", a.Backend)
-	fmt.Fprintf(f, "%s batches durability differently, hence the build-time difference above. This is a genuine, unhidden weakness — see docs/writeups.\n", b.Backend)
-	fmt.Fprintf(f, "- At only %d vectors, recall for both engines converges close to 1.0 by moderate ef — a real recall/QPS tradeoff separation ", a.NumVectors)
-	fmt.Fprintf(f, "is more visible at larger scale (SIFT1M); rerunning there is documented future work, not run here due to build-time cost at this fsync-per-write rate.\n")
+	ew.printf("\n## Notes\n\n")
+	ew.printf("- **Qdrant's `full_scan_threshold` is set explicitly to 10 (its API-enforced minimum) here.** ")
+	ew.printf("Its default (10,000 KB) is comfortably above this dataset's raw size (~%.0f KB), which means ", float64(a.NumVectors*a.Dim*4)/1000)
+	ew.printf("an out-of-the-box comparison at this scale would silently have been exact-search-vs-HNSW, not HNSW-vs-HNSW. ")
+	ew.printf("Discovered by noticing suspiciously perfect 1.0 recall at every ef on the first run; see the writeup.\n")
+	ew.printf("- **Build time is the standout gap.** %s's WAL fsyncs on every single write for crash-safety durability; ", a.Backend)
+	ew.printf("%s batches durability differently, hence the build-time difference above. This is a genuine, unhidden weakness — see docs/writeups.\n", b.Backend)
+	ew.printf("- At only %d vectors, recall for both engines converges close to 1.0 by moderate ef — a real recall/QPS tradeoff separation ", a.NumVectors)
+	ew.printf("is more visible at larger scale (SIFT1M); rerunning there is documented future work, not run here due to build-time cost at this fsync-per-write rate.\n")
+
+	if ew.err != nil {
+		return fmt.Errorf("writing %s: %w", path, ew.err)
+	}
 	log.Printf("compare: wrote %s", path)
+	return nil
 }
 
 func must(err error) {

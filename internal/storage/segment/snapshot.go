@@ -218,7 +218,7 @@ func Load(path string, cfg hnsw.Config) (*hnsw.Graph, uint64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	defer m.Unmap()
+	defer func() { _ = m.Unmap() }()
 
 	c := &cursor{data: m}
 	var hdr [8]byte
