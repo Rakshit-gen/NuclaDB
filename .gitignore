@@ -3,3 +3,5 @@
 *.db
 *.wal
 .DS_Store
+/bench/data/
+/bench/.qdrant-bin/
