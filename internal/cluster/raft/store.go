@@ -48,9 +48,17 @@ func DiskDeps(dataDir string, transport raft.Transport) (Deps, error) {
 // bounded per-RPC timeout so a single unreachable peer can't hang the
 // caller indefinitely.
 func NewTCPTransport(bindAddr string) (*raft.NetworkTransport, error) {
-	addr, err := net.ResolveTCPAddr("tcp", bindAddr)
+	return NewTCPTransportAdvertise(bindAddr, bindAddr)
+}
+
+// NewTCPTransportAdvertise is NewTCPTransport but lets the advertised peer
+// address differ from the local bind address — e.g. binding to the real
+// local port while advertising a fault-injection proxy address, so peers
+// dial through the proxy without the transport itself knowing.
+func NewTCPTransportAdvertise(bindAddr, advertiseAddr string) (*raft.NetworkTransport, error) {
+	addr, err := net.ResolveTCPAddr("tcp", advertiseAddr)
 	if err != nil {
-		return nil, fmt.Errorf("raft: resolve bind addr %q: %w", bindAddr, err)
+		return nil, fmt.Errorf("raft: resolve advertise addr %q: %w", advertiseAddr, err)
 	}
 	return raft.NewTCPTransport(bindAddr, addr, 3, 5*time.Second, io.Discard)
 }
