@@ -2,7 +2,7 @@
 // database is curl-able and usable from a browser without a gRPC client.
 // It's a thin hand-written translation layer rather than grpc-gateway,
 // since grpc-gateway's code generation needs the full googleapis proto
-// tree vendored in for four routes — not worth the dependency weight here.
+// tree vendored in for five routes — not worth the dependency weight here.
 package gateway
 
 import (
@@ -24,12 +24,18 @@ type Handler struct {
 
 // New builds the REST handler, routing:
 //
+//	POST   /v1/tenants        -> CreateTenant
 //	POST   /v1/vectors        -> Insert
 //	POST   /v1/vectors:batch  -> BatchUpsert
 //	DELETE /v1/vectors/{id}   -> Delete
 //	POST   /v1/search         -> Search
+//
+// Every route except tenant creation accepts an optional tenant_id (JSON
+// body field, or a query parameter for DELETE); omitting it uses the
+// reserved default tenant.
 func New(svc pb.NuclaDBServer) *Handler {
 	h := &Handler{svc: svc, mux: http.NewServeMux()}
+	h.mux.HandleFunc("POST /v1/tenants", h.createTenant)
 	h.mux.HandleFunc("POST /v1/vectors", h.insert)
 	h.mux.HandleFunc("POST /v1/vectors:batch", h.batchUpsert)
 	h.mux.HandleFunc("DELETE /v1/vectors/{id}", h.delete)
@@ -41,10 +47,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
 }
 
+type tenantJSON struct {
+	TenantID   string  `json:"tenant_id"`
+	MaxVectors int64   `json:"max_vectors,omitempty"`
+	MaxQPS     float64 `json:"max_qps,omitempty"`
+}
+
+func (h *Handler) createTenant(w http.ResponseWriter, r *http.Request) {
+	var body tenantJSON
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	resp, err := h.svc.CreateTenant(r.Context(), &pb.CreateTenantRequest{
+		TenantId: body.TenantID,
+		Quota:    &pb.TenantQuota{MaxVectors: body.MaxVectors, MaxQps: body.MaxQPS},
+	})
+	writeResult(w, resp, err)
+}
+
 type vectorJSON struct {
 	ID       string            `json:"id"`
 	Values   []float32         `json:"values"`
 	Metadata map[string]string `json:"metadata,omitempty"`
+	TenantID string            `json:"tenant_id,omitempty"`
 }
 
 func (h *Handler) insert(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +78,7 @@ func (h *Handler) insert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp, err := h.svc.Insert(r.Context(), &pb.InsertRequest{Vector: &pb.Vector{
-		Id: body.ID, Values: body.Values, Metadata: body.Metadata,
+		Id: body.ID, Values: body.Values, Metadata: body.Metadata, TenantId: body.TenantID,
 	}})
 	writeResult(w, resp, err)
 }
@@ -67,14 +92,17 @@ func (h *Handler) batchUpsert(w http.ResponseWriter, r *http.Request) {
 	}
 	vectors := make([]*pb.Vector, len(body.Vectors))
 	for i, v := range body.Vectors {
-		vectors[i] = &pb.Vector{Id: v.ID, Values: v.Values, Metadata: v.Metadata}
+		vectors[i] = &pb.Vector{Id: v.ID, Values: v.Values, Metadata: v.Metadata, TenantId: v.TenantID}
 	}
 	resp, err := h.svc.BatchUpsert(r.Context(), &pb.BatchUpsertRequest{Vectors: vectors})
 	writeResult(w, resp, err)
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.svc.Delete(r.Context(), &pb.DeleteRequest{Id: r.PathValue("id")})
+	resp, err := h.svc.Delete(r.Context(), &pb.DeleteRequest{
+		Id:       r.PathValue("id"),
+		TenantId: r.URL.Query().Get("tenant_id"),
+	})
 	writeResult(w, resp, err)
 }
 
@@ -83,6 +111,7 @@ type searchJSON struct {
 	TopK     int32             `json:"top_k"`
 	EfSearch int32             `json:"ef_search,omitempty"`
 	Filters  map[string]string `json:"filters,omitempty"`
+	TenantID string            `json:"tenant_id,omitempty"`
 }
 
 func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +124,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		filters = append(filters, &pb.MetadataFilter{Key: k, Value: v})
 	}
 	resp, err := h.svc.Search(r.Context(), &pb.SearchRequest{
-		Query: body.Query, TopK: body.TopK, EfSearch: body.EfSearch, Filters: filters,
+		Query: body.Query, TopK: body.TopK, EfSearch: body.EfSearch, Filters: filters, TenantId: body.TenantID,
 	})
 	writeResult(w, resp, err)
 }
@@ -123,6 +152,8 @@ func statusCodeFor(err error) int {
 		return http.StatusBadRequest
 	case codes.NotFound:
 		return http.StatusNotFound
+	case codes.ResourceExhausted:
+		return http.StatusTooManyRequests
 	default:
 		return http.StatusInternalServerError
 	}

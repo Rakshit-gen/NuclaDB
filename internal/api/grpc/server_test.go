@@ -17,15 +17,15 @@ import (
 func startTestServer(t *testing.T) pb.NuclaDBClient {
 	t.Helper()
 
-	eng, err := engine.Open(t.TempDir(), hnsw.Config{Dim: 4, M: 16, EfConstruction: 100, Metric: hnsw.L2(), Seed: 1})
+	store, err := engine.OpenStore(t.TempDir(), hnsw.Config{Dim: 4, M: 16, EfConstruction: 100, Metric: hnsw.L2(), Seed: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { eng.Close() })
+	t.Cleanup(func() { store.Close() })
 
 	lis := bufconn.Listen(1024 * 1024)
 	grpcServer := grpc.NewServer()
-	pb.RegisterNuclaDBServer(grpcServer, New(eng, pb.DistanceMetric_DISTANCE_METRIC_L2))
+	pb.RegisterNuclaDBServer(grpcServer, New(store, pb.DistanceMetric_DISTANCE_METRIC_L2))
 	go func() {
 		_ = grpcServer.Serve(lis)
 	}()

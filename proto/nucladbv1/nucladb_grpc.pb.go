@@ -19,10 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NuclaDB_Insert_FullMethodName      = "/nucladb.v1.NuclaDB/Insert"
-	NuclaDB_BatchUpsert_FullMethodName = "/nucladb.v1.NuclaDB/BatchUpsert"
-	NuclaDB_Delete_FullMethodName      = "/nucladb.v1.NuclaDB/Delete"
-	NuclaDB_Search_FullMethodName      = "/nucladb.v1.NuclaDB/Search"
+	NuclaDB_CreateTenant_FullMethodName = "/nucladb.v1.NuclaDB/CreateTenant"
+	NuclaDB_Insert_FullMethodName       = "/nucladb.v1.NuclaDB/Insert"
+	NuclaDB_BatchUpsert_FullMethodName  = "/nucladb.v1.NuclaDB/BatchUpsert"
+	NuclaDB_Delete_FullMethodName       = "/nucladb.v1.NuclaDB/Delete"
+	NuclaDB_Search_FullMethodName       = "/nucladb.v1.NuclaDB/Search"
 )
 
 // NuclaDBClient is the client API for NuclaDB service.
@@ -33,10 +34,17 @@ const (
 // optional metadata payload, then search for the nearest neighbors of a
 // query vector under a chosen distance metric.
 //
+// Every data RPC is tenant-scoped: each tenant_id gets an isolated index
+// (its own graph, WAL, and snapshot files on disk), with an independent
+// storage quota and request-rate limit. An empty tenant_id resolves to a
+// reserved "default" tenant with no quota, so existing single-tenant
+// usage needs no changes.
+//
 // REST is exposed separately via a hand-written gateway in
 // internal/api/gateway rather than google.api.http annotations, to avoid
-// vendoring the full googleapis proto tree for four routes.
+// vendoring the full googleapis proto tree for five routes.
 type NuclaDBClient interface {
+	CreateTenant(ctx context.Context, in *CreateTenantRequest, opts ...grpc.CallOption) (*CreateTenantResponse, error)
 	Insert(ctx context.Context, in *InsertRequest, opts ...grpc.CallOption) (*InsertResponse, error)
 	BatchUpsert(ctx context.Context, in *BatchUpsertRequest, opts ...grpc.CallOption) (*BatchUpsertResponse, error)
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
@@ -49,6 +57,16 @@ type nuclaDBClient struct {
 
 func NewNuclaDBClient(cc grpc.ClientConnInterface) NuclaDBClient {
 	return &nuclaDBClient{cc}
+}
+
+func (c *nuclaDBClient) CreateTenant(ctx context.Context, in *CreateTenantRequest, opts ...grpc.CallOption) (*CreateTenantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateTenantResponse)
+	err := c.cc.Invoke(ctx, NuclaDB_CreateTenant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *nuclaDBClient) Insert(ctx context.Context, in *InsertRequest, opts ...grpc.CallOption) (*InsertResponse, error) {
@@ -99,10 +117,17 @@ func (c *nuclaDBClient) Search(ctx context.Context, in *SearchRequest, opts ...g
 // optional metadata payload, then search for the nearest neighbors of a
 // query vector under a chosen distance metric.
 //
+// Every data RPC is tenant-scoped: each tenant_id gets an isolated index
+// (its own graph, WAL, and snapshot files on disk), with an independent
+// storage quota and request-rate limit. An empty tenant_id resolves to a
+// reserved "default" tenant with no quota, so existing single-tenant
+// usage needs no changes.
+//
 // REST is exposed separately via a hand-written gateway in
 // internal/api/gateway rather than google.api.http annotations, to avoid
-// vendoring the full googleapis proto tree for four routes.
+// vendoring the full googleapis proto tree for five routes.
 type NuclaDBServer interface {
+	CreateTenant(context.Context, *CreateTenantRequest) (*CreateTenantResponse, error)
 	Insert(context.Context, *InsertRequest) (*InsertResponse, error)
 	BatchUpsert(context.Context, *BatchUpsertRequest) (*BatchUpsertResponse, error)
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
@@ -117,6 +142,9 @@ type NuclaDBServer interface {
 // pointer dereference when methods are called.
 type UnimplementedNuclaDBServer struct{}
 
+func (UnimplementedNuclaDBServer) CreateTenant(context.Context, *CreateTenantRequest) (*CreateTenantResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateTenant not implemented")
+}
 func (UnimplementedNuclaDBServer) Insert(context.Context, *InsertRequest) (*InsertResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Insert not implemented")
 }
@@ -148,6 +176,24 @@ func RegisterNuclaDBServer(s grpc.ServiceRegistrar, srv NuclaDBServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&NuclaDB_ServiceDesc, srv)
+}
+
+func _NuclaDB_CreateTenant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateTenantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NuclaDBServer).CreateTenant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NuclaDB_CreateTenant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NuclaDBServer).CreateTenant(ctx, req.(*CreateTenantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _NuclaDB_Insert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -229,6 +275,10 @@ var NuclaDB_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "nucladb.v1.NuclaDB",
 	HandlerType: (*NuclaDBServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateTenant",
+			Handler:    _NuclaDB_CreateTenant_Handler,
+		},
 		{
 			MethodName: "Insert",
 			Handler:    _NuclaDB_Insert_Handler,

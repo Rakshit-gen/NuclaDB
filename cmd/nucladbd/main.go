@@ -20,8 +20,8 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	grpcapi "github.com/Rakshit-gen/nucladb/internal/api/grpc"
 	"github.com/Rakshit-gen/nucladb/internal/api/gateway"
+	grpcapi "github.com/Rakshit-gen/nucladb/internal/api/grpc"
 	"github.com/Rakshit-gen/nucladb/internal/engine"
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
 	pb "github.com/Rakshit-gen/nucladb/proto/nucladbv1"
@@ -45,18 +45,18 @@ func main() {
 		log.Fatalf("nucladbd: %v", err)
 	}
 
-	eng, err := engine.Open(*dataDir, hnsw.Config{
+	store, err := engine.OpenStore(*dataDir, hnsw.Config{
 		Dim:            *dim,
 		M:              *m,
 		EfConstruction: *efConstruction,
 		Metric:         hnswMetric,
 	})
 	if err != nil {
-		log.Fatalf("nucladbd: opening engine at %s: %v", *dataDir, err)
+		log.Fatalf("nucladbd: opening store at %s: %v", *dataDir, err)
 	}
-	log.Printf("nucladbd: opened %s (%d vectors, dim=%d, metric=%s)", *dataDir, eng.Len(), *dim, *metric)
+	log.Printf("nucladbd: opened %s (dim=%d, metric=%s)", *dataDir, *dim, *metric)
 
-	svc := grpcapi.New(eng, pbMetric)
+	svc := grpcapi.New(store, pbMetric)
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterNuclaDBServer(grpcServer, svc)
@@ -87,7 +87,7 @@ func main() {
 	}()
 
 	stopSnapshots := make(chan struct{})
-	go periodicSnapshot(eng, *snapshotEvery, stopSnapshots)
+	go periodicSnapshot(store, *snapshotEvery, stopSnapshots)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -101,22 +101,22 @@ func main() {
 	defer cancel()
 	_ = httpServer.Shutdown(ctx)
 
-	if err := eng.Close(); err != nil {
+	if err := store.Close(); err != nil {
 		log.Fatalf("nucladbd: final snapshot on shutdown failed: %v", err)
 	}
 	log.Println("nucladbd: clean shutdown, final snapshot written")
 }
 
-func periodicSnapshot(eng *engine.Engine, interval time.Duration, stop <-chan struct{}) {
+func periodicSnapshot(store *engine.Store, interval time.Duration, stop <-chan struct{}) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			if err := eng.Snapshot(); err != nil {
+			if err := store.Snapshot(); err != nil {
 				log.Printf("nucladbd: periodic snapshot failed: %v", err)
 			} else {
-				log.Printf("nucladbd: snapshot written (%d vectors)", eng.Len())
+				log.Printf("nucladbd: snapshot written")
 			}
 		case <-stop:
 			return

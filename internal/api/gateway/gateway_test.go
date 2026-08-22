@@ -14,12 +14,12 @@ import (
 
 func newTestHandler(t *testing.T) *Handler {
 	t.Helper()
-	eng, err := engine.Open(t.TempDir(), hnsw.Config{Dim: 4, M: 16, EfConstruction: 100, Metric: hnsw.L2(), Seed: 1})
+	store, err := engine.OpenStore(t.TempDir(), hnsw.Config{Dim: 4, M: 16, EfConstruction: 100, Metric: hnsw.L2(), Seed: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { eng.Close() })
-	return New(grpcapi.New(eng, pb.DistanceMetric_DISTANCE_METRIC_L2))
+	t.Cleanup(func() { store.Close() })
+	return New(grpcapi.New(store, pb.DistanceMetric_DISTANCE_METRIC_L2))
 }
 
 func doJSON(t *testing.T, h *Handler, method, path string, body any) (int, map[string]any) {

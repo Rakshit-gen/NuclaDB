@@ -1,5 +1,5 @@
 // Package grpc implements the NuclaDB gRPC service by translating protobuf
-// requests into calls on internal/engine.Engine. IDs are exchanged as
+// requests into calls on internal/engine.Store. IDs are exchanged as
 // decimal strings over the wire (matching common vector-DB client
 // ergonomics) but stored internally as uint64, since the HNSW graph keys
 // nodes by uint64 for compact adjacency-list storage.
@@ -17,23 +17,26 @@ import (
 	pb "github.com/Rakshit-gen/nucladb/proto/nucladbv1"
 )
 
-// Server implements pb.NuclaDBServer over a single Engine.
+// Server implements pb.NuclaDBServer over a tenant-isolated Store. Every
+// data RPC's tenant_id is passed straight through to the Store, which
+// resolves an empty tenant_id to engine.DefaultTenant.
 //
-// metric is the distance metric the underlying graph was built with. HNSW
+// metric is the distance metric every tenant's graph was built with. HNSW
 // bakes its metric into which neighbors get linked at construction time,
 // so search can't switch metrics per-query the way a brute-force scan
 // could — a SearchRequest.metric that disagrees with it is rejected rather
 // than silently ignored.
 type Server struct {
 	pb.UnimplementedNuclaDBServer
-	engine *engine.Engine
+	store  *engine.Store
 	metric pb.DistanceMetric
 }
 
-// New wraps eng as a gRPC service, validating incoming search requests
-// against metric (the metric the graph was actually configured with).
-func New(eng *engine.Engine, metric pb.DistanceMetric) *Server {
-	return &Server{engine: eng, metric: metric}
+// New wraps store as a gRPC service, validating incoming search requests
+// against metric (the metric every tenant's graph was actually configured
+// with).
+func New(store *engine.Store, metric pb.DistanceMetric) *Server {
+	return &Server{store: store, metric: metric}
 }
 
 func parseID(s string) (uint64, error) {
@@ -42,6 +45,21 @@ func parseID(s string) (uint64, error) {
 		return 0, status.Errorf(codes.InvalidArgument, "id must be a decimal uint64, got %q", s)
 	}
 	return id, nil
+}
+
+func (s *Server) CreateTenant(ctx context.Context, req *pb.CreateTenantRequest) (*pb.CreateTenantResponse, error) {
+	if req.GetTenantId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	q := req.GetQuota()
+	err := s.store.CreateTenant(req.GetTenantId(), engine.Quota{
+		MaxVectors: q.GetMaxVectors(),
+		MaxQPS:     q.GetMaxQps(),
+	})
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &pb.CreateTenantResponse{}, nil
 }
 
 func (s *Server) Insert(ctx context.Context, req *pb.InsertRequest) (*pb.InsertResponse, error) {
@@ -53,7 +71,7 @@ func (s *Server) Insert(ctx context.Context, req *pb.InsertRequest) (*pb.InsertR
 	if err != nil {
 		return nil, err
 	}
-	if err := s.engine.Insert(id, v.GetValues(), v.GetMetadata()); err != nil {
+	if err := s.store.Insert(v.GetTenantId(), id, v.GetValues(), v.GetMetadata()); err != nil {
 		return nil, toStatus(err)
 	}
 	return &pb.InsertResponse{Id: v.GetId()}, nil
@@ -66,7 +84,7 @@ func (s *Server) BatchUpsert(ctx context.Context, req *pb.BatchUpsertRequest) (*
 		if err != nil {
 			return nil, err
 		}
-		if err := s.engine.Insert(id, v.GetValues(), v.GetMetadata()); err != nil {
+		if err := s.store.Insert(v.GetTenantId(), id, v.GetValues(), v.GetMetadata()); err != nil {
 			return nil, toStatus(err)
 		}
 		n++
@@ -79,7 +97,7 @@ func (s *Server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteR
 	if err != nil {
 		return nil, err
 	}
-	if err := s.engine.Delete(id); err != nil {
+	if err := s.store.Delete(req.GetTenantId(), id); err != nil {
 		return nil, toStatus(err)
 	}
 	return &pb.DeleteResponse{Deleted: true}, nil
@@ -102,7 +120,7 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 		filters[f.GetKey()] = f.GetValue()
 	}
 
-	results, err := s.engine.Search(req.GetQuery(), topK, ef, filters)
+	results, err := s.store.Search(req.GetTenantId(), req.GetQuery(), topK, ef, filters)
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -118,15 +136,23 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 	return &pb.SearchResponse{Matches: matches}, nil
 }
 
-// toStatus classifies engine errors for the client: dimension mismatches
-// and unknown-id errors are the caller's fault (InvalidArgument); anything
-// else is treated as an internal error.
+// toStatus classifies engine/store errors for the client: dimension
+// mismatches, unknown-tenant/id errors, and quota/rate-limit rejections
+// are the caller's fault; anything else is treated as an internal error.
 func toStatus(err error) error {
 	if err == nil {
 		return nil
 	}
 	if status.Code(err) != codes.Unknown {
 		return err
+	}
+	switch err {
+	case engine.ErrTenantNotFound:
+		return status.Error(codes.NotFound, err.Error())
+	case engine.ErrTenantExists, engine.ErrInvalidTenantID:
+		return status.Error(codes.InvalidArgument, err.Error())
+	case engine.ErrQuotaExceeded, engine.ErrRateLimited:
+		return status.Error(codes.ResourceExhausted, err.Error())
 	}
 	msg := err.Error()
 	if strings.Contains(msg, "dimension mismatch") || strings.Contains(msg, "not found") {

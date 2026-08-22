@@ -47,7 +47,7 @@ type Record struct {
 	Op     Op
 	ID     uint64
 	Vector []float32 // nil for OpDelete
-	Extra  []byte     // opaque caller payload, e.g. JSON metadata; nil if none
+	Extra  []byte    // opaque caller payload, e.g. JSON metadata; nil if none
 }
 
 // ErrCorruptTail is returned internally during replay when the log ends in

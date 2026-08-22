@@ -8,10 +8,17 @@ option go_package = "github.com/Rakshit-gen/nucladb/proto/nucladbv1";
 // optional metadata payload, then search for the nearest neighbors of a
 // query vector under a chosen distance metric.
 //
+// Every data RPC is tenant-scoped: each tenant_id gets an isolated index
+// (its own graph, WAL, and snapshot files on disk), with an independent
+// storage quota and request-rate limit. An empty tenant_id resolves to a
+// reserved "default" tenant with no quota, so existing single-tenant
+// usage needs no changes.
+//
 // REST is exposed separately via a hand-written gateway in
 // internal/api/gateway rather than google.api.http annotations, to avoid
-// vendoring the full googleapis proto tree for four routes.
+// vendoring the full googleapis proto tree for five routes.
 service NuclaDB {
+  rpc CreateTenant(CreateTenantRequest) returns (CreateTenantResponse);
   rpc Insert(InsertRequest) returns (InsertResponse);
   rpc BatchUpsert(BatchUpsertRequest) returns (BatchUpsertResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
@@ -25,10 +32,25 @@ enum DistanceMetric {
   DISTANCE_METRIC_DOT = 3;
 }
 
+// TenantQuota bounds one tenant's resource usage. A zero value for either
+// field means unlimited.
+message TenantQuota {
+  int64 max_vectors = 1;
+  double max_qps = 2;
+}
+
+message CreateTenantRequest {
+  string tenant_id = 1;
+  TenantQuota quota = 2;
+}
+
+message CreateTenantResponse {}
+
 message Vector {
   string id = 1;
   repeated float values = 2;
   map<string, string> metadata = 3;
+  string tenant_id = 4;
 }
 
 message InsertRequest {
@@ -49,6 +71,7 @@ message BatchUpsertResponse {
 
 message DeleteRequest {
   string id = 1;
+  string tenant_id = 2;
 }
 
 message DeleteResponse {
@@ -66,6 +89,7 @@ message SearchRequest {
   DistanceMetric metric = 3;
   int32 ef_search = 4;
   repeated MetadataFilter filters = 5;
+  string tenant_id = 6;
 }
 
 message ScoredVector {

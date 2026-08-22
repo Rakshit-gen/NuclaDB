@@ -73,18 +73,161 @@ func (DistanceMetric) EnumDescriptor() ([]byte, []int) {
 	return file_proto_nucladb_proto_rawDescGZIP(), []int{0}
 }
 
+// TenantQuota bounds one tenant's resource usage. A zero value for either
+// field means unlimited.
+type TenantQuota struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MaxVectors    int64                  `protobuf:"varint,1,opt,name=max_vectors,json=maxVectors,proto3" json:"max_vectors,omitempty"`
+	MaxQps        float64                `protobuf:"fixed64,2,opt,name=max_qps,json=maxQps,proto3" json:"max_qps,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TenantQuota) Reset() {
+	*x = TenantQuota{}
+	mi := &file_proto_nucladb_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TenantQuota) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TenantQuota) ProtoMessage() {}
+
+func (x *TenantQuota) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TenantQuota.ProtoReflect.Descriptor instead.
+func (*TenantQuota) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *TenantQuota) GetMaxVectors() int64 {
+	if x != nil {
+		return x.MaxVectors
+	}
+	return 0
+}
+
+func (x *TenantQuota) GetMaxQps() float64 {
+	if x != nil {
+		return x.MaxQps
+	}
+	return 0
+}
+
+type CreateTenantRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Quota         *TenantQuota           `protobuf:"bytes,2,opt,name=quota,proto3" json:"quota,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateTenantRequest) Reset() {
+	*x = CreateTenantRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateTenantRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateTenantRequest) ProtoMessage() {}
+
+func (x *CreateTenantRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateTenantRequest.ProtoReflect.Descriptor instead.
+func (*CreateTenantRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CreateTenantRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *CreateTenantRequest) GetQuota() *TenantQuota {
+	if x != nil {
+		return x.Quota
+	}
+	return nil
+}
+
+type CreateTenantResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateTenantResponse) Reset() {
+	*x = CreateTenantResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateTenantResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateTenantResponse) ProtoMessage() {}
+
+func (x *CreateTenantResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateTenantResponse.ProtoReflect.Descriptor instead.
+func (*CreateTenantResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{2}
+}
+
 type Vector struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Values        []float32              `protobuf:"fixed32,2,rep,packed,name=values,proto3" json:"values,omitempty"`
 	Metadata      map[string]string      `protobuf:"bytes,3,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	TenantId      string                 `protobuf:"bytes,4,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Vector) Reset() {
 	*x = Vector{}
-	mi := &file_proto_nucladb_proto_msgTypes[0]
+	mi := &file_proto_nucladb_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -96,7 +239,7 @@ func (x *Vector) String() string {
 func (*Vector) ProtoMessage() {}
 
 func (x *Vector) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[0]
+	mi := &file_proto_nucladb_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -109,7 +252,7 @@ func (x *Vector) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Vector.ProtoReflect.Descriptor instead.
 func (*Vector) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{0}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Vector) GetId() string {
@@ -133,6 +276,13 @@ func (x *Vector) GetMetadata() map[string]string {
 	return nil
 }
 
+func (x *Vector) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
 type InsertRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Vector        *Vector                `protobuf:"bytes,1,opt,name=vector,proto3" json:"vector,omitempty"`
@@ -142,7 +292,7 @@ type InsertRequest struct {
 
 func (x *InsertRequest) Reset() {
 	*x = InsertRequest{}
-	mi := &file_proto_nucladb_proto_msgTypes[1]
+	mi := &file_proto_nucladb_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -154,7 +304,7 @@ func (x *InsertRequest) String() string {
 func (*InsertRequest) ProtoMessage() {}
 
 func (x *InsertRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[1]
+	mi := &file_proto_nucladb_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -167,7 +317,7 @@ func (x *InsertRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InsertRequest.ProtoReflect.Descriptor instead.
 func (*InsertRequest) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{1}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *InsertRequest) GetVector() *Vector {
@@ -186,7 +336,7 @@ type InsertResponse struct {
 
 func (x *InsertResponse) Reset() {
 	*x = InsertResponse{}
-	mi := &file_proto_nucladb_proto_msgTypes[2]
+	mi := &file_proto_nucladb_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -198,7 +348,7 @@ func (x *InsertResponse) String() string {
 func (*InsertResponse) ProtoMessage() {}
 
 func (x *InsertResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[2]
+	mi := &file_proto_nucladb_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -211,7 +361,7 @@ func (x *InsertResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InsertResponse.ProtoReflect.Descriptor instead.
 func (*InsertResponse) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{2}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *InsertResponse) GetId() string {
@@ -230,7 +380,7 @@ type BatchUpsertRequest struct {
 
 func (x *BatchUpsertRequest) Reset() {
 	*x = BatchUpsertRequest{}
-	mi := &file_proto_nucladb_proto_msgTypes[3]
+	mi := &file_proto_nucladb_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -242,7 +392,7 @@ func (x *BatchUpsertRequest) String() string {
 func (*BatchUpsertRequest) ProtoMessage() {}
 
 func (x *BatchUpsertRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[3]
+	mi := &file_proto_nucladb_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -255,7 +405,7 @@ func (x *BatchUpsertRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchUpsertRequest.ProtoReflect.Descriptor instead.
 func (*BatchUpsertRequest) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{3}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *BatchUpsertRequest) GetVectors() []*Vector {
@@ -274,7 +424,7 @@ type BatchUpsertResponse struct {
 
 func (x *BatchUpsertResponse) Reset() {
 	*x = BatchUpsertResponse{}
-	mi := &file_proto_nucladb_proto_msgTypes[4]
+	mi := &file_proto_nucladb_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -286,7 +436,7 @@ func (x *BatchUpsertResponse) String() string {
 func (*BatchUpsertResponse) ProtoMessage() {}
 
 func (x *BatchUpsertResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[4]
+	mi := &file_proto_nucladb_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -299,7 +449,7 @@ func (x *BatchUpsertResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchUpsertResponse.ProtoReflect.Descriptor instead.
 func (*BatchUpsertResponse) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{4}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *BatchUpsertResponse) GetUpserted() int64 {
@@ -312,13 +462,14 @@ func (x *BatchUpsertResponse) GetUpserted() int64 {
 type DeleteRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	TenantId      string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeleteRequest) Reset() {
 	*x = DeleteRequest{}
-	mi := &file_proto_nucladb_proto_msgTypes[5]
+	mi := &file_proto_nucladb_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -330,7 +481,7 @@ func (x *DeleteRequest) String() string {
 func (*DeleteRequest) ProtoMessage() {}
 
 func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[5]
+	mi := &file_proto_nucladb_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -343,12 +494,19 @@ func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRequest) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{5}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DeleteRequest) GetId() string {
 	if x != nil {
 		return x.Id
+	}
+	return ""
+}
+
+func (x *DeleteRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
 	}
 	return ""
 }
@@ -362,7 +520,7 @@ type DeleteResponse struct {
 
 func (x *DeleteResponse) Reset() {
 	*x = DeleteResponse{}
-	mi := &file_proto_nucladb_proto_msgTypes[6]
+	mi := &file_proto_nucladb_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -374,7 +532,7 @@ func (x *DeleteResponse) String() string {
 func (*DeleteResponse) ProtoMessage() {}
 
 func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[6]
+	mi := &file_proto_nucladb_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -387,7 +545,7 @@ func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteResponse.ProtoReflect.Descriptor instead.
 func (*DeleteResponse) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{6}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DeleteResponse) GetDeleted() bool {
@@ -407,7 +565,7 @@ type MetadataFilter struct {
 
 func (x *MetadataFilter) Reset() {
 	*x = MetadataFilter{}
-	mi := &file_proto_nucladb_proto_msgTypes[7]
+	mi := &file_proto_nucladb_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -419,7 +577,7 @@ func (x *MetadataFilter) String() string {
 func (*MetadataFilter) ProtoMessage() {}
 
 func (x *MetadataFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[7]
+	mi := &file_proto_nucladb_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -432,7 +590,7 @@ func (x *MetadataFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetadataFilter.ProtoReflect.Descriptor instead.
 func (*MetadataFilter) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{7}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *MetadataFilter) GetKey() string {
@@ -456,13 +614,14 @@ type SearchRequest struct {
 	Metric        DistanceMetric         `protobuf:"varint,3,opt,name=metric,proto3,enum=nucladb.v1.DistanceMetric" json:"metric,omitempty"`
 	EfSearch      int32                  `protobuf:"varint,4,opt,name=ef_search,json=efSearch,proto3" json:"ef_search,omitempty"`
 	Filters       []*MetadataFilter      `protobuf:"bytes,5,rep,name=filters,proto3" json:"filters,omitempty"`
+	TenantId      string                 `protobuf:"bytes,6,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SearchRequest) Reset() {
 	*x = SearchRequest{}
-	mi := &file_proto_nucladb_proto_msgTypes[8]
+	mi := &file_proto_nucladb_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -474,7 +633,7 @@ func (x *SearchRequest) String() string {
 func (*SearchRequest) ProtoMessage() {}
 
 func (x *SearchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[8]
+	mi := &file_proto_nucladb_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -487,7 +646,7 @@ func (x *SearchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchRequest.ProtoReflect.Descriptor instead.
 func (*SearchRequest) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{8}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SearchRequest) GetQuery() []float32 {
@@ -525,6 +684,13 @@ func (x *SearchRequest) GetFilters() []*MetadataFilter {
 	return nil
 }
 
+func (x *SearchRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
 type ScoredVector struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -536,7 +702,7 @@ type ScoredVector struct {
 
 func (x *ScoredVector) Reset() {
 	*x = ScoredVector{}
-	mi := &file_proto_nucladb_proto_msgTypes[9]
+	mi := &file_proto_nucladb_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -548,7 +714,7 @@ func (x *ScoredVector) String() string {
 func (*ScoredVector) ProtoMessage() {}
 
 func (x *ScoredVector) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[9]
+	mi := &file_proto_nucladb_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -561,7 +727,7 @@ func (x *ScoredVector) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScoredVector.ProtoReflect.Descriptor instead.
 func (*ScoredVector) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{9}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ScoredVector) GetId() string {
@@ -594,7 +760,7 @@ type SearchResponse struct {
 
 func (x *SearchResponse) Reset() {
 	*x = SearchResponse{}
-	mi := &file_proto_nucladb_proto_msgTypes[10]
+	mi := &file_proto_nucladb_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -606,7 +772,7 @@ func (x *SearchResponse) String() string {
 func (*SearchResponse) ProtoMessage() {}
 
 func (x *SearchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nucladb_proto_msgTypes[10]
+	mi := &file_proto_nucladb_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -619,7 +785,7 @@ func (x *SearchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchResponse.ProtoReflect.Descriptor instead.
 func (*SearchResponse) Descriptor() ([]byte, []int) {
-	return file_proto_nucladb_proto_rawDescGZIP(), []int{10}
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *SearchResponse) GetMatches() []*ScoredVector {
@@ -634,11 +800,20 @@ var File_proto_nucladb_proto protoreflect.FileDescriptor
 const file_proto_nucladb_proto_rawDesc = "" +
 	"\n" +
 	"\x13proto/nucladb.proto\x12\n" +
-	"nucladb.v1\"\xab\x01\n" +
+	"nucladb.v1\"G\n" +
+	"\vTenantQuota\x12\x1f\n" +
+	"\vmax_vectors\x18\x01 \x01(\x03R\n" +
+	"maxVectors\x12\x17\n" +
+	"\amax_qps\x18\x02 \x01(\x01R\x06maxQps\"a\n" +
+	"\x13CreateTenantRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12-\n" +
+	"\x05quota\x18\x02 \x01(\v2\x17.nucladb.v1.TenantQuotaR\x05quota\"\x16\n" +
+	"\x14CreateTenantResponse\"\xc8\x01\n" +
 	"\x06Vector\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06values\x18\x02 \x03(\x02R\x06values\x12<\n" +
-	"\bmetadata\x18\x03 \x03(\v2 .nucladb.v1.Vector.MetadataEntryR\bmetadata\x1a;\n" +
+	"\bmetadata\x18\x03 \x03(\v2 .nucladb.v1.Vector.MetadataEntryR\bmetadata\x12\x1b\n" +
+	"\ttenant_id\x18\x04 \x01(\tR\btenantId\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\";\n" +
@@ -649,20 +824,22 @@ const file_proto_nucladb_proto_rawDesc = "" +
 	"\x12BatchUpsertRequest\x12,\n" +
 	"\avectors\x18\x01 \x03(\v2\x12.nucladb.v1.VectorR\avectors\"1\n" +
 	"\x13BatchUpsertResponse\x12\x1a\n" +
-	"\bupserted\x18\x01 \x01(\x03R\bupserted\"\x1f\n" +
+	"\bupserted\x18\x01 \x01(\x03R\bupserted\"<\n" +
 	"\rDeleteRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"*\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
+	"\ttenant_id\x18\x02 \x01(\tR\btenantId\"*\n" +
 	"\x0eDeleteResponse\x12\x18\n" +
 	"\adeleted\x18\x01 \x01(\bR\adeleted\"8\n" +
 	"\x0eMetadataFilter\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"\xc1\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\xde\x01\n" +
 	"\rSearchRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x03(\x02R\x05query\x12\x13\n" +
 	"\x05top_k\x18\x02 \x01(\x05R\x04topK\x122\n" +
 	"\x06metric\x18\x03 \x01(\x0e2\x1a.nucladb.v1.DistanceMetricR\x06metric\x12\x1b\n" +
 	"\tef_search\x18\x04 \x01(\x05R\befSearch\x124\n" +
-	"\afilters\x18\x05 \x03(\v2\x1a.nucladb.v1.MetadataFilterR\afilters\"\xb5\x01\n" +
+	"\afilters\x18\x05 \x03(\v2\x1a.nucladb.v1.MetadataFilterR\afilters\x12\x1b\n" +
+	"\ttenant_id\x18\x06 \x01(\tR\btenantId\"\xb5\x01\n" +
 	"\fScoredVector\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05score\x18\x02 \x01(\x02R\x05score\x12B\n" +
@@ -676,8 +853,9 @@ const file_proto_nucladb_proto_rawDesc = "" +
 	"\x1bDISTANCE_METRIC_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16DISTANCE_METRIC_COSINE\x10\x01\x12\x16\n" +
 	"\x12DISTANCE_METRIC_L2\x10\x02\x12\x17\n" +
-	"\x13DISTANCE_METRIC_DOT\x10\x032\x9c\x02\n" +
-	"\aNuclaDB\x12?\n" +
+	"\x13DISTANCE_METRIC_DOT\x10\x032\xef\x02\n" +
+	"\aNuclaDB\x12Q\n" +
+	"\fCreateTenant\x12\x1f.nucladb.v1.CreateTenantRequest\x1a .nucladb.v1.CreateTenantResponse\x12?\n" +
 	"\x06Insert\x12\x19.nucladb.v1.InsertRequest\x1a\x1a.nucladb.v1.InsertResponse\x12N\n" +
 	"\vBatchUpsert\x12\x1e.nucladb.v1.BatchUpsertRequest\x1a\x1f.nucladb.v1.BatchUpsertResponse\x12?\n" +
 	"\x06Delete\x12\x19.nucladb.v1.DeleteRequest\x1a\x1a.nucladb.v1.DeleteResponse\x12?\n" +
@@ -696,44 +874,50 @@ func file_proto_nucladb_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_nucladb_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_nucladb_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_proto_nucladb_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_proto_nucladb_proto_goTypes = []any{
-	(DistanceMetric)(0),         // 0: nucladb.v1.DistanceMetric
-	(*Vector)(nil),              // 1: nucladb.v1.Vector
-	(*InsertRequest)(nil),       // 2: nucladb.v1.InsertRequest
-	(*InsertResponse)(nil),      // 3: nucladb.v1.InsertResponse
-	(*BatchUpsertRequest)(nil),  // 4: nucladb.v1.BatchUpsertRequest
-	(*BatchUpsertResponse)(nil), // 5: nucladb.v1.BatchUpsertResponse
-	(*DeleteRequest)(nil),       // 6: nucladb.v1.DeleteRequest
-	(*DeleteResponse)(nil),      // 7: nucladb.v1.DeleteResponse
-	(*MetadataFilter)(nil),      // 8: nucladb.v1.MetadataFilter
-	(*SearchRequest)(nil),       // 9: nucladb.v1.SearchRequest
-	(*ScoredVector)(nil),        // 10: nucladb.v1.ScoredVector
-	(*SearchResponse)(nil),      // 11: nucladb.v1.SearchResponse
-	nil,                         // 12: nucladb.v1.Vector.MetadataEntry
-	nil,                         // 13: nucladb.v1.ScoredVector.MetadataEntry
+	(DistanceMetric)(0),          // 0: nucladb.v1.DistanceMetric
+	(*TenantQuota)(nil),          // 1: nucladb.v1.TenantQuota
+	(*CreateTenantRequest)(nil),  // 2: nucladb.v1.CreateTenantRequest
+	(*CreateTenantResponse)(nil), // 3: nucladb.v1.CreateTenantResponse
+	(*Vector)(nil),               // 4: nucladb.v1.Vector
+	(*InsertRequest)(nil),        // 5: nucladb.v1.InsertRequest
+	(*InsertResponse)(nil),       // 6: nucladb.v1.InsertResponse
+	(*BatchUpsertRequest)(nil),   // 7: nucladb.v1.BatchUpsertRequest
+	(*BatchUpsertResponse)(nil),  // 8: nucladb.v1.BatchUpsertResponse
+	(*DeleteRequest)(nil),        // 9: nucladb.v1.DeleteRequest
+	(*DeleteResponse)(nil),       // 10: nucladb.v1.DeleteResponse
+	(*MetadataFilter)(nil),       // 11: nucladb.v1.MetadataFilter
+	(*SearchRequest)(nil),        // 12: nucladb.v1.SearchRequest
+	(*ScoredVector)(nil),         // 13: nucladb.v1.ScoredVector
+	(*SearchResponse)(nil),       // 14: nucladb.v1.SearchResponse
+	nil,                          // 15: nucladb.v1.Vector.MetadataEntry
+	nil,                          // 16: nucladb.v1.ScoredVector.MetadataEntry
 }
 var file_proto_nucladb_proto_depIdxs = []int32{
-	12, // 0: nucladb.v1.Vector.metadata:type_name -> nucladb.v1.Vector.MetadataEntry
-	1,  // 1: nucladb.v1.InsertRequest.vector:type_name -> nucladb.v1.Vector
-	1,  // 2: nucladb.v1.BatchUpsertRequest.vectors:type_name -> nucladb.v1.Vector
-	0,  // 3: nucladb.v1.SearchRequest.metric:type_name -> nucladb.v1.DistanceMetric
-	8,  // 4: nucladb.v1.SearchRequest.filters:type_name -> nucladb.v1.MetadataFilter
-	13, // 5: nucladb.v1.ScoredVector.metadata:type_name -> nucladb.v1.ScoredVector.MetadataEntry
-	10, // 6: nucladb.v1.SearchResponse.matches:type_name -> nucladb.v1.ScoredVector
-	2,  // 7: nucladb.v1.NuclaDB.Insert:input_type -> nucladb.v1.InsertRequest
-	4,  // 8: nucladb.v1.NuclaDB.BatchUpsert:input_type -> nucladb.v1.BatchUpsertRequest
-	6,  // 9: nucladb.v1.NuclaDB.Delete:input_type -> nucladb.v1.DeleteRequest
-	9,  // 10: nucladb.v1.NuclaDB.Search:input_type -> nucladb.v1.SearchRequest
-	3,  // 11: nucladb.v1.NuclaDB.Insert:output_type -> nucladb.v1.InsertResponse
-	5,  // 12: nucladb.v1.NuclaDB.BatchUpsert:output_type -> nucladb.v1.BatchUpsertResponse
-	7,  // 13: nucladb.v1.NuclaDB.Delete:output_type -> nucladb.v1.DeleteResponse
-	11, // 14: nucladb.v1.NuclaDB.Search:output_type -> nucladb.v1.SearchResponse
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	1,  // 0: nucladb.v1.CreateTenantRequest.quota:type_name -> nucladb.v1.TenantQuota
+	15, // 1: nucladb.v1.Vector.metadata:type_name -> nucladb.v1.Vector.MetadataEntry
+	4,  // 2: nucladb.v1.InsertRequest.vector:type_name -> nucladb.v1.Vector
+	4,  // 3: nucladb.v1.BatchUpsertRequest.vectors:type_name -> nucladb.v1.Vector
+	0,  // 4: nucladb.v1.SearchRequest.metric:type_name -> nucladb.v1.DistanceMetric
+	11, // 5: nucladb.v1.SearchRequest.filters:type_name -> nucladb.v1.MetadataFilter
+	16, // 6: nucladb.v1.ScoredVector.metadata:type_name -> nucladb.v1.ScoredVector.MetadataEntry
+	13, // 7: nucladb.v1.SearchResponse.matches:type_name -> nucladb.v1.ScoredVector
+	2,  // 8: nucladb.v1.NuclaDB.CreateTenant:input_type -> nucladb.v1.CreateTenantRequest
+	5,  // 9: nucladb.v1.NuclaDB.Insert:input_type -> nucladb.v1.InsertRequest
+	7,  // 10: nucladb.v1.NuclaDB.BatchUpsert:input_type -> nucladb.v1.BatchUpsertRequest
+	9,  // 11: nucladb.v1.NuclaDB.Delete:input_type -> nucladb.v1.DeleteRequest
+	12, // 12: nucladb.v1.NuclaDB.Search:input_type -> nucladb.v1.SearchRequest
+	3,  // 13: nucladb.v1.NuclaDB.CreateTenant:output_type -> nucladb.v1.CreateTenantResponse
+	6,  // 14: nucladb.v1.NuclaDB.Insert:output_type -> nucladb.v1.InsertResponse
+	8,  // 15: nucladb.v1.NuclaDB.BatchUpsert:output_type -> nucladb.v1.BatchUpsertResponse
+	10, // 16: nucladb.v1.NuclaDB.Delete:output_type -> nucladb.v1.DeleteResponse
+	14, // 17: nucladb.v1.NuclaDB.Search:output_type -> nucladb.v1.SearchResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_proto_nucladb_proto_init() }
@@ -747,7 +931,7 @@ func file_proto_nucladb_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_nucladb_proto_rawDesc), len(file_proto_nucladb_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

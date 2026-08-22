@@ -38,6 +38,8 @@ func main() {
 
 	var err error
 	switch cmd {
+	case "create-tenant":
+		err = runCreateTenant(addr, args)
 	case "insert":
 		err = runInsert(addr, args)
 	case "batch-upsert":
@@ -70,11 +72,16 @@ Usage:
   nucladb-cli <command> [flags]
 
 Commands:
+  create-tenant  Provision a new tenant with an optional storage/rate quota
   insert         Insert or update a single vector
   batch-upsert   Insert or update many vectors from a JSON file
   search         Find the nearest neighbors of a query vector
   delete         Delete a vector by id
   ping           Check that the server is reachable
+
+All data commands accept -tenant to scope the operation to a tenant other
+than the reserved "default" one; tenants are fully isolated from each
+other (separate index, separate storage/rate quota).
 
 Environment:
   NUCLADB_ADDR   Server address (default localhost:9090)
@@ -128,10 +135,42 @@ func (k *kvFlags) Set(v string) error {
 	return nil
 }
 
+func runCreateTenant(addr string, args []string) error {
+	fs := flag.NewFlagSet("create-tenant", flag.ExitOnError)
+	id := fs.String("id", "", "tenant id (required)")
+	maxVectors := fs.Int64("max-vectors", 0, "storage quota: max vectors this tenant may hold (0 = unlimited)")
+	maxQPS := fs.Float64("max-qps", 0, "rate limit: max requests/sec for this tenant (0 = unlimited)")
+	fs.Parse(args)
+
+	if *id == "" {
+		return fmt.Errorf("create-tenant: -id is required")
+	}
+
+	conn, err := dial(addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	client := pb.NewNuclaDBClient(conn)
+
+	ctx, cancel := ctxWithTimeout()
+	defer cancel()
+	_, err = client.CreateTenant(ctx, &pb.CreateTenantRequest{
+		TenantId: *id,
+		Quota:    &pb.TenantQuota{MaxVectors: *maxVectors, MaxQps: *maxQPS},
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("created tenant %q\n", *id)
+	return nil
+}
+
 func runInsert(addr string, args []string) error {
 	fs := flag.NewFlagSet("insert", flag.ExitOnError)
 	id := fs.String("id", "", "vector id (decimal uint64, required)")
 	vec := fs.String("vector", "", "comma-separated float32 values, e.g. 0.1,0.2,0.3 (required)")
+	tenant := fs.String("tenant", "", "tenant id (default: the reserved \"default\" tenant)")
 	var meta kvFlags
 	fs.Var(&meta, "meta", "metadata key=value pair; repeatable")
 	fs.Parse(args)
@@ -154,7 +193,7 @@ func runInsert(addr string, args []string) error {
 	ctx, cancel := ctxWithTimeout()
 	defer cancel()
 	resp, err := client.Insert(ctx, &pb.InsertRequest{Vector: &pb.Vector{
-		Id: *id, Values: values, Metadata: parseKV(meta),
+		Id: *id, Values: values, Metadata: parseKV(meta), TenantId: *tenant,
 	}})
 	if err != nil {
 		return err
@@ -166,6 +205,7 @@ func runInsert(addr string, args []string) error {
 func runBatchUpsert(addr string, args []string) error {
 	fs := flag.NewFlagSet("batch-upsert", flag.ExitOnError)
 	file := fs.String("file", "", `path to a JSON file: [{"id":"1","values":[0.1,0.2],"metadata":{"k":"v"}}, ...] (required)`)
+	tenant := fs.String("tenant", "", "tenant id applied to every item that doesn't set its own \"tenant_id\"")
 	fs.Parse(args)
 
 	if *file == "" {
@@ -179,6 +219,7 @@ func runBatchUpsert(addr string, args []string) error {
 		ID       string            `json:"id"`
 		Values   []float32         `json:"values"`
 		Metadata map[string]string `json:"metadata"`
+		TenantID string            `json:"tenant_id"`
 	}
 	if err := json.Unmarshal(b, &items); err != nil {
 		return fmt.Errorf("parsing %s: %w", *file, err)
@@ -186,7 +227,11 @@ func runBatchUpsert(addr string, args []string) error {
 
 	vectors := make([]*pb.Vector, len(items))
 	for i, it := range items {
-		vectors[i] = &pb.Vector{Id: it.ID, Values: it.Values, Metadata: it.Metadata}
+		tenantID := it.TenantID
+		if tenantID == "" {
+			tenantID = *tenant
+		}
+		vectors[i] = &pb.Vector{Id: it.ID, Values: it.Values, Metadata: it.Metadata, TenantId: tenantID}
 	}
 
 	conn, err := dial(addr)
@@ -211,6 +256,7 @@ func runSearch(addr string, args []string) error {
 	vec := fs.String("vector", "", "comma-separated float32 query vector (required)")
 	topK := fs.Int("top-k", 10, "number of nearest neighbors to return")
 	ef := fs.Int("ef", 0, "candidate beam width (0 = use top-k)")
+	tenant := fs.String("tenant", "", "tenant id (default: the reserved \"default\" tenant)")
 	var filters kvFlags
 	fs.Var(&filters, "filter", "metadata key=value the result must match; repeatable")
 	fs.Parse(args)
@@ -238,7 +284,7 @@ func runSearch(addr string, args []string) error {
 	ctx, cancel := ctxWithTimeout()
 	defer cancel()
 	resp, err := client.Search(ctx, &pb.SearchRequest{
-		Query: query, TopK: int32(*topK), EfSearch: int32(*ef), Filters: pbFilters,
+		Query: query, TopK: int32(*topK), EfSearch: int32(*ef), Filters: pbFilters, TenantId: *tenant,
 	})
 	if err != nil {
 		return err
@@ -252,6 +298,7 @@ func runSearch(addr string, args []string) error {
 func runDelete(addr string, args []string) error {
 	fs := flag.NewFlagSet("delete", flag.ExitOnError)
 	id := fs.String("id", "", "vector id to delete (required)")
+	tenant := fs.String("tenant", "", "tenant id (default: the reserved \"default\" tenant)")
 	fs.Parse(args)
 
 	if *id == "" {
@@ -267,7 +314,7 @@ func runDelete(addr string, args []string) error {
 
 	ctx, cancel := ctxWithTimeout()
 	defer cancel()
-	resp, err := client.Delete(ctx, &pb.DeleteRequest{Id: *id})
+	resp, err := client.Delete(ctx, &pb.DeleteRequest{Id: *id, TenantId: *tenant})
 	if err != nil {
 		return err
 	}
