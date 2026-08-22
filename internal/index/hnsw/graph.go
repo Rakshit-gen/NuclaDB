@@ -300,6 +300,65 @@ func (g *Graph) selectNeighbors(candidates []candidate, m int) []uint64 {
 	return out
 }
 
+// NodeState is the exported, serializable state of one graph node, used by
+// the snapshot package to persist and restore the graph without paying the
+// cost of re-running graph construction (level assignment + neighbor
+// selection) for every node on every restart.
+type NodeState struct {
+	ID        uint64
+	Vector    []float32
+	Level     int
+	Neighbors [][]uint64
+	Deleted   bool
+}
+
+// Snapshot returns the exported state of every node currently in the
+// graph, in an unspecified order, along with the entry point and max
+// level needed to resume search without rebuilding.
+func (g *Graph) Snapshot() (nodes []NodeState, entryPoint uint64, maxLevel int, hasEntry bool) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	nodes = make([]NodeState, 0, len(g.nodes))
+	for _, nd := range g.nodes {
+		neighbors := make([][]uint64, len(nd.neighbors))
+		for l, ns := range nd.neighbors {
+			neighbors[l] = append([]uint64(nil), ns...)
+		}
+		nodes = append(nodes, NodeState{
+			ID:        nd.id,
+			Vector:    append([]float32(nil), nd.vector...),
+			Level:     nd.level,
+			Neighbors: neighbors,
+			Deleted:   nd.deleted,
+		})
+	}
+	return nodes, g.entryPoint, g.maxLevel, g.hasEntry
+}
+
+// Restore rebuilds the graph directly from previously exported NodeState
+// records, bypassing Insert's graph-construction logic entirely. This is
+// only valid for loading a snapshot taken from an equivalently-configured
+// graph: it trusts the neighbor lists as-is rather than recomputing them.
+// Restore must be called on a freshly created, empty Graph.
+func (g *Graph) Restore(nodes []NodeState, entryPoint uint64, maxLevel int, hasEntry bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	for _, ns := range nodes {
+		g.nodes[ns.ID] = &node{
+			id:        ns.ID,
+			vector:    ns.Vector,
+			level:     ns.Level,
+			neighbors: ns.Neighbors,
+			deleted:   ns.Deleted,
+		}
+	}
+	g.entryPoint = entryPoint
+	g.maxLevel = maxLevel
+	g.hasEntry = hasEntry
+}
+
 // Delete soft-deletes id: it is excluded from future Search results and
 // from being selected as a neighbor of newly inserted nodes, but its graph
 // edges are left intact so traversal through it still works. This mirrors
