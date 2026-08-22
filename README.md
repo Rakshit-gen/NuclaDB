@@ -124,6 +124,9 @@ variable.
 
 ## Deploying
 
+**Live demo**: https://nucladb-demo.onrender.com/ (REST API + `/metrics`;
+free tier, so the first request after idle may take ~30s to spin up).
+
 `render.yaml` is a Render Blueprint: connect this repo at
 [render.com](https://render.com) (New → Blueprint), and it builds
 `Dockerfile` and deploys the REST/JSON API on Render's free web-service
