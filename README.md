@@ -72,6 +72,9 @@ export NUCLADB_ADDR=localhost:9090
 
 Full command reference: [`docs/cli.md`](docs/cli.md).
 
+There's also a Python client and CLI, `pip install`-able as a single
+command: [`clients/python`](clients/python).
+
 ## Benchmarks
 
 Real, reproducible measurements from `bench/`, comparing NuclaDB against a
