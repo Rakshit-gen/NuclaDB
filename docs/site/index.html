@@ -73,6 +73,23 @@
   .label{font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-dim); margin:18px 0 6px}
   footer{max-width:720px; margin-top:64px; padding-top:20px; border-top:1px solid var(--border); color:var(--text-dim); font-size:14px}
 
+  pre{position:relative}
+  .copybtn{
+    position:absolute; top:8px; right:8px; font:11px/1 -apple-system,sans-serif;
+    color:var(--code-text); background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15);
+    border-radius:5px; padding:5px 8px; cursor:pointer; opacity:0; transition:opacity .12s;
+  }
+  pre:hover .copybtn, .copybtn:focus-visible{opacity:1}
+  .copybtn.copied{opacity:1; color:var(--accent); border-color:var(--accent)}
+
+  .langswitch{display:flex; gap:2px; background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:2px; margin-bottom:22px}
+  .langswitch button{
+    flex:1; font:12.5px/1 inherit; font-weight:600; color:var(--text-dim); background:none; border:none;
+    border-radius:5px; padding:6px 4px; cursor:pointer;
+  }
+  .langswitch button.active{background:var(--accent-dim); color:var(--accent)}
+  body[data-lang="go"] .ex-py, body[data-lang="python"] .ex-go{display:none}
+
   .navtoggle{display:none}
   @media (max-width:860px){
     .layout{display:block}
@@ -96,6 +113,11 @@
       NuclaDB
     </div>
     <div class="tag">CLI &amp; client docs</div>
+    <div class="langswitch" id="langswitch" role="group" aria-label="Show examples for">
+      <button type="button" data-lang="both">Both</button>
+      <button type="button" data-lang="go">Go</button>
+      <button type="button" data-lang="python">Python</button>
+    </div>
     <nav id="nav">
       <a href="#overview">Overview</a>
       <a href="#install">Install</a>
@@ -244,11 +266,10 @@
         made-up ad hoc endpoint, so anything else that speaks standard gRPC
         health checks (a load balancer, Kubernetes) understands it too.
       </p>
-      <pre><code>$ nucladb-cli ping
-ok
-
-$ nucladb ping
-ok</code></pre>
+      <pre><code><span class="ex-go">$ nucladb-cli ping
+ok</span>
+<span class="ex-py">$ nucladb ping
+ok</span></code></pre>
 
       <h3 id="commands-create-tenant"><code>create-tenant</code></h3>
       <p>
@@ -262,11 +283,10 @@ ok</code></pre>
         <tr><td><code>max-vectors</code></td><td>no</td><td>Storage quota (default: unlimited)</td></tr>
         <tr><td><code>max-qps</code></td><td>no</td><td>Request-rate limit (default: unlimited)</td></tr>
       </table>
-      <pre><code>$ nucladb-cli create-tenant -id=acme -max-vectors=1000000
-created tenant "acme"
-
-$ nucladb create-tenant --id acme --max-vectors 1000000
-created tenant "acme"</code></pre>
+      <pre><code><span class="ex-go">$ nucladb-cli create-tenant -id=acme -max-vectors=1000000
+created tenant "acme"</span>
+<span class="ex-py">$ nucladb create-tenant --id acme --max-vectors 1000000
+created tenant "acme"</span></code></pre>
 
       <h3 id="commands-insert"><code>insert</code></h3>
       <p>Insert or update (upsert) a single vector.</p>
@@ -283,11 +303,10 @@ created tenant "acme"</code></pre>
         Worth knowing before you write a data-loading script around your
         own string ids.
       </div>
-      <pre><code>$ nucladb-cli insert -id=1 -vector=1,0,0,0 -meta=team=search
-inserted id=1
-
-$ nucladb insert --id 1 --vector 1,0,0,0 --meta team=search
-inserted id=1</code></pre>
+      <pre><code><span class="ex-go">$ nucladb-cli insert -id=1 -vector=1,0,0,0 -meta=team=search
+inserted id=1</span>
+<span class="ex-py">$ nucladb insert --id 1 --vector 1,0,0,0 --meta team=search
+inserted id=1</span></code></pre>
 
       <h3 id="commands-batch-upsert"><code>batch-upsert</code></h3>
       <p>Insert or update many vectors at once from a JSON file, the same shape both CLIs read:</p>
@@ -300,11 +319,10 @@ inserted id=1</code></pre>
         <tr><td><code>file</code></td><td>yes</td><td>Path to the JSON array</td></tr>
         <tr><td><code>tenant</code></td><td>no</td><td>Applied to any item that doesn't set its own tenant</td></tr>
       </table>
-      <pre><code>$ nucladb-cli batch-upsert -file=batch.json
-upserted 2 vectors
-
-$ nucladb batch-upsert --file batch.json
-upserted 2 vectors</code></pre>
+      <pre><code><span class="ex-go">$ nucladb-cli batch-upsert -file=batch.json
+upserted 2 vectors</span>
+<span class="ex-py">$ nucladb batch-upsert --file batch.json
+upserted 2 vectors</span></code></pre>
 
       <h3 id="commands-search"><code>search</code></h3>
       <p>
@@ -322,11 +340,10 @@ upserted 2 vectors</code></pre>
         <tr><td><code>filter</code></td><td>no</td><td><code>key=value</code> metadata match; repeat for AND</td></tr>
         <tr><td><code>tenant</code></td><td>no</td><td>Tenant id (default: <code>default</code>)</td></tr>
       </table>
-      <pre><code>$ nucladb-cli search -vector=1,0,0,0 -top-k=3 -filter=team=infra
-2	score=2.000000	map[team:infra]
-
-$ nucladb search --vector 1,0,0,0 --top-k 3 --filter team=infra
-2	score=2.000000	{'team': 'infra'}</code></pre>
+      <pre><code><span class="ex-go">$ nucladb-cli search -vector=1,0,0,0 -top-k=3 -filter=team=infra
+2	score=2.000000	map[team:infra]</span>
+<span class="ex-py">$ nucladb search --vector 1,0,0,0 --top-k 3 --filter team=infra
+2	score=2.000000	{'team': 'infra'}</span></code></pre>
       <p>
         The filter is a post-filter over an overfetched candidate set, not a
         pre-index scan: if a filter is very selective the search widens its
@@ -348,14 +365,13 @@ $ nucladb search --vector 1,0,0,0 --top-k 3 --filter team=infra
         <tr><td><code>id</code></td><td>yes</td><td>Vector id to delete</td></tr>
         <tr><td><code>tenant</code></td><td>no</td><td>Tenant id (default: <code>default</code>)</td></tr>
       </table>
-      <pre><code>$ nucladb-cli delete -id=1
+      <pre><code><span class="ex-go">$ nucladb-cli delete -id=1
+deleted=true</span>
+<span class="ex-py">$ nucladb delete --id 1
 deleted=true
 
 $ nucladb delete --id 1
-deleted=true
-
-$ nucladb delete --id 1
-deleted=true    <span style="color:#8c8a99"># still true, deleting twice is fine</span></code></pre>
+deleted=true    <span style="color:#8c8a99"># still true, deleting twice is fine</span></span></code></pre>
     </section>
 
     <section id="errors">
@@ -442,6 +458,37 @@ POST   /v1/search         (Search)</code></pre>
     });
   }, { rootMargin: '-10% 0px -80% 0px' });
   sections.forEach(function(s){ io.observe(s); });
+
+  // Copy-to-clipboard button on every code block.
+  document.querySelectorAll('pre').forEach(function(pre){
+    var btn = document.createElement('button');
+    btn.className = 'copybtn';
+    btn.type = 'button';
+    btn.textContent = 'Copy';
+    btn.addEventListener('click', function(){
+      var text = pre.querySelector('code').innerText.replace(/^\$ /gm, '').trim();
+      navigator.clipboard.writeText(text).then(function(){
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(function(){ btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1400);
+      });
+    });
+    pre.appendChild(btn);
+  });
+
+  // Go/Python example toggle, remembered across visits.
+  var switcher = document.getElementById('langswitch');
+  var setLang = function(lang){
+    document.body.setAttribute('data-lang', lang);
+    switcher.querySelectorAll('button').forEach(function(b){
+      b.classList.toggle('active', b.getAttribute('data-lang') === lang);
+    });
+    localStorage.setItem('nucladb-docs-lang', lang);
+  };
+  switcher.querySelectorAll('button').forEach(function(b){
+    b.addEventListener('click', function(){ setLang(b.getAttribute('data-lang')); });
+  });
+  setLang(localStorage.getItem('nucladb-docs-lang') || 'both');
 </script>
 </body>
 </html>
