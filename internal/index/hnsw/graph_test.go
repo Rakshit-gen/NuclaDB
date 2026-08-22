@@ -107,6 +107,112 @@ func TestDeleteExcludesFromSearch(t *testing.T) {
 	}
 }
 
+// TestReinsertPreservesConnectivity guards against a regression where
+// re-inserting an id currently occupying g.entryPoint swapped a fresh,
+// edge-less node into g.nodes before the traversal that links it had run,
+// leaving every other node unreachable from a future Search.
+func TestReinsertPreservesConnectivity(t *testing.T) {
+	g := New(Config{Dim: 4, Metric: L2(), Seed: 1})
+	for id := uint64(1); id <= 20; id++ {
+		v := make([]float32, 4)
+		v[id%4] = float32(id)
+		if err := g.Insert(id, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entry := g.entryPoint
+	entryVec := make([]float32, 4)
+	entryVec[entry%4] = float32(entry)
+	if err := g.Insert(entry, entryVec); err != nil {
+		t.Fatal(err)
+	}
+
+	for id := uint64(1); id <= 20; id++ {
+		v := make([]float32, 4)
+		v[id%4] = float32(id)
+		res, err := g.Search(v, 1, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res) != 1 || res[0].ID != id {
+			t.Fatalf("id=%d unreachable after re-inserting entry point %d: got %+v", id, entry, res)
+		}
+	}
+}
+
+// TestInsertAfterAllTombstonedIsReachable guards against a regression where
+// inserting into a graph whose every existing node is currently tombstoned
+// left the new node with zero neighbors (a live node never selects a
+// deleted one, see Delete's doc comment) while g.entryPoint stayed pinned to
+// a dead node — leaving the new, live node permanently unreachable from
+// Search despite existing.
+func TestInsertAfterAllTombstonedIsReachable(t *testing.T) {
+	g := New(Config{Dim: 4, Metric: L2(), Seed: 1})
+	for id := uint64(1); id <= 5; id++ {
+		v := make([]float32, 4)
+		v[id%4] = float32(id)
+		if err := g.Insert(id, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id := uint64(1); id <= 5; id++ {
+		if err := g.Delete(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	v := []float32{9, 0, 0, 0}
+	if err := g.Insert(6, v); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := g.Search(v, 1, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].ID != 6 {
+		t.Fatalf("id=6 unreachable after inserting into an all-tombstoned graph: got %+v", res)
+	}
+}
+
+// TestReinsertSameVectorNoSelfLoop guards against a regression where
+// re-inserting an id with an unchanged vector let the old node under that
+// same id (still present in g.nodes during the reinsert's own traversal, by
+// design — see the comment in Insert) be discovered, at distance 0, as the
+// closest possible neighbor of itself. With a small M that self-loop could
+// crowd out every real edge, leaving the reinserted node disconnected from
+// the rest of the graph despite still being live.
+func TestReinsertSameVectorNoSelfLoop(t *testing.T) {
+	g := New(Config{Dim: 4, M: 2, Metric: L2(), Seed: 1})
+	for id := uint64(1); id <= 10; id++ {
+		v := make([]float32, 4)
+		v[id%4] = float32(id)
+		if err := g.Insert(id, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	v3 := []float32{0, 0, 0, 3}
+	for i := 0; i < 5; i++ {
+		if err := g.Insert(3, v3); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for id := uint64(1); id <= 10; id++ {
+		v := make([]float32, 4)
+		v[id%4] = float32(id)
+		res, err := g.Search(v, 1, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res) != 1 || res[0].ID != id {
+			t.Fatalf("id=%d unreachable after repeatedly re-inserting id=3: got %+v", id, res)
+		}
+	}
+}
+
 // TestRecallAgainstBruteForce is the core correctness check for the graph:
 // on a random dataset, HNSW search with a generous ef should recover the
 // large majority of the true nearest neighbors found by brute force.

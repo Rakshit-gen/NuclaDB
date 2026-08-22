@@ -123,10 +123,6 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if existing, ok := g.nodes[id]; ok {
-		existing.deleted = true
-	}
-
 	level := g.randomLevel()
 	nd := &node{
 		id:        id,
@@ -134,9 +130,19 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 		level:     level,
 		neighbors: make([][]uint64, level+1),
 	}
-	g.nodes[id] = nd
+
+	// A re-insert of an id already in the graph is deferred into g.nodes
+	// until after the traversal below: that traversal reads the graph
+	// (starting from, and possibly passing through, this very id) to find
+	// nd's neighbors, and it must see the old, fully-linked node rather
+	// than nd's still-empty one. Swapping nd in early — even just to mark
+	// the old node deleted — would make id resolve to an edge-less stub
+	// mid-traversal, collapsing the graph to a self-loop wherever id was
+	// entryPoint or an intermediate hop (caught by TestReinsertPreservesConnectivity).
+	existing, existed := g.nodes[id]
 
 	if !g.hasEntry {
+		g.nodes[id] = nd
 		g.entryPoint = id
 		g.hasEntry = true
 		g.maxLevel = level
@@ -159,6 +165,23 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 	// layer's max.
 	for l := min(level, g.maxLevel); l >= 0; l-- {
 		candidates := g.searchLayer(vec, entry, g.cfg.EfConstruction, l)
+
+		// On a reinsert, the old node under this same id is still in g.nodes
+		// (see the comment above) and gets discovered by its own traversal —
+		// at distance 0, since the vector is unchanged, making it look like
+		// the best possible neighbor. Left in, it gets selected as nd's own
+		// neighbor: a self-loop that, with a small M, can crowd out every
+		// real edge and leave the node effectively disconnected.
+		if existed {
+			filtered := candidates[:0]
+			for _, c := range candidates {
+				if c.id != id {
+					filtered = append(filtered, c)
+				}
+			}
+			candidates = filtered
+		}
+
 		neighbors := g.selectNeighbors(candidates, g.cfg.M)
 		nd.neighbors[l] = neighbors
 
@@ -167,15 +190,30 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 			mMax = g.cfg.M * 2
 		}
 		for _, nbrID := range neighbors {
-			g.connect(nbrID, id, l, mMax)
+			g.connect(nbrID, id, vec, l, mMax)
 		}
 		if len(candidates) > 0 {
 			entry = candidates[0].id
 		}
 	}
 
-	if level > g.maxLevel {
+	if existed {
+		existing.deleted = true
+	}
+	g.nodes[id] = nd
+
+	switch {
+	case level > g.maxLevel:
 		g.maxLevel = level
+		g.entryPoint = id
+	case len(nd.neighbors[0]) == 0:
+		// No live node was found to connect to at the base layer — every
+		// node currently reachable from the entry point is tombstoned
+		// (searchLayer's results, which candidates comes from, excludes
+		// deleted nodes — see Delete's doc comment). Without this, the
+		// entry point would stay pinned to dead nodes with no live path to
+		// nd, leaving it permanently unreachable from Search despite being
+		// live.
 		g.entryPoint = id
 	}
 	return nil
@@ -183,13 +221,27 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 
 // connect adds a bidirectional edge nbrID -> newID at layer l, pruning
 // nbrID's neighbor list back down to mMax by keeping its closest links if
-// the new edge pushed it over the limit.
-func (g *Graph) connect(nbrID, newID uint64, l, mMax int) {
+// the new edge pushed it over the limit. newVec is passed explicitly
+// (rather than looked up via g.nodes[newID]) because during Insert the new
+// node isn't registered in g.nodes yet — that swap is deferred until the
+// caller's traversal finishes, so it can still see the old node under a
+// reused id.
+func (g *Graph) connect(nbrID, newID uint64, newVec []float32, l, mMax int) {
 	nbr := g.nodes[nbrID]
 	if len(nbr.neighbors) <= l {
 		grown := make([][]uint64, l+1)
 		copy(grown, nbr.neighbors)
 		nbr.neighbors = grown
+	}
+	// A repeated reinsert of newID (unchanged vector) re-selects nbrID as a
+	// neighbor on every pass; without this check each pass would append
+	// another copy of the same edge, and since every copy sits at the same
+	// (shortest) distance, the pruning heap below keeps them all — eventually
+	// crowding out nbrID's real, more distant neighbors entirely.
+	for _, existing := range nbr.neighbors[l] {
+		if existing == newID {
+			return
+		}
 	}
 	nbr.neighbors[l] = append(nbr.neighbors[l], newID)
 	if len(nbr.neighbors[l]) <= mMax {
@@ -199,7 +251,11 @@ func (g *Graph) connect(nbrID, newID uint64, l, mMax int) {
 	// Over budget: keep the mMax closest neighbors by distance to nbr.
 	h := newMaxHeap()
 	for _, id := range nbr.neighbors[l] {
-		heap.Push(h, candidate{id: id, dist: g.cfg.Metric.Distance(nbr.vector, g.nodes[id].vector)})
+		v := newVec
+		if id != newID {
+			v = g.nodes[id].vector
+		}
+		heap.Push(h, candidate{id: id, dist: g.cfg.Metric.Distance(nbr.vector, v)})
 	}
 	for h.Len() > mMax {
 		heap.Pop(h)

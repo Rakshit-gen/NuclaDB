@@ -3,6 +3,7 @@ module github.com/Rakshit-gen/nucladb
 go 1.25.4
 
 require (
+	github.com/anishathalye/porcupine v1.3.0
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/hashicorp/raft v1.7.3
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1

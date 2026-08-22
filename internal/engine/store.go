@@ -161,6 +161,17 @@ func (s *Store) getTenant(tenantID string) (*tenant, error) {
 	return t, nil
 }
 
+// Engine returns tenantID's underlying Engine, opening it on first access
+// if needed — an escape hatch for callers that need a lower-level API
+// Store doesn't expose itself, such as wiring per-tenant WAL replication.
+func (s *Store) Engine(tenantID string) (*Engine, error) {
+	t, err := s.getTenant(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return t.engine, nil
+}
+
 func (s *Store) checkAndReserve(t *tenant, extra int) error {
 	if t.limiter != nil && !t.limiter.Allow() {
 		return ErrRateLimited
