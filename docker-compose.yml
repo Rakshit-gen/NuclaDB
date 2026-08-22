@@ -6,8 +6,9 @@ services:
       - "8080:8080" # REST + /metrics
     volumes:
       - nucladb-data:/data
+    environment:
+      - PORT=8080 # entrypoint script binds REST here; matches the exposed port above
     command:
-      - "-data-dir=/data"
       - "-dim=128"
       - "-metric=cosine"
 

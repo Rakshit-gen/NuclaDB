@@ -122,6 +122,26 @@ alongside the REST API. Traces go to stdout by default, or to a real
 collector via the standard `OTEL_EXPORTER_OTLP_ENDPOINT` environment
 variable.
 
+## Deploying
+
+`render.yaml` is a Render Blueprint: connect this repo at
+[render.com](https://render.com) (New → Blueprint), and it builds
+`Dockerfile` and deploys the REST/JSON API on Render's free web-service
+tier, with `/metrics` as the health check.
+
+`docker-entrypoint.sh` binds the REST gateway to Render's dynamically
+assigned `$PORT` (Docker's exec-form `ENTRYPOINT` can't expand that
+itself, hence the small shell wrapper) — verified locally by simulating
+Render's `$PORT` injection against the real binary before trusting it.
+
+**Honest limitation**: the free tier has no persistent disk attached
+here, so the demo instance's data resets on restart/redeploy/inactivity
+spin-down. That's fine for a live demo proving the API works, but it's
+not a durability claim — the WAL/snapshot durability guarantees are real
+and tested (see `test/chaos/`), they just need an actual persistent
+volume attached (a Render paid disk, or any real deployment target) to
+apply across restarts of the demo itself.
+
 ## Status
 
 Actively built in phases — see the project plan for the full roadmap
