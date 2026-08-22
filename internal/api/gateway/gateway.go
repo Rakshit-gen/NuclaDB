@@ -44,7 +44,7 @@ func New(svc pb.NuclaDBServer) *Handler {
 	h.mux.HandleFunc("POST /v1/search", h.search)
 	h.mux.HandleFunc("GET /docs", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(site.Index)
+		_, _ = w.Write(site.Index)
 	})
 	return h
 }
