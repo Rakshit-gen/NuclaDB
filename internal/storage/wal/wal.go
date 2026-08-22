@@ -16,6 +16,10 @@
 //	[8]  id       uint64
 //	[4]  dim      uint32   0 for deletes
 //	[dim*4]       []float32, little-endian
+//	[4]  extraLen uint32   length of an opaque, caller-defined sidecar blob
+//	[extraLen]    []byte   e.g. JSON-encoded metadata; the WAL never
+//	                       interprets this, it just makes it durable
+//	                       alongside the vector op
 package wal
 
 import (
@@ -43,6 +47,7 @@ type Record struct {
 	Op     Op
 	ID     uint64
 	Vector []float32 // nil for OpDelete
+	Extra  []byte     // opaque caller payload, e.g. JSON metadata; nil if none
 }
 
 // ErrCorruptTail is returned internally during replay when the log ends in
@@ -71,13 +76,22 @@ func OpenWriter(path string, startSeq uint64) (*Writer, error) {
 }
 
 // Append durably writes rec's operation to the log and returns the
-// sequence number assigned to it.
+// sequence number assigned to it. Equivalent to AppendWithExtra with a nil
+// sidecar payload.
 func (w *Writer) Append(op Op, id uint64, vector []float32) (uint64, error) {
+	return w.AppendWithExtra(op, id, vector, nil)
+}
+
+// AppendWithExtra is Append plus an opaque sidecar byte payload, durably
+// logged alongside the operation. Used to make caller-level state (e.g.
+// per-vector metadata) crash-safe without the WAL needing to understand
+// its contents.
+func (w *Writer) AppendWithExtra(op Op, id uint64, vector []float32, extra []byte) (uint64, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	seq := w.nextSeq
-	payload := encodePayload(seq, op, id, vector)
+	payload := encodePayload(seq, op, id, vector, extra)
 
 	buf := make([]byte, 8+len(payload))
 	binary.LittleEndian.PutUint32(buf[0:4], uint32(4+len(payload)))
@@ -101,8 +115,8 @@ func (w *Writer) Close() error {
 	return w.f.Close()
 }
 
-func encodePayload(seq uint64, op Op, id uint64, vector []float32) []byte {
-	buf := make([]byte, 8+1+8+4+len(vector)*4)
+func encodePayload(seq uint64, op Op, id uint64, vector []float32, extra []byte) []byte {
+	buf := make([]byte, 8+1+8+4+len(vector)*4+4+len(extra))
 	binary.LittleEndian.PutUint64(buf[0:8], seq)
 	buf[8] = byte(op)
 	binary.LittleEndian.PutUint64(buf[9:17], id)
@@ -112,6 +126,9 @@ func encodePayload(seq uint64, op Op, id uint64, vector []float32) []byte {
 		binary.LittleEndian.PutUint32(buf[off:off+4], math.Float32bits(f))
 		off += 4
 	}
+	binary.LittleEndian.PutUint32(buf[off:off+4], uint32(len(extra)))
+	off += 4
+	copy(buf[off:], extra)
 	return buf
 }
 
@@ -124,20 +141,34 @@ func decodePayload(payload []byte) (Record, error) {
 	id := binary.LittleEndian.Uint64(payload[9:17])
 	dim := binary.LittleEndian.Uint32(payload[17:21])
 
-	want := 21 + int(dim)*4
-	if len(payload) != want {
-		return Record{}, errCorruptTail
-	}
+	off := 21
 	var vec []float32
 	if dim > 0 {
+		if len(payload) < off+int(dim)*4 {
+			return Record{}, errCorruptTail
+		}
 		vec = make([]float32, dim)
-		off := 21
 		for i := range vec {
 			vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(payload[off : off+4]))
 			off += 4
 		}
 	}
-	return Record{Seq: seq, Op: op, ID: id, Vector: vec}, nil
+
+	if len(payload) < off+4 {
+		return Record{}, errCorruptTail
+	}
+	extraLen := binary.LittleEndian.Uint32(payload[off : off+4])
+	off += 4
+	if len(payload) != off+int(extraLen) {
+		return Record{}, errCorruptTail
+	}
+	var extra []byte
+	if extraLen > 0 {
+		extra = make([]byte, extraLen)
+		copy(extra, payload[off:off+int(extraLen)])
+	}
+
+	return Record{Seq: seq, Op: op, ID: id, Vector: vec, Extra: extra}, nil
 }
 
 // Replay reads every well-formed record in the log at path in order,
