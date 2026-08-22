@@ -71,8 +71,9 @@ export NUCLADB_ADDR=localhost:9090
 ```
 
 Full command reference: [`docs/cli.md`](docs/cli.md), or as a browsable
-page: [`docs/site/index.html`](docs/site/index.html) (open it directly, no
-build step — covers both CLIs end to end).
+page — live at https://nucladb-demo.onrender.com/docs, or open
+[`docs/site/index.html`](docs/site/index.html) directly, no build step
+(it covers both CLIs end to end).
 
 There's also a Python client and CLI, `pip install`-able as a single
 command: [`clients/python`](clients/python).

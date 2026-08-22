@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	site "github.com/Rakshit-gen/nucladb/docs/site"
 	pb "github.com/Rakshit-gen/nucladb/proto/nucladbv1"
 )
 
@@ -29,6 +30,7 @@ type Handler struct {
 //	POST   /v1/vectors:batch  -> BatchUpsert
 //	DELETE /v1/vectors/{id}   -> Delete
 //	POST   /v1/search         -> Search
+//	GET    /docs              -> CLI documentation page (docs/site/index.html)
 //
 // Every route except tenant creation accepts an optional tenant_id (JSON
 // body field, or a query parameter for DELETE); omitting it uses the
@@ -40,6 +42,10 @@ func New(svc pb.NuclaDBServer) *Handler {
 	h.mux.HandleFunc("POST /v1/vectors:batch", h.batchUpsert)
 	h.mux.HandleFunc("DELETE /v1/vectors/{id}", h.delete)
 	h.mux.HandleFunc("POST /v1/search", h.search)
+	h.mux.HandleFunc("GET /docs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(site.Index)
+	})
 	return h
 }
 
