@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package nucladb.v1;
+
+option go_package = "github.com/Rakshit-gen/nucladb/proto/nucladbv1";
+
+// NuclaDB is a vector similarity search engine: insert vectors with an
+// optional metadata payload, then search for the nearest neighbors of a
+// query vector under a chosen distance metric.
+//
+// REST is exposed separately via a hand-written gateway in
+// internal/api/gateway rather than google.api.http annotations, to avoid
+// vendoring the full googleapis proto tree for four routes.
+service NuclaDB {
+  rpc Insert(InsertRequest) returns (InsertResponse);
+  rpc BatchUpsert(BatchUpsertRequest) returns (BatchUpsertResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Search(SearchRequest) returns (SearchResponse);
+}
+
+enum DistanceMetric {
+  DISTANCE_METRIC_UNSPECIFIED = 0;
+  DISTANCE_METRIC_COSINE = 1;
+  DISTANCE_METRIC_L2 = 2;
+  DISTANCE_METRIC_DOT = 3;
+}
+
+message Vector {
+  string id = 1;
+  repeated float values = 2;
+  map<string, string> metadata = 3;
+}
+
+message InsertRequest {
+  Vector vector = 1;
+}
+
+message InsertResponse {
+  string id = 1;
+}
+
+message BatchUpsertRequest {
+  repeated Vector vectors = 1;
+}
+
+message BatchUpsertResponse {
+  int64 upserted = 1;
+}
+
+message DeleteRequest {
+  string id = 1;
+}
+
+message DeleteResponse {
+  bool deleted = 1;
+}
+
+message MetadataFilter {
+  string key = 1;
+  string value = 2;
+}
+
+message SearchRequest {
+  repeated float query = 1;
+  int32 top_k = 2;
+  DistanceMetric metric = 3;
+  int32 ef_search = 4;
+  repeated MetadataFilter filters = 5;
+}
+
+message ScoredVector {
+  string id = 1;
+  float score = 2;
+  map<string, string> metadata = 3;
+}
+
+message SearchResponse {
+  repeated ScoredVector matches = 1;
+}
