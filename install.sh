@@ -27,6 +27,19 @@ fi
 echo "Installed to $bin_dir/nucladb-cli"
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
-  *) echo "Add it to your PATH: export PATH=\"$bin_dir:\$PATH\"" ;;
+  *)
+    export_line="export PATH=\"$bin_dir:\$PATH\""
+    rc_file=""
+    case "${SHELL:-}" in
+      */zsh) rc_file="$HOME/.zshrc" ;;
+      */bash) rc_file="$HOME/.bashrc" ;;
+    esac
+    if [ -n "$rc_file" ] && [ -f "$rc_file" ] && ! grep -qF "$export_line" "$rc_file"; then
+      printf '\n# added by nucladb-cli install.sh\n%s\n' "$export_line" >> "$rc_file"
+      echo "Added it to your PATH in $rc_file — open a new shell (or run: $export_line)"
+    else
+      echo "Add it to your PATH: $export_line"
+    fi
+    ;;
 esac
 echo "Then: nucladb-cli ping   (with NUCLADB_ADDR pointed at a running nucladbd)"
