@@ -154,7 +154,17 @@
 
     <section id="install">
       <h2>Install</h2>
-      <p>Pick one. Both end up on your <code>PATH</code> as a single command.</p>
+      <p>Fastest path — pipes into <code>go install</code>, so it needs the Go toolchain but nothing else:</p>
+      <pre><code>$ curl -fsSL https://raw.githubusercontent.com/Rakshit-gen/NuclaDB/main/install.sh | sh</code></pre>
+      <p style="font-size:14px;color:var(--text-dim); max-width:720px">
+        No prebuilt-binary pipeline to maintain and no stale releases to go
+        stale — it resolves straight to the latest commit on <code>main</code>
+        the same way <code>go install pkg@latest</code> always does. Don't
+        have Go? The script says so and points at
+        <a href="https://go.dev/dl/">go.dev/dl</a> instead of failing silently.
+      </p>
+
+      <p>Or build from source, or reach for the Python client instead:</p>
 
       <div class="row">
         <div class="col">
