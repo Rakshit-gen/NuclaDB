@@ -106,6 +106,7 @@ no re-ranking) — see
 - [Why WAL-then-snapshot, and what it actually costs](docs/writeups/01-wal-then-snapshot.md)
 - [Tuning HNSW: what the recall/latency curve actually looks like](docs/writeups/02-hnsw-ef-tuning.md)
 - [What product quantization actually cost](docs/writeups/03-product-quantization-cost.md)
+- [What Raft gave the system and what it cost](docs/writeups/04-what-raft-gave-and-cost.md)
 
 ## Multi-tenancy
 
