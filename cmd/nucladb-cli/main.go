@@ -16,8 +16,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 
 	pb "github.com/Rakshit-gen/nucladb/proto/nucladbv1"
 )
@@ -64,7 +66,13 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "nucladb-cli: %v\n", err)
+		if status.Code(err) == codes.Unavailable {
+			fmt.Fprintf(os.Stderr, "nucladb-cli: can't reach a server at %s.\n", addr)
+			fmt.Fprintln(os.Stderr, "  Try \"nucladb-cli quickstart\" for an instant throwaway server,")
+			fmt.Fprintln(os.Stderr, "  or start one yourself: nucladbd -data-dir=./data")
+		} else {
+			fmt.Fprintf(os.Stderr, "nucladb-cli: %v\n", err)
+		}
 		os.Exit(1)
 	}
 }
@@ -76,7 +84,7 @@ Usage:
   nucladb-cli <command> [flags]
 
 Commands:
-  quickstart     Spin up a throwaway local server and try every command in one go
+  quickstart     Spin up a local server, run a demo, then keep it up so you can try more
   create-tenant  Provision a new tenant with an optional storage/rate quota
   insert         Insert or update a single vector
   batch-upsert   Insert or update many vectors from a JSON file

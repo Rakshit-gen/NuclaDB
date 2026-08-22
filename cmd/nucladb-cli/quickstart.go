@@ -6,7 +6,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -14,8 +16,9 @@ import (
 
 // runQuickstart spins up a throwaway nucladbd against a temp data dir on
 // free local ports, runs a scripted insert+search demo through the same
-// run* functions the real subcommands use, then tears it all down. Never
-// touches a real/already-running server.
+// run* functions the real subcommands use, then leaves the server running
+// (so the demo isn't a dead end you can't poke at further) until Ctrl+C.
+// Never touches a real/already-running server.
 func runQuickstart(args []string) error {
 	nucladbd, err := findNucladbd()
 	if err != nil {
@@ -76,8 +79,17 @@ func runQuickstart(args []string) error {
 	}
 
 	fmt.Println("\nThat's the whole loop: insert, search, delete, batch-upsert all work the")
-	fmt.Println("same way against a real nucladbd. Shutting the throwaway server down now.")
-	fmt.Println("Run \"nucladb-cli <command> -h\" for flags, or see docs/cli.md.")
+	fmt.Println("same way against a real nucladbd.")
+	fmt.Printf("\nThe server is still running at %s. Try more commands, in another terminal:\n", grpcAddr)
+	fmt.Printf("  export NUCLADB_ADDR=%s\n", grpcAddr)
+	fmt.Println("  nucladb-cli ping")
+	fmt.Println("\nRun \"nucladb-cli <command> -h\" for flags, or see docs/cli.md.")
+	fmt.Println("Press Ctrl+C to stop the server.")
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	<-sig
+	fmt.Println("\nShutting the throwaway server down.")
 	return nil
 }
 
