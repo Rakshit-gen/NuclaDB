@@ -1,0 +1,20 @@
+[project]
+name = "nucladb"
+version = "0.1.0"
+description = "Python client for NuclaDB, a distributed vector search engine"
+requires-python = ">=3.9"
+dependencies = [
+    "grpcio>=1.60",
+    "grpcio-health-checking>=1.60",
+    "protobuf>=4.25",
+]
+
+[project.scripts]
+nucladb = "nucladb.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["nucladb*"]
