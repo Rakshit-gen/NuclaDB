@@ -70,7 +70,9 @@ export NUCLADB_ADDR=localhost:9090
 ./bin/nucladb-cli search -vector=1,0,0,0 -top-k=5
 ```
 
-Full command reference: [`docs/cli.md`](docs/cli.md).
+Full command reference: [`docs/cli.md`](docs/cli.md), or as a browsable
+page: [`docs/site/index.html`](docs/site/index.html) (open it directly, no
+build step — covers both CLIs end to end).
 
 There's also a Python client and CLI, `pip install`-able as a single
 command: [`clients/python`](clients/python).

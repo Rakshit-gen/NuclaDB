@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NuclaDB CLI docs</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%231f1d2b'/%3E%3Cline x1='6' y1='18' x2='18' y2='6' stroke='%23e2661a' stroke-width='2'/%3E%3Cline x1='6' y1='18' x2='18' y2='18' stroke='%23e2661a' stroke-width='2'/%3E%3Cline x1='18' y1='6' x2='18' y2='18' stroke='%23e2661a' stroke-width='2'/%3E%3Ccircle cx='6' cy='18' r='2.6' fill='%23e2661a'/%3E%3Ccircle cx='18' cy='6' r='2.6' fill='%23e2661a'/%3E%3Ccircle cx='18' cy='18' r='2.6' fill='%23e2661a'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#fbfaf8; --bg-raised:#ffffff; --text:#20211f; --text-dim:#5c5d59;
+    --border:#e6e4de; --accent:#e2661a; --accent-dim:#fdead9;
+    --code-bg:#1f1d2b; --code-text:#e8e6f0; --code-key:#f0a35f;
+    --pill-bg:#fdead9; --pill-text:#b0490d;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#141318; --bg-raised:#1b1a21; --text:#eeecf3; --text-dim:#a09fab;
+      --border:#2c2b34; --accent:#f0955a; --accent-dim:#3a2513;
+      --code-bg:#0f0e15; --code-text:#e8e6f0; --code-key:#f0a35f;
+      --pill-bg:#3a2513; --pill-text:#f3b27f;
+    }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  }
+  a{color:var(--accent)}
+  code, pre{font:13.5px/1.55 "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace}
+  code{background:var(--accent-dim); padding:.15em .4em; border-radius:4px}
+  pre{background:var(--code-bg); color:var(--code-text); padding:14px 16px; border-radius:8px; overflow-x:auto}
+  pre code{background:none; padding:0; color:inherit}
+  .kw{color:var(--code-key)}
+
+  .layout{display:flex; max-width:1180px; margin:0 auto}
+  .sidebar{
+    width:230px; flex:0 0 230px; position:sticky; top:0; align-self:flex-start;
+    height:100vh; overflow-y:auto; padding:32px 18px 32px 24px; border-right:1px solid var(--border);
+  }
+  .sidebar .brand{display:flex; align-items:center; gap:8px; font-weight:700; font-size:17px; margin-bottom:2px}
+  .sidebar .brand svg{flex:0 0 auto}
+  .sidebar .tag{color:var(--text-dim); font-size:13px; margin-bottom:24px}
+  .sidebar nav a{
+    display:block; padding:6px 10px; margin:1px 0; border-radius:6px;
+    color:var(--text-dim); text-decoration:none; font-size:14px;
+  }
+  .sidebar nav a.sub{padding-left:22px; font-size:13.5px}
+  .sidebar nav a:hover{background:var(--accent-dim); color:var(--text)}
+  .sidebar nav a.active{background:var(--accent-dim); color:var(--accent); font-weight:600}
+  .sidebar .ext{margin-top:20px; padding-top:16px; border-top:1px solid var(--border); font-size:13px}
+
+  main{flex:1; min-width:0; padding:48px 56px 120px}
+  .hero h1{font-size:34px; margin:0 0 8px}
+  .hero p.lede{font-size:17px; color:var(--text-dim); max-width:640px}
+  section{margin-top:56px; scroll-margin-top:24px}
+  section h2{font-size:23px; border-bottom:1px solid var(--border); padding-bottom:10px}
+  section h3{font-size:17px; margin-top:32px}
+  section h3 code{font-size:15px}
+  p{max-width:720px}
+  .row{display:flex; gap:20px; flex-wrap:wrap}
+  .col{flex:1 1 320px; min-width:0}
+  .callout{
+    background:var(--bg-raised); border:1px solid var(--border); border-left:3px solid var(--accent);
+    border-radius:6px; padding:12px 16px; max-width:720px; font-size:14.5px; color:var(--text-dim);
+  }
+  .callout b{color:var(--text)}
+  table{border-collapse:collapse; width:100%; max-width:760px; font-size:14px; margin:14px 0}
+  th,td{text-align:left; padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:top}
+  th{color:var(--text-dim); font-weight:600; font-size:12.5px; text-transform:uppercase; letter-spacing:.03em}
+  .pill{display:inline-block; background:var(--pill-bg); color:var(--pill-text); font-size:11.5px; font-weight:700;
+        padding:2px 8px; border-radius:999px; letter-spacing:.02em; margin-left:6px; vertical-align:middle}
+  .label{font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-dim); margin:18px 0 6px}
+  footer{max-width:720px; margin-top:64px; padding-top:20px; border-top:1px solid var(--border); color:var(--text-dim); font-size:14px}
+
+  .navtoggle{display:none}
+  @media (max-width:860px){
+    .layout{display:block}
+    .sidebar{position:relative; height:auto; width:auto; border-right:none; border-bottom:1px solid var(--border)}
+    main{padding:32px 20px 80px}
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <line x1="6" y1="18" x2="18" y2="6" stroke="var(--accent)" stroke-width="2"/>
+        <line x1="6" y1="18" x2="18" y2="18" stroke="var(--accent)" stroke-width="2"/>
+        <line x1="18" y1="6" x2="18" y2="18" stroke="var(--accent)" stroke-width="2"/>
+        <circle cx="6" cy="18" r="2.8" fill="var(--accent)"/>
+        <circle cx="18" cy="6" r="2.8" fill="var(--accent)"/>
+        <circle cx="18" cy="18" r="2.8" fill="var(--accent)"/>
+      </svg>
+      NuclaDB
+    </div>
+    <div class="tag">CLI &amp; client docs</div>
+    <nav id="nav">
+      <a href="#overview">Overview</a>
+      <a href="#install">Install</a>
+      <a href="#connecting">Connecting</a>
+      <a href="#multi-tenancy">Multi-tenancy</a>
+      <a href="#commands">Commands</a>
+      <a href="#commands-ping" class="sub">ping</a>
+      <a href="#commands-create-tenant" class="sub">create-tenant</a>
+      <a href="#commands-insert" class="sub">insert</a>
+      <a href="#commands-batch-upsert" class="sub">batch-upsert</a>
+      <a href="#commands-search" class="sub">search</a>
+      <a href="#commands-delete" class="sub">delete</a>
+      <a href="#errors">Errors you'll hit</a>
+      <a href="#rest">REST equivalent</a>
+      <a href="#python-lib">Using it as a library</a>
+      <a href="#limitations">Known limitations</a>
+    </nav>
+    <div class="ext">
+      <a href="https://github.com/Rakshit-gen/NuclaDB" target="_blank" rel="noopener">GitHub repo →</a><br>
+      <a href="../../README.md">Project README →</a>
+    </div>
+  </aside>
+
+  <main>
+    <div class="hero" id="overview">
+      <h1>The NuclaDB CLI</h1>
+      <p class="lede">
+        A command line is how you actually get to know a database. NuclaDB ships
+        two of them — a Go binary called <code>nucladb-cli</code> that talks
+        straight to the gRPC server, and a Python one called <code>nucladb</code>
+        that does the same thing for people who'd rather not build Go from
+        source. This page walks through both, end to end: what they're for,
+        how to install them, and every command they support.
+      </p>
+    </div>
+
+    <section>
+      <p>
+        If you haven't met NuclaDB yet: it's a vector search engine written
+        from scratch — HNSW indexing, a write-ahead log, mmap snapshots,
+        tenant isolation, and (for the distributed build) Raft-replicated
+        sharding. None of that is very useful if the only way to poke at it
+        is writing a gRPC client by hand, which is the whole reason these
+        CLIs exist. You should be able to bring up a server and start
+        inserting and searching vectors in under a minute, without opening
+        an editor.
+      </p>
+      <div class="callout">
+        Both CLIs talk to the exact same server over the exact same gRPC
+        API. There's no functionality gap — pick whichever one fits your
+        environment, and switch between them freely. Command names and flag
+        <i>meanings</i> match; only the flag <i>syntax</i> differs (Go uses
+        single dashes, Python uses double dashes — see below).
+      </div>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+      <p>Pick one. Both end up on your <code>PATH</code> as a single command.</p>
+
+      <div class="row">
+        <div class="col">
+          <div class="label">Go binary — <code>nucladb-cli</code></div>
+          <pre><code><span class="kw">go build</span> -o bin/nucladb-cli ./cmd/nucladb-cli
+<span class="kw">export</span> PATH="$PWD/bin:$PATH"</code></pre>
+          <p style="font-size:14px;color:var(--text-dim)">
+            No runtime dependency beyond the binary itself — it's a single
+            static executable.
+          </p>
+        </div>
+        <div class="col">
+          <div class="label">Python — <code>nucladb</code></div>
+          <pre><code><span class="kw">pip install</span> ./clients/python</code></pre>
+          <p style="font-size:14px;color:var(--text-dim)">
+            One command, no separate build step — <code>pip</code> reads the
+            <code>[project.scripts]</code> entry point in
+            <code>pyproject.toml</code> and drops <code>nucladb</code> on
+            your <code>PATH</code>. Named <code>nucladb</code> rather than
+            <code>nucladb-cli</code> deliberately, so it doesn't collide
+            with the Go binary if you ever have both installed.
+          </p>
+        </div>
+      </div>
+
+      <p>You'll also need a server to point either of them at:</p>
+      <pre><code><span class="kw">go build</span> -o bin/nucladbd ./cmd/nucladbd
+./bin/nucladbd -data-dir=./data -dim=4 -metric=l2 &amp;</code></pre>
+    </section>
+
+    <section id="connecting">
+      <h2>Connecting</h2>
+      <p>
+        Both CLIs default to <code>localhost:9090</code>, and both read the
+        same environment variable to override it:
+      </p>
+      <pre><code><span class="kw">export</span> NUCLADB_ADDR=localhost:9090</code></pre>
+      <p>
+        The Python CLI also accepts <code>--addr</code> on the command line
+        if you'd rather not export anything, useful when you're scripting
+        against several servers in the same shell.
+      </p>
+    </section>
+
+    <section id="multi-tenancy">
+      <h2>Multi-tenancy</h2>
+      <p>
+        Every data command — <code>insert</code>, <code>batch-upsert</code>,
+        <code>search</code>, <code>delete</code> — accepts a tenant id
+        (<code>-tenant</code> in Go, <code>--tenant</code> in Python). A
+        tenant isn't a label on shared data; it's a fully separate index —
+        its own HNSW graph, its own WAL, its own snapshot file on disk. Two
+        tenants can reuse the same vector id without ever colliding, and a
+        search under one tenant will never surface another tenant's data.
+      </p>
+      <p>
+        Skip the flag and you land in the reserved <code>default</code>
+        tenant, which carries no quota — so if you're just kicking the
+        tires on one dataset, you never need to think about tenancy at all.
+        Anything else has to be provisioned first with
+        <code>create-tenant</code>.
+      </p>
+    </section>
+
+    <section id="commands">
+      <h2>Commands</h2>
+      <p>
+        Every example below was actually run against a live server — nothing
+        here is guessed at. Go examples use <code>nucladb-cli</code>; Python
+        examples use <code>nucladb</code>.
+      </p>
+
+      <h3 id="commands-ping"><code>ping</code></h3>
+      <p>
+        Checks the server is reachable, over the standard gRPC health-check
+        protocol (<code>grpc.health.v1.Health/Check</code>) rather than a
+        made-up ad hoc endpoint — so anything else that speaks standard gRPC
+        health checks (a load balancer, Kubernetes) understands it too.
+      </p>
+      <pre><code>$ nucladb-cli ping
+ok
+
+$ nucladb ping
+ok</code></pre>
+
+      <h3 id="commands-create-tenant"><code>create-tenant</code></h3>
+      <p>
+        Provisions a new, isolated tenant, with an optional storage quota
+        and request-rate limit. Creating a tenant id that already exists is
+        an error, not a silent no-op.
+      </p>
+      <table>
+        <tr><th>Flag</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>id</code></td><td>yes</td><td>Tenant id</td></tr>
+        <tr><td><code>max-vectors</code></td><td>no</td><td>Storage quota (default: unlimited)</td></tr>
+        <tr><td><code>max-qps</code></td><td>no</td><td>Request-rate limit (default: unlimited)</td></tr>
+      </table>
+      <pre><code>$ nucladb-cli create-tenant -id=acme -max-vectors=1000000
+created tenant "acme"
+
+$ nucladb create-tenant --id acme --max-vectors 1000000
+created tenant "acme"</code></pre>
+
+      <h3 id="commands-insert"><code>insert</code></h3>
+      <p>Insert or update (upsert) a single vector.</p>
+      <table>
+        <tr><th>Flag</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>id</code></td><td>yes</td><td>Vector id — a decimal <code>uint64</code>, e.g. <code>1</code>, <code>42</code></td></tr>
+        <tr><td><code>vector</code></td><td>yes</td><td>Comma-separated <code>float32</code> values</td></tr>
+        <tr><td><code>meta</code></td><td>no</td><td><code>key=value</code> pair; repeat for more</td></tr>
+        <tr><td><code>tenant</code></td><td>no</td><td>Tenant id (default: <code>default</code>)</td></tr>
+      </table>
+      <div class="callout">
+        Vector ids are decimal integers, not arbitrary strings — a request
+        with <code>id=v1</code> is rejected with <code>INVALID_ARGUMENT</code>.
+        Worth knowing before you write a data-loading script around your
+        own string ids.
+      </div>
+      <pre><code>$ nucladb-cli insert -id=1 -vector=1,0,0,0 -meta=team=search
+inserted id=1
+
+$ nucladb insert --id 1 --vector 1,0,0,0 --meta team=search
+inserted id=1</code></pre>
+
+      <h3 id="commands-batch-upsert"><code>batch-upsert</code></h3>
+      <p>Insert or update many vectors at once from a JSON file — the same shape both CLIs read:</p>
+      <pre><code>[
+  {"id": "10", "values": [1, 1, 0, 0]},
+  {"id": "11", "values": [1, 1, 1, 0], "metadata": {"team": "infra"}}
+]</code></pre>
+      <table>
+        <tr><th>Flag</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>file</code></td><td>yes</td><td>Path to the JSON array</td></tr>
+        <tr><td><code>tenant</code></td><td>no</td><td>Applied to any item that doesn't set its own tenant</td></tr>
+      </table>
+      <pre><code>$ nucladb-cli batch-upsert -file=batch.json
+upserted 2 vectors
+
+$ nucladb batch-upsert --file batch.json
+upserted 2 vectors</code></pre>
+
+      <h3 id="commands-search"><code>search</code></h3>
+      <p>
+        Find the nearest neighbors of a query vector. Lower <code>score</code>
+        is closer, matching whatever distance metric the server was started
+        with — a given <code>nucladbd</code> instance has one fixed metric,
+        because HNSW bakes the metric into which neighbors get linked at
+        insert time. You can't mix metrics per query.
+      </p>
+      <table>
+        <tr><th>Flag</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>vector</code></td><td>yes</td><td>Comma-separated query vector</td></tr>
+        <tr><td><code>top-k</code></td><td>no</td><td>Number of results (default: 10)</td></tr>
+        <tr><td><code>ef</code></td><td>no</td><td>Candidate beam width — higher means better recall, slower search (default: top-k)</td></tr>
+        <tr><td><code>filter</code></td><td>no</td><td><code>key=value</code> metadata match; repeat for AND</td></tr>
+        <tr><td><code>tenant</code></td><td>no</td><td>Tenant id (default: <code>default</code>)</td></tr>
+      </table>
+      <pre><code>$ nucladb-cli search -vector=1,0,0,0 -top-k=3 -filter=team=infra
+2	score=2.000000	map[team:infra]
+
+$ nucladb search --vector 1,0,0,0 --top-k 3 --filter team=infra
+2	score=2.000000	{'team': 'infra'}</code></pre>
+      <p>
+        The filter is a post-filter over an overfetched candidate set, not a
+        pre-index scan — if a filter is very selective the search widens its
+        internal candidate window and retries a bounded number of times
+        rather than returning fewer than <code>top-k</code> silently.
+      </p>
+
+      <h3 id="commands-delete"><code>delete</code></h3>
+      <p>
+        Delete a vector by id. This is worth calling out because it
+        surprised us while building the Python SDK's own tests: deleting an
+        id that doesn't exist — or that's already been deleted — is
+        <b>not an error</b>. Deletes are idempotent by design, so WAL replay
+        during crash recovery can safely re-apply the same delete without
+        the engine treating it as a fault.
+      </p>
+      <table>
+        <tr><th>Flag</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>id</code></td><td>yes</td><td>Vector id to delete</td></tr>
+        <tr><td><code>tenant</code></td><td>no</td><td>Tenant id (default: <code>default</code>)</td></tr>
+      </table>
+      <pre><code>$ nucladb-cli delete -id=1
+deleted=true
+
+$ nucladb delete --id 1
+deleted=true
+
+$ nucladb delete --id 1
+deleted=true    <span style="color:#8c8a99"># still true — deleting twice is fine</span></code></pre>
+    </section>
+
+    <section id="errors">
+      <h2>Errors you'll hit</h2>
+      <p>Two show up in normal use, both standard gRPC status codes rather than custom error shapes:</p>
+      <pre><code>$ nucladb-cli insert -id=4 -tenant=acme -vector=1,1,1,1
+nucladb-cli: rpc error: code = ResourceExhausted desc = engine: tenant storage quota exceeded
+
+$ nucladb-cli insert -id=5 -tenant=doesnotexist -vector=1,1,1,1
+nucladb-cli: rpc error: code = NotFound desc = engine: tenant not found</code></pre>
+      <p>
+        Exceeding <code>max-qps</code> returns the same <code>ResourceExhausted</code>
+        code with a "rate limit exceeded" message instead.
+      </p>
+    </section>
+
+    <section id="rest">
+      <h2>REST equivalent</h2>
+      <p>
+        Everything above has a REST/JSON twin, served by <code>nucladbd</code>
+        on its HTTP port (<code>:8080</code> by default) — handy if you'd
+        rather <code>curl</code> it than install anything:
+      </p>
+      <pre><code>POST   /v1/tenants        (CreateTenant)
+POST   /v1/vectors        (Insert)
+POST   /v1/vectors:batch  (BatchUpsert)
+DELETE /v1/vectors/{id}   (Delete)
+POST   /v1/search         (Search)</code></pre>
+      <pre><code>$ curl -s -X POST localhost:8080/v1/search -d '{"query":[1,0,0,0],"top_k":2}'
+{"matches":[{"id":"3","score":2},{"id":"2","score":2,"metadata":{"team":"infra"}}]}</code></pre>
+    </section>
+
+    <section id="python-lib">
+      <h2>Using it as a library</h2>
+      <p>
+        The Python package is a real client, not just a CLI wrapper — reach
+        for it directly if you're scripting or writing tests rather than
+        typing commands by hand:
+      </p>
+      <pre><code><span class="kw">from</span> nucladb <span class="kw">import</span> Client, DistanceMetric
+
+<span class="kw">with</span> Client(<span style="color:#8fd3a0">"localhost:9090"</span>) <span class="kw">as</span> db:
+    db.insert(<span style="color:#8fd3a0">"1"</span>, [1.0, 0.0, 0.0, 0.0], metadata={<span style="color:#8fd3a0">"team"</span>: <span style="color:#8fd3a0">"search"</span>})
+    <span class="kw">for</span> match <span class="kw">in</span> db.search([1.0, 0.0, 0.0, 0.0], top_k=3, metric=DistanceMetric.L2):
+        print(match.id, match.score, match.metadata)</code></pre>
+      <p>Full API and protobuf-regeneration notes live in <code>clients/python/README.md</code>.</p>
+    </section>
+
+    <section id="limitations">
+      <h2>Known limitations</h2>
+      <p>
+        Worth knowing rather than discovering the hard way: a tenant's quota
+        (<code>max-vectors</code> / <code>max-qps</code>) lives in server
+        process memory, set at <code>create-tenant</code> time. It isn't
+        written to disk, so restarting <code>nucladbd</code> brings every
+        tenant back with quota reset to unlimited. Vector and metadata data
+        itself is fully durable across restarts (WAL + snapshot, same as
+        anything else) — only the quota policy resets. Re-applying quotas
+        on startup is a documented follow-up, not a silent gap we're hoping
+        no one notices.
+      </p>
+    </section>
+
+    <footer>
+      Generated for the <a href="https://github.com/Rakshit-gen/NuclaDB">NuclaDB</a>
+      project. Full architecture, benchmarks, and design writeups are in the
+      <a href="../../README.md">top-level README</a>.
+    </footer>
+  </main>
+</div>
+
+<script>
+  var links = Array.prototype.slice.call(document.querySelectorAll('#nav a'));
+  var sections = links
+    .map(function(a){ return document.getElementById(a.getAttribute('href').slice(1)); })
+    .filter(Boolean);
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if (!entry.isIntersecting) return;
+      var id = entry.target.id;
+      links.forEach(function(a){
+        a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+      });
+    });
+  }, { rootMargin: '-10% 0px -80% 0px' });
+  sections.forEach(function(s){ io.observe(s); });
+</script>
+</body>
+</html>
