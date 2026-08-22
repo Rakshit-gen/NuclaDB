@@ -60,6 +60,24 @@ actually costs, measured.
 ## Quickstart
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/Rakshit-gen/NuclaDB/main/install.sh | sh
+nucladb-cli quickstart
+```
+
+That installs both binaries and runs a scripted insert/search demo against
+a throwaway local server, which it then leaves running (until you hit
+Ctrl+C) so you can try more commands against it in another terminal, per
+the address it prints:
+
+```sh
+export NUCLADB_ADDR=127.0.0.1:<port from quickstart's output>
+nucladb-cli insert -id=1 -vector=1,0,0,0 -meta=team=search
+nucladb-cli search -vector=1,0,0,0 -top-k=5
+```
+
+Building from source instead:
+
+```sh
 go build -o bin/nucladbd ./cmd/nucladbd
 go build -o bin/nucladb-cli ./cmd/nucladb-cli
 
