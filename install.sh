@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs nucladb-cli with one command:
+# Installs nucladb-cli and nucladbd with one command:
 #
 #   curl -fsSL https://raw.githubusercontent.com/Rakshit-gen/NuclaDB/main/install.sh | sh
 #
@@ -16,15 +16,16 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Installing nucladb-cli (go install github.com/Rakshit-gen/nucladb/cmd/nucladb-cli@latest)..."
+echo "Installing nucladb-cli and nucladbd (go install .../cmd/nucladb-cli@latest .../cmd/nucladbd@latest)..."
 go install github.com/Rakshit-gen/nucladb/cmd/nucladb-cli@latest
+go install github.com/Rakshit-gen/nucladb/cmd/nucladbd@latest
 
 bin_dir=$(go env GOBIN)
 if [ -z "$bin_dir" ]; then
   bin_dir="$(go env GOPATH)/bin"
 fi
 
-echo "Installed to $bin_dir/nucladb-cli"
+echo "Installed to $bin_dir/nucladb-cli and $bin_dir/nucladbd"
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
   *)
@@ -42,4 +43,4 @@ case ":$PATH:" in
     fi
     ;;
 esac
-echo "Then: nucladb-cli ping   (with NUCLADB_ADDR pointed at a running nucladbd)"
+echo "Then: nucladb-cli quickstart   (spins up a throwaway nucladbd and runs a demo)"
