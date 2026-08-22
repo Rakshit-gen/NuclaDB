@@ -1,9 +1,11 @@
 # Benchmarks
 
-`results.md` in this directory is a real, committed benchmark run — see it
-for actual numbers. This file explains how to reproduce it.
+`results.md` in this directory is a real, committed benchmark run against
+Qdrant; `results-cluster.md` is a real, committed run of NuclaDB
+single-node vs. a real multi-node NuclaDB cluster. This file explains how
+to reproduce both.
 
-## Reproducing
+## Reproducing: NuclaDB vs Qdrant
 
 ```sh
 ./download.sh                              # fetches siftsmall dataset + a native Qdrant binary
@@ -18,6 +20,20 @@ the same 10,000-vector SIFT dataset into both over their own network APIs
 measures recall@10 against the dataset's official groundtruth, QPS, and
 RSS memory for both. It writes `results.md` and prints the same tables to
 stdout.
+
+## Reproducing: NuclaDB single-node vs multi-node cluster
+
+```sh
+go build -o ../bin/nucladbd ../cmd/nucladbd  # from bench/, if not already built
+cd cmd/compare-cluster
+go run . -nucladbd=../../../bin/nucladbd -data=../../data/siftsmall -shards=4
+```
+
+This runs the same dataset and `ef` sweep against a single `nucladbd`
+process, then against a real 4-process cluster (one `nucladbd` per shard)
+addressed through the real scatter-gather router
+(`internal/cluster/router`) — not an in-process shortcut. It writes
+`results-cluster.md` and prints the same tables to stdout.
 
 ## What's not committed, and why
 
