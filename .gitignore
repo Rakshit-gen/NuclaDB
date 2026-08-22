@@ -1,4 +1,5 @@
 /bin/
+/data/
 *.db
 *.wal
 .DS_Store
