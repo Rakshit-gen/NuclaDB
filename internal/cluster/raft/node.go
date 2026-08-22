@@ -58,6 +58,24 @@ func (n *Node) Bootstrap(servers []raft.Server) error {
 	return n.raft.BootstrapCluster(raft.Configuration{Servers: servers}).Error()
 }
 
+// AddVoter adds id (reachable at raftAddr) as a voting member of the Raft
+// cluster — this is the actual consensus membership change (who gets a
+// vote and receives replicated log entries), distinct from the FSM's
+// OpAddNode command, which just records bookkeeping metadata (a node's
+// API address, for query routing) that every node agrees on. A newly
+// joining node needs both: AddVoter so it participates in Raft, and an
+// OpAddNode propose so the cluster knows how to reach its API. Only the
+// leader can call this.
+func (n *Node) AddVoter(id, raftAddr string, timeout time.Duration) error {
+	return n.raft.AddVoter(raft.ServerID(id), raft.ServerAddress(raftAddr), 0, timeout).Error()
+}
+
+// RemoveServer removes id from the Raft cluster's voting configuration.
+// Only the leader can call this.
+func (n *Node) RemoveServer(id string, timeout time.Duration) error {
+	return n.raft.RemoveServer(raft.ServerID(id), 0, timeout).Error()
+}
+
 // ID returns this node's Raft server ID.
 func (n *Node) ID() string { return n.id }
 
@@ -73,6 +91,12 @@ func (n *Node) IsLeader() bool {
 // State returns the FSM's current topology. Safe to call on any node.
 func (n *Node) State() State {
 	return n.fsm.State()
+}
+
+// Subscribe returns a channel that gets a notification after every
+// committed topology change this node's FSM applies (see FSM.Subscribe).
+func (n *Node) Subscribe() <-chan struct{} {
+	return n.fsm.Subscribe()
 }
 
 // LeaderCh notifies on this node's own leadership transitions: true when

@@ -75,12 +75,38 @@ func (s State) clone() State {
 // the same commands in the same order, so every FSM converges to
 // identical state without the nodes needing to coordinate directly.
 type FSM struct {
-	mu    sync.RWMutex
-	state State
+	mu          sync.RWMutex
+	state       State
+	subscribers []chan struct{}
 }
 
 func newFSM() *FSM {
 	return &FSM{state: newState()}
+}
+
+// Subscribe returns a channel that receives a (coalesced, non-blocking)
+// notification after every committed Apply. It's how Cluster learns to
+// recompute shard ownership on topology changes without polling: a
+// buffered size-1 channel with a non-blocking send means a burst of
+// commands collapses to a single pending notification rather than
+// backing up, since the only thing that matters to a receiver is "state
+// changed, go re-read it" — not how many times.
+func (f *FSM) Subscribe() <-chan struct{} {
+	ch := make(chan struct{}, 1)
+	f.mu.Lock()
+	f.subscribers = append(f.subscribers, ch)
+	f.mu.Unlock()
+	return ch
+}
+
+// notifySubscribersLocked must be called with f.mu held.
+func (f *FSM) notifySubscribersLocked() {
+	for _, ch := range f.subscribers {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // State returns a snapshot copy of the current topology. Safe to call on
@@ -103,6 +129,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	defer f.notifySubscribersLocked() // runs before Unlock (LIFO defers), while the lock's still held
 
 	switch cmd.Op {
 	case OpAddNode:
@@ -158,6 +185,7 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	}
 	f.mu.Lock()
 	f.state = s
+	f.notifySubscribersLocked()
 	f.mu.Unlock()
 	return nil
 }
