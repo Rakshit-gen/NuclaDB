@@ -2,7 +2,7 @@
 
 `nucladb-cli` is a thin gRPC client for a running `nucladbd` server. Every
 subcommand below was run against a real local server to produce the
-example output — nothing here is invented.
+example output, nothing here is invented.
 
 ## Connecting
 
@@ -18,7 +18,7 @@ export NUCLADB_ADDR=localhost:9090
 Every data command (`insert`, `batch-upsert`, `search`, `delete`) accepts
 `-tenant`, scoping the call to a tenant-isolated index: its own graph, WAL,
 and snapshot files on disk, invisible to every other tenant. Omitting
-`-tenant` uses the reserved `default` tenant, which has no quota — so
+`-tenant` uses the reserved `default` tenant, which has no quota, so
 single-tenant usage needs no flags at all.
 
 A tenant other than `default` must be created first via `create-tenant`.
@@ -68,7 +68,7 @@ $ nucladb-cli insert -id=1 -tenant=acme -vector=1,0,0,0 -meta=who=acme
 inserted id=1
 ```
 
-Note the second example reuses id `1` under a different tenant — this does
+Note the second example reuses id `1` under a different tenant. This does
 not collide with the first insert, since tenants are fully isolated
 indexes, not a shared id space with a tenant label attached.
 
@@ -98,7 +98,7 @@ upserted 2 vectors
 ## `search`
 
 Find the nearest neighbors of a query vector. Lower `score` means closer,
-matching the configured distance metric (the server-wide metric — a
+matching the configured distance metric (the server-wide metric: a
 `nucladbd` instance is built with one fixed metric, since HNSW bakes the
 metric into which neighbors get linked at construction time).
 
@@ -123,7 +123,7 @@ $ nucladb-cli search -vector=1,0,0,0 -top-k=5 -tenant=acme
 1	score=0.000000	map[who:acme]
 ```
 
-The `acme` search above returns only `acme`'s own data — a search on
+The `acme` search above returns only `acme`'s own data. A search on
 `default` for the same query vector never sees it, and vice versa.
 
 Filtering is a post-filter over an overfetched candidate set (see
@@ -133,7 +133,7 @@ times before returning fewer than `top-k` results.
 
 ## `delete`
 
-Delete a vector by id. Deleting an id that doesn't exist is not an error —
+Delete a vector by id. Deleting an id that doesn't exist is not an error:
 deletes are idempotent, since WAL replay during crash recovery may safely
 re-apply the same delete.
 
@@ -191,7 +191,7 @@ $ curl -s -X POST localhost:8080/v1/search -d '{"query":[1,0,0,0],"top_k":2}'
 
 A tenant's quota (`-max-vectors` / `-max-qps`) lives in server process
 memory, set at `create-tenant` time. It is not written to disk, so a
-`nucladbd` restart brings every tenant back with quota reset to unlimited
-— vectors and metadata are fully durable across restart (WAL + snapshot,
-same as any other tenant data), only the quota policy is not. Re-applying
+`nucladbd` restart brings every tenant back with quota reset to unlimited.
+Vectors and metadata are fully durable across restart (WAL + snapshot,
+same as any other tenant data); only the quota policy is not. Re-applying
 quotas on startup is a documented follow-up, not a silent gap.

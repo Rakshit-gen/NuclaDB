@@ -17,7 +17,7 @@ Building a 10,000-vector index from an empty store:
 | NuclaDB | 43.9s |
 | Qdrant | 124ms |
 
-That's roughly **350x**. Not a rounding error — a real, structural
+That's roughly **350x**. Not a rounding error, but a real, structural
 difference, and it's worth explaining rather than burying.
 
 ## Where it comes from
@@ -25,7 +25,7 @@ difference, and it's worth explaining rather than burying.
 Every `Insert` in NuclaDB does, in order: encode the record, append it to
 the WAL file, **call `fsync`**, then apply it to the HNSW graph
 (`internal/storage/wal/wal.go`, `internal/engine/engine.go`). The `fsync`
-is the expensive part — it's a synchronous call into the OS that doesn't
+is the expensive part: it's a synchronous call into the OS that doesn't
 return until the write is actually durable on disk, not just sitting in a
 page cache buffer that a crash could lose. On this machine that's
 consistently costing a few milliseconds per call:
@@ -35,17 +35,17 @@ consistently costing a few milliseconds per call:
 ```
 
 That lines up with typical `fsync` latency on this filesystem. It isn't a
-bug or an inefficient encoding — it's the direct, expected cost of
+bug or an inefficient encoding: it's the direct, expected cost of
 "durable before the call returns," paid once per write, with nothing
 batched.
 
 ## Why it's still the right default
 
 An insert that returns success but can be lost on the next crash isn't
-actually inserted — it's a promise the system can't keep. For a system
+actually inserted; it's a promise the system can't keep. For a system
 whose entire pitch is "your vectors are safe here," fsync-per-write is the
 conservative, correct starting point. Qdrant's 124ms build time doesn't
-mean it skipped durability — it means it batches differently (write-ahead
+mean it skipped durability; it means it batches differently (write-ahead
 logging with less synchronous per-point overhead, group-committed rather
 than one `fsync` per point), which is a legitimate design choice with its
 own tradeoffs, not a free lunch NuclaDB is missing out on by accident.

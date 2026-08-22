@@ -124,7 +124,7 @@
       <h1>The NuclaDB CLI</h1>
       <p class="lede">
         A command line is how you actually get to know a database. NuclaDB ships
-        two of them — a Go binary called <code>nucladb-cli</code> that talks
+        two of them: a Go binary called <code>nucladb-cli</code> that talks
         straight to the gRPC server, and a Python one called <code>nucladb</code>
         that does the same thing for people who'd rather not build Go from
         source. This page walks through both, end to end: what they're for,
@@ -135,7 +135,7 @@
     <section>
       <p>
         If you haven't met NuclaDB yet: it's a vector search engine written
-        from scratch — HNSW indexing, a write-ahead log, mmap snapshots,
+        from scratch, with HNSW indexing, a write-ahead log, mmap snapshots,
         tenant isolation, and (for the distributed build) Raft-replicated
         sharding. None of that is very useful if the only way to poke at it
         is writing a gRPC client by hand, which is the whole reason these
@@ -145,20 +145,20 @@
       </p>
       <div class="callout">
         Both CLIs talk to the exact same server over the exact same gRPC
-        API. There's no functionality gap — pick whichever one fits your
+        API. There's no functionality gap: pick whichever one fits your
         environment, and switch between them freely. Command names and flag
         <i>meanings</i> match; only the flag <i>syntax</i> differs (Go uses
-        single dashes, Python uses double dashes — see below).
+        single dashes, Python uses double dashes, see below).
       </div>
     </section>
 
     <section id="install">
       <h2>Install</h2>
-      <p>Fastest path — pipes into <code>go install</code>, so it needs the Go toolchain but nothing else:</p>
+      <p>Fastest path: pipes into <code>go install</code>, so it needs the Go toolchain but nothing else:</p>
       <pre><code>$ curl -fsSL https://raw.githubusercontent.com/Rakshit-gen/NuclaDB/main/install.sh | sh</code></pre>
       <p style="font-size:14px;color:var(--text-dim); max-width:720px">
         No prebuilt-binary pipeline to maintain and no stale releases to go
-        stale — it resolves straight to the latest commit on <code>main</code>
+        stale: it resolves straight to the latest commit on <code>main</code>
         the same way <code>go install pkg@latest</code> always does. Don't
         have Go? The script says so and points at
         <a href="https://go.dev/dl/">go.dev/dl</a> instead of failing silently.
@@ -168,19 +168,19 @@
 
       <div class="row">
         <div class="col">
-          <div class="label">Go binary — <code>nucladb-cli</code></div>
+          <div class="label">Go binary: <code>nucladb-cli</code></div>
           <pre><code><span class="kw">go build</span> -o bin/nucladb-cli ./cmd/nucladb-cli
 <span class="kw">export</span> PATH="$PWD/bin:$PATH"</code></pre>
           <p style="font-size:14px;color:var(--text-dim)">
-            No runtime dependency beyond the binary itself — it's a single
+            No runtime dependency beyond the binary itself: it's a single
             static executable.
           </p>
         </div>
         <div class="col">
-          <div class="label">Python — <code>nucladb</code></div>
+          <div class="label">Python: <code>nucladb</code></div>
           <pre><code><span class="kw">pip install</span> ./clients/python</code></pre>
           <p style="font-size:14px;color:var(--text-dim)">
-            One command, no separate build step — <code>pip</code> reads the
+            One command, no separate build step: <code>pip</code> reads the
             <code>[project.scripts]</code> entry point in
             <code>pyproject.toml</code> and drops <code>nucladb</code> on
             your <code>PATH</code>. Named <code>nucladb</code> rather than
@@ -212,17 +212,17 @@
     <section id="multi-tenancy">
       <h2>Multi-tenancy</h2>
       <p>
-        Every data command — <code>insert</code>, <code>batch-upsert</code>,
-        <code>search</code>, <code>delete</code> — accepts a tenant id
+        Every data command (<code>insert</code>, <code>batch-upsert</code>,
+        <code>search</code>, <code>delete</code>) accepts a tenant id
         (<code>-tenant</code> in Go, <code>--tenant</code> in Python). A
-        tenant isn't a label on shared data; it's a fully separate index —
+        tenant isn't a label on shared data; it's a fully separate index:
         its own HNSW graph, its own WAL, its own snapshot file on disk. Two
         tenants can reuse the same vector id without ever colliding, and a
         search under one tenant will never surface another tenant's data.
       </p>
       <p>
         Skip the flag and you land in the reserved <code>default</code>
-        tenant, which carries no quota — so if you're just kicking the
+        tenant, which carries no quota, so if you're just kicking the
         tires on one dataset, you never need to think about tenancy at all.
         Anything else has to be provisioned first with
         <code>create-tenant</code>.
@@ -232,7 +232,7 @@
     <section id="commands">
       <h2>Commands</h2>
       <p>
-        Every example below was actually run against a live server — nothing
+        Every example below was actually run against a live server, nothing
         here is guessed at. Go examples use <code>nucladb-cli</code>; Python
         examples use <code>nucladb</code>.
       </p>
@@ -241,7 +241,7 @@
       <p>
         Checks the server is reachable, over the standard gRPC health-check
         protocol (<code>grpc.health.v1.Health/Check</code>) rather than a
-        made-up ad hoc endpoint — so anything else that speaks standard gRPC
+        made-up ad hoc endpoint, so anything else that speaks standard gRPC
         health checks (a load balancer, Kubernetes) understands it too.
       </p>
       <pre><code>$ nucladb-cli ping
@@ -272,13 +272,13 @@ created tenant "acme"</code></pre>
       <p>Insert or update (upsert) a single vector.</p>
       <table>
         <tr><th>Flag</th><th>Required</th><th>Description</th></tr>
-        <tr><td><code>id</code></td><td>yes</td><td>Vector id — a decimal <code>uint64</code>, e.g. <code>1</code>, <code>42</code></td></tr>
+        <tr><td><code>id</code></td><td>yes</td><td>Vector id: a decimal <code>uint64</code>, e.g. <code>1</code>, <code>42</code></td></tr>
         <tr><td><code>vector</code></td><td>yes</td><td>Comma-separated <code>float32</code> values</td></tr>
         <tr><td><code>meta</code></td><td>no</td><td><code>key=value</code> pair; repeat for more</td></tr>
         <tr><td><code>tenant</code></td><td>no</td><td>Tenant id (default: <code>default</code>)</td></tr>
       </table>
       <div class="callout">
-        Vector ids are decimal integers, not arbitrary strings — a request
+        Vector ids are decimal integers, not arbitrary strings: a request
         with <code>id=v1</code> is rejected with <code>INVALID_ARGUMENT</code>.
         Worth knowing before you write a data-loading script around your
         own string ids.
@@ -290,7 +290,7 @@ $ nucladb insert --id 1 --vector 1,0,0,0 --meta team=search
 inserted id=1</code></pre>
 
       <h3 id="commands-batch-upsert"><code>batch-upsert</code></h3>
-      <p>Insert or update many vectors at once from a JSON file — the same shape both CLIs read:</p>
+      <p>Insert or update many vectors at once from a JSON file, the same shape both CLIs read:</p>
       <pre><code>[
   {"id": "10", "values": [1, 1, 0, 0]},
   {"id": "11", "values": [1, 1, 1, 0], "metadata": {"team": "infra"}}
@@ -310,7 +310,7 @@ upserted 2 vectors</code></pre>
       <p>
         Find the nearest neighbors of a query vector. Lower <code>score</code>
         is closer, matching whatever distance metric the server was started
-        with — a given <code>nucladbd</code> instance has one fixed metric,
+        with: a given <code>nucladbd</code> instance has one fixed metric,
         because HNSW bakes the metric into which neighbors get linked at
         insert time. You can't mix metrics per query.
       </p>
@@ -318,7 +318,7 @@ upserted 2 vectors</code></pre>
         <tr><th>Flag</th><th>Required</th><th>Description</th></tr>
         <tr><td><code>vector</code></td><td>yes</td><td>Comma-separated query vector</td></tr>
         <tr><td><code>top-k</code></td><td>no</td><td>Number of results (default: 10)</td></tr>
-        <tr><td><code>ef</code></td><td>no</td><td>Candidate beam width — higher means better recall, slower search (default: top-k)</td></tr>
+        <tr><td><code>ef</code></td><td>no</td><td>Candidate beam width: higher means better recall, slower search (default: top-k)</td></tr>
         <tr><td><code>filter</code></td><td>no</td><td><code>key=value</code> metadata match; repeat for AND</td></tr>
         <tr><td><code>tenant</code></td><td>no</td><td>Tenant id (default: <code>default</code>)</td></tr>
       </table>
@@ -329,7 +329,7 @@ $ nucladb search --vector 1,0,0,0 --top-k 3 --filter team=infra
 2	score=2.000000	{'team': 'infra'}</code></pre>
       <p>
         The filter is a post-filter over an overfetched candidate set, not a
-        pre-index scan — if a filter is very selective the search widens its
+        pre-index scan: if a filter is very selective the search widens its
         internal candidate window and retries a bounded number of times
         rather than returning fewer than <code>top-k</code> silently.
       </p>
@@ -338,7 +338,7 @@ $ nucladb search --vector 1,0,0,0 --top-k 3 --filter team=infra
       <p>
         Delete a vector by id. This is worth calling out because it
         surprised us while building the Python SDK's own tests: deleting an
-        id that doesn't exist — or that's already been deleted — is
+        id that doesn't exist (or that's already been deleted) is
         <b>not an error</b>. Deletes are idempotent by design, so WAL replay
         during crash recovery can safely re-apply the same delete without
         the engine treating it as a fault.
@@ -355,7 +355,7 @@ $ nucladb delete --id 1
 deleted=true
 
 $ nucladb delete --id 1
-deleted=true    <span style="color:#8c8a99"># still true — deleting twice is fine</span></code></pre>
+deleted=true    <span style="color:#8c8a99"># still true, deleting twice is fine</span></code></pre>
     </section>
 
     <section id="errors">
@@ -376,7 +376,7 @@ nucladb-cli: rpc error: code = NotFound desc = engine: tenant not found</code></
       <h2>REST equivalent</h2>
       <p>
         Everything above has a REST/JSON twin, served by <code>nucladbd</code>
-        on its HTTP port (<code>:8080</code> by default) — handy if you'd
+        on its HTTP port (<code>:8080</code> by default), handy if you'd
         rather <code>curl</code> it than install anything:
       </p>
       <pre><code>POST   /v1/tenants        (CreateTenant)
@@ -391,7 +391,7 @@ POST   /v1/search         (Search)</code></pre>
     <section id="python-lib">
       <h2>Using it as a library</h2>
       <p>
-        The Python package is a real client, not just a CLI wrapper — reach
+        The Python package is a real client, not just a CLI wrapper. Reach
         for it directly if you're scripting or writing tests rather than
         typing commands by hand:
       </p>
@@ -413,7 +413,7 @@ POST   /v1/search         (Search)</code></pre>
         written to disk, so restarting <code>nucladbd</code> brings every
         tenant back with quota reset to unlimited. Vector and metadata data
         itself is fully durable across restarts (WAL + snapshot, same as
-        anything else) — only the quota policy resets. Re-applying quotas
+        anything else); only the quota policy resets. Re-applying quotas
         on startup is a documented follow-up, not a silent gap we're hoping
         no one notices.
       </p>

@@ -50,6 +50,10 @@ func main() {
 		err = runDelete(addr, args)
 	case "ping":
 		err = runPing(addr, args)
+	case "quickstart":
+		err = runQuickstart(args)
+	case "completion":
+		err = runCompletion(args)
 	case "-h", "--help", "help":
 		printUsage()
 		return
@@ -72,20 +76,23 @@ Usage:
   nucladb-cli <command> [flags]
 
 Commands:
+  quickstart     Spin up a throwaway local server and try every command in one go
   create-tenant  Provision a new tenant with an optional storage/rate quota
   insert         Insert or update a single vector
   batch-upsert   Insert or update many vectors from a JSON file
   search         Find the nearest neighbors of a query vector
   delete         Delete a vector by id
   ping           Check that the server is reachable
+  completion     Print a shell completion script (bash, zsh, or fish)
 
 All data commands accept -tenant to scope the operation to a tenant other
-than the reserved "default" one; tenants are fully isolated from each
-other (separate index, separate storage/rate quota).
+than the reserved "default" one, and -json to print machine-readable
+output instead of the human-friendly default (handy for piping into jq).
 
 Environment:
   NUCLADB_ADDR   Server address (default localhost:9090)
 
+New here? Run "nucladb-cli quickstart", no server or flags needed.
 Run "nucladb-cli <command> -h" for command-specific flags.
 Full reference: docs/cli.md
 `)
@@ -127,6 +134,12 @@ func parseKV(pairs []string) map[string]string {
 	return m
 }
 
+func printJSON(v any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
 type kvFlags []string
 
 func (k *kvFlags) String() string { return strings.Join(*k, ",") }
@@ -140,6 +153,7 @@ func runCreateTenant(addr string, args []string) error {
 	id := fs.String("id", "", "tenant id (required)")
 	maxVectors := fs.Int64("max-vectors", 0, "storage quota: max vectors this tenant may hold (0 = unlimited)")
 	maxQPS := fs.Float64("max-qps", 0, "rate limit: max requests/sec for this tenant (0 = unlimited)")
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON instead of a human-friendly line")
 	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *id == "" {
@@ -162,6 +176,9 @@ func runCreateTenant(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *jsonOut {
+		return printJSON(map[string]string{"tenant_id": *id})
+	}
 	fmt.Printf("created tenant %q\n", *id)
 	return nil
 }
@@ -173,6 +190,7 @@ func runInsert(addr string, args []string) error {
 	tenant := fs.String("tenant", "", "tenant id (default: the reserved \"default\" tenant)")
 	var meta kvFlags
 	fs.Var(&meta, "meta", "metadata key=value pair; repeatable")
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON instead of a human-friendly line")
 	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *id == "" || *vec == "" {
@@ -198,6 +216,9 @@ func runInsert(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *jsonOut {
+		return printJSON(map[string]string{"id": resp.GetId()})
+	}
 	fmt.Printf("inserted id=%s\n", resp.GetId())
 	return nil
 }
@@ -206,6 +227,7 @@ func runBatchUpsert(addr string, args []string) error {
 	fs := flag.NewFlagSet("batch-upsert", flag.ExitOnError)
 	file := fs.String("file", "", `path to a JSON file: [{"id":"1","values":[0.1,0.2],"metadata":{"k":"v"}}, ...] (required)`)
 	tenant := fs.String("tenant", "", "tenant id applied to every item that doesn't set its own \"tenant_id\"")
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON instead of a human-friendly line")
 	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *file == "" {
@@ -247,6 +269,9 @@ func runBatchUpsert(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *jsonOut {
+		return printJSON(map[string]int64{"upserted": resp.GetUpserted()})
+	}
 	fmt.Printf("upserted %d vectors\n", resp.GetUpserted())
 	return nil
 }
@@ -259,6 +284,7 @@ func runSearch(addr string, args []string) error {
 	tenant := fs.String("tenant", "", "tenant id (default: the reserved \"default\" tenant)")
 	var filters kvFlags
 	fs.Var(&filters, "filter", "metadata key=value the result must match; repeatable")
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON instead of one line per match")
 	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *vec == "" {
@@ -289,6 +315,18 @@ func runSearch(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *jsonOut {
+		type match struct {
+			ID       string            `json:"id"`
+			Score    float32           `json:"score"`
+			Metadata map[string]string `json:"metadata,omitempty"`
+		}
+		matches := make([]match, 0, len(resp.GetMatches()))
+		for _, m := range resp.GetMatches() {
+			matches = append(matches, match{ID: m.GetId(), Score: m.GetScore(), Metadata: m.GetMetadata()})
+		}
+		return printJSON(matches)
+	}
 	for _, m := range resp.GetMatches() {
 		fmt.Printf("%s\tscore=%.6f\t%v\n", m.GetId(), m.GetScore(), m.GetMetadata())
 	}
@@ -299,6 +337,7 @@ func runDelete(addr string, args []string) error {
 	fs := flag.NewFlagSet("delete", flag.ExitOnError)
 	id := fs.String("id", "", "vector id to delete (required)")
 	tenant := fs.String("tenant", "", "tenant id (default: the reserved \"default\" tenant)")
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON instead of a human-friendly line")
 	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *id == "" {
@@ -318,11 +357,18 @@ func runDelete(addr string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *jsonOut {
+		return printJSON(map[string]any{"id": *id, "deleted": resp.GetDeleted()})
+	}
 	fmt.Printf("deleted=%v\n", resp.GetDeleted())
 	return nil
 }
 
 func runPing(addr string, args []string) error {
+	fs := flag.NewFlagSet("ping", flag.ExitOnError)
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON instead of a human-friendly line")
+	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
+
 	conn, err := dial(addr)
 	if err != nil {
 		return err
@@ -338,6 +384,9 @@ func runPing(addr string, args []string) error {
 	}
 	if resp.GetStatus() != healthpb.HealthCheckResponse_SERVING {
 		return fmt.Errorf("server reports status %s", resp.GetStatus())
+	}
+	if *jsonOut {
+		return printJSON(map[string]string{"status": "ok"})
 	}
 	fmt.Println("ok")
 	return nil

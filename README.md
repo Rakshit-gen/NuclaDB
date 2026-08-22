@@ -5,21 +5,21 @@
 A vector search engine written from scratch in Go: HNSW indexing, product
 quantization, a crash-safe write-ahead log, mmap-backed snapshot
 persistence, tenant-isolated multi-tenancy with quotas and rate limiting,
-OpenTelemetry tracing, Prometheus metrics, a gRPC + REST API, and a CLI —
+OpenTelemetry tracing, Prometheus metrics, a gRPC + REST API, and a CLI,
 benchmarked head-to-head against a real Qdrant instance, not a wrapper
 around one.
 
 Every number in this README and in `bench/results.md` comes from actually
-running the code. Where NuclaDB loses to Qdrant, that's reported too — see
+running the code. Where NuclaDB loses to Qdrant, that's reported too: see
 [Benchmarks](#benchmarks) and `docs/writeups/`.
 
 ## Why this exists
 
 Most "vector database" side projects wrap an existing engine (Qdrant,
 Pinecone, pgvector) behind an app. NuclaDB is the other direction: the
-internals those engines are built from, implemented and tested directly —
-the HNSW graph, the durability layer, the compression, the multi-tenant
-isolation — so the interesting engineering is in this repo, not imported
+internals those engines are built from, implemented and tested directly
+(the HNSW graph, the durability layer, the compression, the multi-tenant
+isolation), so the interesting engineering is in this repo, not imported
 from one.
 
 ## Architecture
@@ -71,7 +71,7 @@ export NUCLADB_ADDR=localhost:9090
 ```
 
 Full command reference: [`docs/cli.md`](docs/cli.md), or as a browsable
-page — live at https://nucladb-demo.onrender.com/docs, or open
+page (live at https://nucladb-demo.onrender.com/docs), or open
 [`docs/site/index.html`](docs/site/index.html) directly, no build step
 (it covers both CLIs end to end).
 
@@ -95,7 +95,7 @@ real Qdrant instance over their own network APIs on the same machine, same
 | NuclaDB | 43.9s | 45.2 MB |
 | Qdrant | 124ms | 96.4 MB |
 
-NuclaDB's build time is ~350x slower — a real, unhidden gap, explained in
+NuclaDB's build time is ~350x slower (a real, unhidden gap), explained in
 [`docs/writeups/01-wal-then-snapshot.md`](docs/writeups/01-wal-then-snapshot.md):
 every write fsyncs before returning, with no batching yet. Full table,
 methodology, and the Qdrant config bug this benchmark caught (its default
@@ -104,7 +104,7 @@ comparison) are in [`bench/results.md`](bench/results.md) and
 [`bench/README.md`](bench/README.md).
 
 Product quantization: 57.7% recall@10 at a 16x memory reduction (flat PQ,
-no re-ranking) — see
+no re-ranking), see
 [`docs/writeups/03-product-quantization-cost.md`](docs/writeups/03-product-quantization-cost.md).
 
 ## Design writeups
@@ -116,7 +116,7 @@ no re-ranking) — see
 
 ## Multi-tenancy
 
-Every collection is tenant-isolated — separate graph, WAL, and snapshot
+Every collection is tenant-isolated: separate graph, WAL, and snapshot
 files on disk per tenant, with independent storage quotas and rate
 limits enforced before a request reaches the engine
 (`internal/engine/store.go`). See `docs/cli.md`'s multi-tenancy section.
@@ -141,20 +141,20 @@ tier, with `/metrics` as the health check.
 
 `docker-entrypoint.sh` binds the REST gateway to Render's dynamically
 assigned `$PORT` (Docker's exec-form `ENTRYPOINT` can't expand that
-itself, hence the small shell wrapper) — verified locally by simulating
+itself, hence the small shell wrapper), verified locally by simulating
 Render's `$PORT` injection against the real binary before trusting it.
 
 **Honest limitation**: the free tier has no persistent disk attached
 here, so the demo instance's data resets on restart/redeploy/inactivity
 spin-down. That's fine for a live demo proving the API works, but it's
-not a durability claim — the WAL/snapshot durability guarantees are real
+not a durability claim: the WAL/snapshot durability guarantees are real
 and tested (see `test/chaos/`), they just need an actual persistent
 volume attached (a Render paid disk, or any real deployment target) to
 apply across restarts of the demo itself.
 
 ## Status
 
-Actively built in phases — see the project plan for the full roadmap
+Actively built in phases; see the project plan for the full roadmap
 (product quantization and multi-tenancy are done, not deferred; Docker
 packaging, chaos testing in CI, and a distributed Phase 2 with
 Raft-replicated sharding and Jepsen-style linearizability testing are in
