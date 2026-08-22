@@ -17,3 +17,4 @@ USER nucladb
 VOLUME ["/data"]
 EXPOSE 9090 8080
 ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["-dim=128", "-metric=cosine"]
