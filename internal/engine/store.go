@@ -222,6 +222,27 @@ func (s *Store) Stats(tenantID string) (TenantStats, error) {
 	return TenantStats{VectorCount: t.engine.Len(), Quota: t.quota}, nil
 }
 
+// AllStats reports every known tenant's current usage, without forcing an
+// unopened tenant's Engine open just to answer the question — a tenant
+// that's never been written to or read from reports VectorCount 0
+// directly, rather than paying the cost of opening its (necessarily
+// empty) WAL and snapshot files. Intended for a periodic metrics sweep,
+// where touching every tenant on every tick would defeat the point of
+// lazy-opening them in the first place.
+func (s *Store) AllStats() map[string]TenantStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]TenantStats, len(s.tenants))
+	for id, t := range s.tenants {
+		count := 0
+		if t.engine != nil {
+			count = t.engine.Len()
+		}
+		out[id] = TenantStats{VectorCount: count, Quota: t.quota}
+	}
+	return out
+}
+
 // Snapshot snapshots every currently-open tenant engine.
 func (s *Store) Snapshot() error {
 	s.mu.RLock()
