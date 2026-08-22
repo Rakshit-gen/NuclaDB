@@ -24,13 +24,16 @@ package wal
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"math"
 	"os"
 	"sync"
+	"time"
 )
 
 // Op identifies the kind of operation a Record represents.
@@ -108,11 +111,56 @@ func (w *Writer) AppendWithExtra(op Op, id uint64, vector []float32, extra []byt
 	return seq, nil
 }
 
+// AppendRecord durably appends rec exactly as given — including its own
+// sequence number — instead of assigning the next one itself. It's for a
+// replication follower applying records streamed from a shard leader
+// (see internal/cluster/replication): the sequence must match the
+// leader's exactly for the two WALs to represent the same history. It
+// errors if rec.Seq isn't the next expected sequence, catching a gap (a
+// dropped or reordered record) rather than silently creating one.
+func (w *Writer) AppendRecord(rec Record) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if rec.Seq != w.nextSeq {
+		return fmt.Errorf("wal: out-of-order append: got seq %d, want %d", rec.Seq, w.nextSeq)
+	}
+	if _, err := w.f.Write(EncodeRecord(rec)); err != nil {
+		return err
+	}
+	if err := w.f.Sync(); err != nil {
+		return err
+	}
+	w.nextSeq++
+	return nil
+}
+
 // Close flushes and closes the underlying file.
 func (w *Writer) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.f.Close()
+}
+
+// EncodeRecord serializes rec into the same on-disk frame format Writer
+// uses, for callers that need the raw bytes directly — e.g. streaming a
+// record to a replication follower over the network instead of writing it
+// to a local file.
+func EncodeRecord(rec Record) []byte {
+	payload := encodePayload(rec.Seq, rec.Op, rec.ID, rec.Vector, rec.Extra)
+	buf := make([]byte, 8+len(payload))
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(4+len(payload)))
+	binary.LittleEndian.PutUint32(buf[4:8], crc32.ChecksumIEEE(payload))
+	copy(buf[8:], payload)
+	return buf
+}
+
+// DecodeRecord reads one frame from r using the same format Replay
+// consumes, for a caller reading a raw record stream directly — e.g. a
+// replication follower reading records off a network connection instead
+// of a local file.
+func DecodeRecord(r *bufio.Reader) (Record, error) {
+	return readRecord(r)
 }
 
 func encodePayload(seq uint64, op Op, id uint64, vector []float32, extra []byte) []byte {
@@ -228,4 +276,129 @@ func readRecord(r *bufio.Reader) (Record, error) {
 		return Record{}, errCorruptTail
 	}
 	return decodePayload(payload)
+}
+
+// Follow behaves like Replay but never stops at end-of-file: after
+// delivering every currently-available complete record with Seq >
+// fromSeq, it polls at pollInterval for more, until ctx is cancelled or
+// fn returns an error. It's the leader side of WAL replication (see
+// internal/cluster/replication) — a follower streams a shard's writes
+// live off the leader's own WAL file, the same durable source of truth
+// restart/replay already trusts, rather than a separate in-memory
+// broadcast that could silently drop a record a slow or disconnected
+// follower never saw.
+//
+// It reads via absolute-offset ReadAt on the file, not the buffered
+// sequential Reader Replay uses, so it doesn't have to track how many
+// bytes a bufio.Reader silently buffered ahead of what's actually been
+// parsed (which would need unreading on a partial record).
+//
+// Engine.Snapshot rotates the WAL file when it runs (see engine.go):
+// rather than truncating the file Follow already has open — which would
+// race a fast truncate-then-immediate-rewrite past size-based detection,
+// since the file could coincidentally be back to (or past) the same size
+// before Follow's next poll ever observes it having shrunk — it writes
+// the new, empty WAL to a temp path and renames it into place, giving the
+// post-snapshot file a genuinely new identity at the same path. Follow
+// checks path's current identity against the fd it has open every
+// iteration (os.SameFile, an inode/device comparison, not a size guess);
+// on a mismatch it reopens path fresh and resets its offset to 0 — the
+// same non-racy rotation-following pattern `tail -F` uses, and unlike a
+// size comparison it can't be fooled by the new file happening to reach
+// the same length. The old, now-unlinked file stays fully readable
+// through the fd Follow already had on it until that reopen happens, so
+// no record in flight is ever lost, only possibly read a little late.
+//
+// A newly Follow-ing reader whose fromSeq predates the oldest record
+// still physically present in the WAL file (the leader already
+// snapshotted past it) will simply see no records for that range — those
+// writes only still exist in the leader's snapshot, not its WAL, and
+// getting them requires transferring that snapshot first (see
+// replication.Bootstrap), not something Follow can serve from a WAL file
+// alone.
+func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.Duration, fn func(Record) error) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	// A closure, not a bound method value: f is reassigned on rotation
+	// below, and this must close whichever file is current when Follow
+	// returns, not the one open when the defer statement ran.
+	defer func() { _ = f.Close() }()
+
+	var offset int64
+	header := make([]byte, 8)
+	for {
+		if pathInfo, statErr := os.Stat(path); statErr == nil {
+			if fdInfo, fdErr := f.Stat(); fdErr == nil && !os.SameFile(fdInfo, pathInfo) {
+				if next, openErr := os.Open(path); openErr == nil {
+					_ = f.Close()
+					f = next
+					offset = 0
+				}
+			}
+		}
+
+		n, err := f.ReadAt(header, offset)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		if n < len(header) {
+			if err := sleepOrDone(ctx, pollInterval); err != nil {
+				return err
+			}
+			continue
+		}
+
+		length := binary.LittleEndian.Uint32(header[0:4])
+		wantCRC := binary.LittleEndian.Uint32(header[4:8])
+		if length < 4 {
+			// Only reachable via a torn concurrent write of the length
+			// prefix itself (the whole frame is written in one syscall,
+			// so this is rare) — treated as "not written yet", same as a
+			// short header read, rather than fatal: Follow always assumes
+			// more may still be coming.
+			if err := sleepOrDone(ctx, pollInterval); err != nil {
+				return err
+			}
+			continue
+		}
+
+		payload := make([]byte, length-4)
+		pn, err := f.ReadAt(payload, offset+int64(len(header)))
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		if pn < len(payload) || crc32.ChecksumIEEE(payload) != wantCRC {
+			if err := sleepOrDone(ctx, pollInterval); err != nil {
+				return err
+			}
+			continue
+		}
+
+		rec, err := decodePayload(payload)
+		if err != nil {
+			if err := sleepOrDone(ctx, pollInterval); err != nil {
+				return err
+			}
+			continue
+		}
+
+		offset += int64(len(header) + len(payload))
+		if rec.Seq > fromSeq {
+			if err := fn(rec); err != nil {
+				return err
+			}
+			fromSeq = rec.Seq
+		}
+	}
+}
+
+func sleepOrDone(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
 }
