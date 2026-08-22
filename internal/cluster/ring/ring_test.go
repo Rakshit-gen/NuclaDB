@@ -206,3 +206,60 @@ func TestAddRemoveNodeIsIdempotent(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnersOfNoNodes(t *testing.T) {
+	r := New(16, 100)
+	if _, err := r.OwnersOf(0, 2); err != ErrNoNodes {
+		t.Fatalf("expected ErrNoNodes, got %v", err)
+	}
+}
+
+// TestOwnersOfAgreesWithOwnerOf verifies OwnersOf's first result is always
+// the same node OwnerOf alone would return — replica placement builds on
+// top of primary ownership, not a separate computation that could diverge
+// from it.
+func TestOwnersOfAgreesWithOwnerOf(t *testing.T) {
+	r := New(64, 100)
+	for _, n := range []string{"node-a", "node-b", "node-c", "node-d"} {
+		r.AddNode(n)
+	}
+	for shard := 0; shard < 64; shard++ {
+		primary, err := r.OwnerOf(shard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		owners, err := r.OwnersOf(shard, 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(owners) == 0 || owners[0] != primary {
+			t.Fatalf("shard %d: OwnersOf(_, 3)[0] = %v, want first entry %q (OwnerOf's own result)", shard, owners, primary)
+		}
+	}
+}
+
+// TestOwnersOfReturnsDistinctNodesCappedAtNodeCount verifies OwnersOf
+// never repeats a node in one shard's replica set, and caps out at however
+// many distinct nodes actually exist rather than erroring or padding.
+func TestOwnersOfReturnsDistinctNodesCappedAtNodeCount(t *testing.T) {
+	r := New(32, 100)
+	for _, n := range []string{"node-a", "node-b", "node-c"} {
+		r.AddNode(n)
+	}
+	for shard := 0; shard < 32; shard++ {
+		owners, err := r.OwnersOf(shard, 5) // more than the 3 nodes that exist
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(owners) != 3 {
+			t.Fatalf("shard %d: OwnersOf(_, 5) returned %d owners, want 3 (capped at node count): %v", shard, len(owners), owners)
+		}
+		seen := map[string]bool{}
+		for _, o := range owners {
+			if seen[o] {
+				t.Fatalf("shard %d: OwnersOf returned duplicate node %q: %v", shard, o, owners)
+			}
+			seen[o] = true
+		}
+	}
+}

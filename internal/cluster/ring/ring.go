@@ -138,6 +138,40 @@ func (r *Ring) OwnerOf(shardID int) (string, error) {
 	return r.points[i].nodeID, nil
 }
 
+// OwnersOf returns up to n distinct nodes responsible for shardID, walk
+// order: the shard's primary owner first (the same node OwnerOf would
+// return), then the next distinct nodes going clockwise around the
+// circle. This is the natural leader+replica placement for a shard —
+// finding replica candidates means walking exactly as far around the
+// ring as a client already would to route around a dead primary. Returns
+// fewer than n entries if the ring has fewer than n distinct nodes.
+func (r *Ring) OwnersOf(shardID int, n int) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.points) == 0 {
+		return nil, ErrNoNodes
+	}
+	if n > len(r.nodeSet) {
+		n = len(r.nodeSet)
+	}
+	h := hashKey("shard#" + strconv.Itoa(shardID))
+	start := sort.Search(len(r.points), func(i int) bool { return r.points[i].hash >= h })
+	if start == len(r.points) {
+		start = 0
+	}
+	seen := make(map[string]bool, n)
+	owners := make([]string, 0, n)
+	for i := 0; len(owners) < n && i < len(r.points); i++ {
+		p := r.points[(start+i)%len(r.points)]
+		if seen[p.nodeID] {
+			continue
+		}
+		seen[p.nodeID] = true
+		owners = append(owners, p.nodeID)
+	}
+	return owners, nil
+}
+
 // Assignment maps every shard to its current owning node — the full
 // shard-to-node table, e.g. for a control plane to publish or a test to
 // inspect distribution with.

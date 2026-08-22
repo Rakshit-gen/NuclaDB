@@ -72,6 +72,7 @@ func awaitLeader(t *testing.T, n *crraft.Node, timeout time.Duration) {
 func TestClusterJoinOverRealTCPConverges(t *testing.T) {
 	const numShards = 32
 	const virtualNodes = 50
+	const replicationFactor = 2
 
 	node1, addr1 := newTCPNode(t, "node-1")
 	node2, addr2 := newTCPNode(t, "node-2")
@@ -84,9 +85,9 @@ func TestClusterJoinOverRealTCPConverges(t *testing.T) {
 	}
 	awaitLeader(t, node1, 2*time.Second)
 
-	c1 := New(node1, numShards, virtualNodes)
-	c2 := New(node2, numShards, virtualNodes)
-	c3 := New(node3, numShards, virtualNodes)
+	c1 := New(node1, numShards, virtualNodes, replicationFactor)
+	c2 := New(node2, numShards, virtualNodes, replicationFactor)
+	c3 := New(node3, numShards, virtualNodes, replicationFactor)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -163,6 +164,7 @@ func TestClusterJoinOverRealTCPConverges(t *testing.T) {
 func TestClusterLeaveRemovesNodeFromAssignment(t *testing.T) {
 	const numShards = 32
 	const virtualNodes = 50
+	const replicationFactor = 2
 
 	node1, addr1 := newTCPNode(t, "node-1")
 	node2, addr2 := newTCPNode(t, "node-2")
@@ -174,8 +176,8 @@ func TestClusterLeaveRemovesNodeFromAssignment(t *testing.T) {
 	}
 	awaitLeader(t, node1, 2*time.Second)
 
-	c1 := New(node1, numShards, virtualNodes)
-	c2 := New(node2, numShards, virtualNodes)
+	c1 := New(node1, numShards, virtualNodes, replicationFactor)
+	c2 := New(node2, numShards, virtualNodes, replicationFactor)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
