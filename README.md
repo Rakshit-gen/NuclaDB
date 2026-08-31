@@ -1,7 +1,5 @@
 # NuclaDB
 
-[![CI](https://github.com/Rakshit-gen/NuclaDB/actions/workflows/ci.yml/badge.svg)](https://github.com/Rakshit-gen/NuclaDB/actions/workflows/ci.yml)
-
 A vector search engine written from scratch in Go: HNSW indexing, product
 quantization, a crash-safe write-ahead log, mmap-backed snapshot
 persistence, tenant-isolated multi-tenancy with quotas and rate limiting,
