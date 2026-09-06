@@ -19,16 +19,24 @@ import (
 // SetupTracing installs a global TracerProvider for serviceName and
 // returns a shutdown func to flush and release it on server exit.
 //
-// If OTEL_EXPORTER_OTLP_ENDPOINT is set, spans are exported via OTLP/gRPC
-// to that collector (the standard OTel SDK env var, honored automatically
-// by otlptracegrpc.New with no explicit options). Otherwise spans are
-// written to stdout — so tracing is inspectable with zero external
-// dependencies out of the box, and upgrades to a real collector by
-// setting one environment variable, not a code change.
+// Span export is off unless asked for, because a server that serializes
+// and writes a span for every RPC pays that cost on the hot path whether
+// or not anyone is looking at the traces:
+//
+//   - OTEL_EXPORTER_OTLP_ENDPOINT set -> export via OTLP/gRPC to that
+//     collector (the standard OTel SDK env var).
+//   - NUCLADB_TRACE_STDOUT set -> pretty-print spans to stdout, for
+//     inspecting traces with zero external dependencies during development.
+//   - neither -> no exporter installed; the otelgrpc handler falls back to
+//     the no-op global tracer, so instrumentation stays in the code but
+//     costs effectively nothing.
 func SetupTracing(ctx context.Context, serviceName string) (shutdown func(context.Context) error, err error) {
 	exporter, err := newExporter(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if exporter == nil {
+		return func(context.Context) error { return nil }, nil
 	}
 
 	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(
@@ -46,9 +54,15 @@ func SetupTracing(ctx context.Context, serviceName string) (shutdown func(contex
 	return tp.Shutdown, nil
 }
 
+// newExporter returns nil, nil when no exporter is configured — see
+// SetupTracing's doc comment for the three cases.
 func newExporter(ctx context.Context) (sdktrace.SpanExporter, error) {
-	if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
+	switch {
+	case os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "":
 		return otlptracegrpc.New(ctx)
+	case os.Getenv("NUCLADB_TRACE_STDOUT") != "":
+		return stdouttrace.New(stdouttrace.WithPrettyPrint())
+	default:
+		return nil, nil
 	}
-	return stdouttrace.New(stdouttrace.WithPrettyPrint())
 }
