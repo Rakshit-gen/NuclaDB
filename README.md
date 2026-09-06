@@ -119,6 +119,32 @@ methodology, and the Qdrant config bug this benchmark caught (its default
 comparison) are in [`bench/results.md`](bench/results.md) and
 [`bench/README.md`](bench/README.md).
 
+### Concurrent throughput
+
+The table above is single-connection and sequential (latency-bound).
+`bench/cmd/loadtest` is the closed-loop version: a pool of gRPC
+connections, N workers looping searches for a fixed window, against the
+same real `nucladbd`. 10,000 vectors, `ef=100` (recall@10 0.999),
+median of three runs on a 10-core machine shared by the load generator,
+server, and mock:
+
+| connections | searches/s | p50 | p99 |
+|---|---|---|---|
+| 1 | 3,260 | 0.31 ms | 0.55 ms |
+| 8 | 16,400 | 0.46 ms | 1.1 ms |
+| 16 | 19,000 | 0.70 ms | 2.7 ms |
+| 64 | 19,500 | 1.8 ms | 19 ms |
+| 128 | 19,100 | 3.0 ms | 46 ms |
+
+Throughput saturates near **~19,500 searches/s** (peak 20,600); past
+~16 connections, added concurrency buys latency, not throughput —
+searches hold the HNSW graph's read lock for the whole traversal, and
+that single `RWMutex` is the ceiling (per-segment locking is the planned
+next step). A 60-second sustained run at 128 connections held ~16,500
+searches/s with **0 errored requests** (over 5M requests across the full
+sweep, 0 errors). Full numbers, including a mixed read/write run, are in
+[`bench/results-loadtest.md`](bench/results-loadtest.md).
+
 Product quantization: 57.7% recall@10 at a 16x memory reduction (flat PQ,
 no re-ranking), see
 [`docs/writeups/03-product-quantization-cost.md`](docs/writeups/03-product-quantization-cost.md).
@@ -141,9 +167,11 @@ limits enforced before a request reaches the engine
 
 Every gRPC call gets an OpenTelemetry trace span and is recorded into
 Prometheus request-count/duration histograms; `/metrics` is served
-alongside the REST API. Traces go to stdout by default, or to a real
-collector via the standard `OTEL_EXPORTER_OTLP_ENDPOINT` environment
-variable.
+alongside the REST API. Span export is off by default (a server that
+serializes a span per RPC pays for it on the hot path whether or not
+anyone reads the traces); set `OTEL_EXPORTER_OTLP_ENDPOINT` to send spans
+to a collector, or `NUCLADB_TRACE_STDOUT=1` to pretty-print them to
+stdout for local inspection.
 
 ## Deploying
 
