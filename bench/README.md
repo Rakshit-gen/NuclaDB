@@ -35,6 +35,18 @@ addressed through the real scatter-gather router
 (`internal/cluster/router`) — not an in-process shortcut. It writes
 `results-cluster.md` and prints the same tables to stdout.
 
+## Reproducing: concurrent load test
+
+```sh
+go build -o ../bin/nucladbd ../cmd/nucladbd  # from bench/, if not already built
+go run ./cmd/loadtest
+```
+
+Starts a real `nucladbd`, bulk-loads siftsmall, then sweeps concurrency
+levels running a closed-loop Search load (plus a mixed read/write run and
+a sustained run) over a pool of gRPC connections. Writes
+`results-loadtest.md`.
+
 ## What's not committed, and why
 
 - `data/` — the SIFT-small corpus (texmex.irisa.fr), a third-party
@@ -55,9 +67,11 @@ Both are fetched by `download.sh` and are `.gitignore`d.
   this an exact-vs-approximate comparison rather than HNSW-vs-HNSW. This
   was caught by noticing suspiciously perfect 1.0 recall at every `ef` on
   the first run; see `docs/writeups/` for the full story.
-- **Single-connection, sequential QPS** — this measures latency-bound
-  throughput, not saturated concurrent throughput. A concurrent-client
-  variant is documented future work, not run here.
+- **`cmd/compare`'s QPS is single-connection and sequential** — it
+  measures latency-bound throughput. For saturated concurrent throughput
+  and tail latency, `cmd/loadtest` runs a closed-loop load generator (a
+  pool of gRPC connections, N workers, fixed window, p50/p90/p99/max)
+  against the same real `nucladbd`; results in `results-loadtest.md`.
 - Recall/QPS results at only 10,000 vectors converge close to 1.0 for both
   engines by moderate `ef` — see `results.md`'s Notes section for why a
   larger run (SIFT1M) would show a more separated tradeoff curve, and why
