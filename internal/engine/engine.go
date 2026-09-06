@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
 	"github.com/Rakshit-gen/nucladb/internal/storage/segment"
@@ -33,12 +34,18 @@ const (
 // WAL, the graph, and the metadata map can never diverge from each other —
 // the graph has its own finer-grained internal lock for search
 // concurrency, but write ordering across all three needs a single writer.
+//
+// graph is an atomic pointer, not a mu-guarded field: Search only ever
+// reads it, and gating every search on the writer's Mutex just to copy a
+// pointer serialized the read path under concurrency for no reason.
+// LoadSnapshot (the only reassignment) still holds mu, so it can't race a
+// concurrent Insert.
 type Engine struct {
 	mu  sync.Mutex
 	dir string
 	cfg hnsw.Config
 
-	graph       *hnsw.Graph
+	graph       atomic.Pointer[hnsw.Graph]
 	w           *wal.Writer
 	seq         uint64
 	snapshotSeq uint64 // the seq the on-disk snapshot currently reflects
@@ -103,15 +110,16 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 		return nil, err
 	}
 
-	return &Engine{
+	e := &Engine{
 		dir:         dir,
 		cfg:         cfg,
-		graph:       g,
 		w:           w,
 		seq:         lastSeq,
 		snapshotSeq: snapshotSeq,
 		metadata:    metadata,
-	}, nil
+	}
+	e.graph.Store(g)
+	return e, nil
 }
 
 // Insert durably upserts id -> (vector, metadata). metadata may be nil.
@@ -132,7 +140,7 @@ func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string)
 	if err != nil {
 		return err
 	}
-	if err := e.graph.Insert(id, vector); err != nil {
+	if err := e.graph.Load().Insert(id, vector); err != nil {
 		return err
 	}
 
@@ -159,7 +167,7 @@ func (e *Engine) Delete(id uint64) error {
 	if err != nil {
 		return err
 	}
-	_ = e.graph.Delete(id)
+	_ = e.graph.Load().Delete(id)
 
 	e.metaMu.Lock()
 	delete(e.metadata, id)
@@ -214,7 +222,7 @@ func (e *Engine) ApplyReplicated(rec wal.Record) error {
 
 	switch rec.Op {
 	case wal.OpInsert:
-		if err := e.graph.Insert(rec.ID, rec.Vector); err != nil {
+		if err := e.graph.Load().Insert(rec.ID, rec.Vector); err != nil {
 			return err
 		}
 		e.metaMu.Lock()
@@ -230,7 +238,7 @@ func (e *Engine) ApplyReplicated(rec wal.Record) error {
 		}
 		e.metaMu.Unlock()
 	case wal.OpDelete:
-		_ = e.graph.Delete(rec.ID)
+		_ = e.graph.Load().Delete(rec.ID)
 		e.metaMu.Lock()
 		delete(e.metadata, rec.ID)
 		e.metaMu.Unlock()
@@ -310,7 +318,7 @@ func (e *Engine) LoadSnapshot(snapshotBytes, metadataBytes []byte, seq uint64) e
 		return err
 	}
 
-	e.graph = g
+	e.graph.Store(g)
 	e.w = w
 	e.seq = gotSeq
 	e.snapshotSeq = gotSeq
@@ -354,14 +362,12 @@ func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string
 		overfetch = ef * 4
 	}
 
-	// Only the pointer read needs e.mu: LoadSnapshot is the one thing that
-	// ever reassigns e.graph (Insert/Delete mutate the existing graph in
-	// place, using its own finer-grained internal lock). Grabbing the
-	// current graph once, up front, keeps Search lock-free for the actual
-	// traversal below, same as before LoadSnapshot existed.
-	e.mu.Lock()
-	graph := e.graph
-	e.mu.Unlock()
+	// LoadSnapshot is the only thing that ever reassigns e.graph (Insert and
+	// Delete mutate the existing graph in place under its own internal
+	// lock). An atomic load here means Search never touches the writer's
+	// Mutex — the traversal below runs fully concurrently with other
+	// searches, bounded only by the graph's own RWMutex.
+	graph := e.graph.Load()
 
 	const maxAttempts = 3
 	var candidates []hnsw.SearchResult
@@ -419,7 +425,7 @@ func (e *Engine) Snapshot() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if err := segment.Save(filepath.Join(e.dir, snapshotFile), e.graph, e.seq); err != nil {
+	if err := segment.Save(filepath.Join(e.dir, snapshotFile), e.graph.Load(), e.seq); err != nil {
 		return err
 	}
 
@@ -467,10 +473,7 @@ func (e *Engine) Close() error {
 
 // Len returns the number of live (non-deleted) vectors.
 func (e *Engine) Len() int {
-	e.mu.Lock()
-	g := e.graph
-	e.mu.Unlock()
-	return g.Len()
+	return e.graph.Load().Len()
 }
 
 func loadMetadata(path string) (map[uint64]map[string]string, error) {
