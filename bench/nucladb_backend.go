@@ -117,6 +117,18 @@ func (b *NuclaDBBackend) Search(query []float32, topK, ef int) ([]uint64, error)
 	return ids, nil
 }
 
+// Insert upserts a single vector under an explicit id — the write path the
+// concurrent load test interleaves with Search. Upsert (batched, id = slice
+// index) is for the one-shot bulk load; this is for individual writes.
+func (b *NuclaDBBackend) Insert(id uint64, vector []float32) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := b.client.Insert(ctx, &pb.InsertRequest{
+		Vector: &pb.Vector{Id: strconv.FormatUint(id, 10), Values: vector},
+	})
+	return err
+}
+
 func (b *NuclaDBBackend) RSSBytes() (uint64, error) {
 	return rssBytesForPID(b.cmd.Process.Pid)
 }
