@@ -23,6 +23,7 @@
 package replication
 
 import (
+	"bytes"
 	"bufio"
 	"context"
 	"encoding/binary"
@@ -141,11 +142,16 @@ func readBlob(r io.Reader) ([]byte, error) {
 	if _, err := io.ReadFull(r, lenBuf); err != nil {
 		return nil, err
 	}
-	data := make([]byte, binary.BigEndian.Uint32(lenBuf))
-	if _, err := io.ReadFull(r, data); err != nil {
+	// Grow with the bytes that actually arrive rather than pre-allocating the
+	// peer-declared length: a bogus 4 GiB prefix must not cost 4 GiB.
+	n := int64(binary.BigEndian.Uint32(lenBuf))
+	var buf bytes.Buffer
+	if got, err := io.Copy(&buf, io.LimitReader(r, n)); err != nil {
 		return nil, err
+	} else if got < n {
+		return nil, io.ErrUnexpectedEOF
 	}
-	return data, nil
+	return buf.Bytes(), nil
 }
 
 // Follow connects to a leader's replication listener at addr and applies
