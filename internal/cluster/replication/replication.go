@@ -23,8 +23,8 @@
 package replication
 
 import (
-	"bytes"
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"

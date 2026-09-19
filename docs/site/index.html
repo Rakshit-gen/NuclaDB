@@ -53,6 +53,37 @@
   main{flex:1; min-width:0; padding:48px 56px 120px}
   .hero h1{font-size:34px; margin:0 0 8px}
   .hero p.lede{font-size:17px; color:var(--text-dim); max-width:640px}
+
+  .hero-terminal{
+    margin-top:28px; max-width:640px; border-radius:10px; overflow:hidden;
+    border:1px solid var(--border); background:var(--code-bg);
+    box-shadow:0 24px 60px -24px rgba(0,0,0,.4);
+  }
+  .hero-terminal-bar{
+    display:flex; align-items:center; gap:7px; padding:10px 14px;
+    background:rgba(255,255,255,.04); border-bottom:1px solid rgba(255,255,255,.08);
+  }
+  .hero-terminal-bar .dot{width:11px; height:11px; border-radius:50%; flex:0 0 auto}
+  .hero-terminal-bar .dot-red{background:#ff5f57}
+  .hero-terminal-bar .dot-yellow{background:#febc2e}
+  .hero-terminal-bar .dot-green{background:#28c840}
+  .hero-terminal-bar .hero-terminal-title{
+    margin-left:6px; color:var(--code-text); opacity:.55; font-size:12px;
+    font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  .hero-terminal-body{
+    margin:0; padding:16px 18px 20px; background:none; color:var(--code-text);
+    min-height:196px; white-space:pre-wrap; font-size:13px; line-height:1.65;
+  }
+  .hero-terminal-body .prompt{color:var(--accent)}
+  .hero-terminal-body .ok{color:#4fd67a}
+  .hero-terminal-cursor{
+    display:inline-block; width:7px; height:14px; margin-left:1px;
+    background:var(--code-text); vertical-align:text-bottom;
+    animation:hero-blink 1s step-end infinite;
+  }
+  @keyframes hero-blink{50%{opacity:0}}
+  @media (prefers-reduced-motion: reduce){ .hero-terminal-cursor{animation:none} }
   section{margin-top:56px; scroll-margin-top:24px}
   section h2{font-size:23px; border-bottom:1px solid var(--border); padding-bottom:10px}
   section h3{font-size:17px; margin-top:32px}
@@ -151,6 +182,14 @@
         source. This page walks through both, end to end: what they're for,
         how to install them, and every command they support.
       </p>
+
+      <div class="hero-terminal">
+        <div class="hero-terminal-bar">
+          <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+          <span class="hero-terminal-title">nucladb-cli</span>
+        </div>
+        <pre class="hero-terminal-body"><code id="heroTermCode"></code><span class="hero-terminal-cursor"></span></pre>
+      </div>
     </div>
 
     <section>
@@ -488,6 +527,67 @@ POST   /v1/search         (Search)</code></pre>
     b.addEventListener('click', function(){ setLang(b.getAttribute('data-lang')); });
   });
   setLang(localStorage.getItem('nucladb-docs-lang') || 'both');
+
+  // Hero terminal: types out a real "nucladb-cli quickstart" transcript
+  // once it scrolls into view. Transcript is a real captured run, not
+  // invented copy.
+  (function(){
+    var el = document.getElementById('heroTermCode');
+    if (!el) return;
+    var box = el.closest('.hero-terminal');
+    var lines = [
+      '$ nucladb-cli quickstart',
+      'Starting a throwaway nucladbd (dim=4, metric=l2) ...',
+      'Server is up. Running a few commands against it:',
+      '',
+      '$ nucladb-cli insert -id=1 -vector=1,0,0,0 -meta=team=search',
+      'inserted id=1',
+      '',
+      '$ nucladb-cli search -vector=1,0,0,0 -top-k=2',
+      '1\tscore=0.000000\tmap[team:search]',
+      '2\tscore=2.000000\tmap[team:infra]'
+    ];
+
+    function escapeHtml(s){
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function renderLine(line){
+      if (line.indexOf('$ ') === 0) return '<span class="prompt">$ </span>' + escapeHtml(line.slice(2));
+      if (/^\d+\tscore=/.test(line)) return '<span class="ok">' + escapeHtml(line) + '</span>';
+      return escapeHtml(line);
+    }
+
+    var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      el.innerHTML = lines.map(renderLine).join('\n');
+      return;
+    }
+
+    var done = [];
+    var li = 0, ci = 0;
+    function tick(){
+      if (li >= lines.length) return;
+      var line = lines[li];
+      ci++;
+      el.innerHTML = done.join('\n') + (done.length ? '\n' : '') + escapeHtml(line.slice(0, ci));
+      if (ci >= line.length) {
+        done.push(renderLine(line));
+        li++; ci = 0;
+        setTimeout(tick, line.length === 0 ? 100 : 160);
+      } else {
+        setTimeout(tick, 12 + Math.random() * 24);
+      }
+    }
+
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if (!entry.isIntersecting) return;
+        io.disconnect();
+        tick();
+      });
+    }, { threshold: 0.3 });
+    io.observe(box);
+  })();
 </script>
 </body>
 </html>
