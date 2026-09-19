@@ -58,6 +58,11 @@ type Record struct {
 // a crash. Replay treats it as end-of-log rather than a fatal error.
 var errCorruptTail = errors.New("wal: corrupt or partial tail record")
 
+// maxRecordLen bounds the on-disk length prefix. A torn or corrupt tail can
+// leave arbitrary bytes there; without a cap, replay would try to allocate up
+// to 4 GiB before the CRC check could reject the record.
+const maxRecordLen = 256 << 20
+
 // Writer appends records to a log file, fsyncing after every write so a
 // successful Append call is a durability guarantee, not just a buffering
 // promise.
@@ -261,7 +266,7 @@ func readRecord(r *bufio.Reader) (Record, error) {
 	}
 	length := binary.LittleEndian.Uint32(header[0:4])
 	wantCRC := binary.LittleEndian.Uint32(header[4:8])
-	if length < 4 {
+	if length < 4 || length > maxRecordLen {
 		return Record{}, errCorruptTail
 	}
 
@@ -352,7 +357,7 @@ func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.
 
 		length := binary.LittleEndian.Uint32(header[0:4])
 		wantCRC := binary.LittleEndian.Uint32(header[4:8])
-		if length < 4 {
+		if length < 4 || length > maxRecordLen {
 			// Only reachable via a torn concurrent write of the length
 			// prefix itself (the whole frame is written in one syscall,
 			// so this is rare) — treated as "not written yet", same as a

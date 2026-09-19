@@ -182,3 +182,25 @@ func TestCrashRecoveryCorruptChecksum(t *testing.T) {
 		t.Fatalf("recovered %d records, want 1 (corrupt record 2 should be dropped)", len(got))
 	}
 }
+
+func TestReplayStopsAtHugeLengthPrefix(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wal.log")
+	w, err := OpenWriter(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Append(OpInsert, 1, []float32{1}); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	f.Write([]byte{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0}) // 4 GiB length, no payload
+	f.Close()
+
+	n := 0
+	last, err := Replay(path, func(Record) error { n++; return nil })
+	if err != nil || n != 1 || last != 1 {
+		t.Fatalf("n=%d last=%d err=%v, want 1 record and clean stop", n, last, err)
+	}
+}
