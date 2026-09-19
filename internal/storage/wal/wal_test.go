@@ -204,3 +204,27 @@ func TestReplayStopsAtHugeLengthPrefix(t *testing.T) {
 		t.Fatalf("n=%d last=%d err=%v, want 1 record and clean stop", n, last, err)
 	}
 }
+
+func TestWriterTruncatesTornTailSoLaterAppendsSurvive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wal.log")
+	w, _ := OpenWriter(path, 0)
+	w.Append(OpInsert, 1, []float32{1})
+	w.Close()
+
+	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	f.Write([]byte{9, 0, 0, 0, 1, 2}) // torn frame
+	f.Close()
+
+	w, err := OpenWriter(path, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Append(OpInsert, 2, []float32{2})
+	w.Close()
+
+	n := 0
+	last, err := Replay(path, func(Record) error { n++; return nil })
+	if err != nil || n != 2 || last != 2 {
+		t.Fatalf("n=%d last=%d err=%v, want both records visible", n, last, err)
+	}
+}

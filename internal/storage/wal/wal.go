@@ -76,11 +76,48 @@ type Writer struct {
 // appending, starting sequence numbers at startSeq+1. Callers recovering
 // from a prior snapshot should pass the snapshot's LastSeq here.
 func OpenWriter(path string, startSeq uint64) (*Writer, error) {
+	if err := truncateTornTail(path); err != nil {
+		return nil, err
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
 	return &Writer{f: f, nextSeq: startSeq + 1}, nil
+}
+
+// truncateTornTail cuts the file back to the end of its last valid record.
+// Replay treats the first corrupt/partial record as end-of-log, so anything
+// appended after a torn tail (a crash mid-write) would be unreachable on the
+// next recovery, i.e. silently lost acknowledged writes.
+// ponytail: one extra sequential scan at open; record the valid offset during
+// Replay if startup time on huge WALs matters.
+func truncateTornTail(path string) error {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var valid int64
+	r := bufio.NewReader(f)
+	for {
+		rec, err := readRecord(r)
+		if err != nil {
+			break
+		}
+		valid += int64(len(EncodeRecord(rec)))
+	}
+	info, statErr := f.Stat()
+	f.Close()
+	if statErr != nil {
+		return statErr
+	}
+	if valid < info.Size() {
+		return os.Truncate(path, valid)
+	}
+	return nil
 }
 
 // Append durably writes rec's operation to the log and returns the
