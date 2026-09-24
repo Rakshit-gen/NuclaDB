@@ -177,6 +177,43 @@ func (w *Writer) AppendRecord(rec Record) error {
 	return nil
 }
 
+// AppendBatch durably appends every record in items, in order, sharing a
+// single fsync across the whole batch instead of paying one fsync per
+// record the way Append does — group commit. Each item's Seq field is
+// ignored and overwritten with the next sequence number, the same
+// assignment Append makes for a single record. Returns the assigned
+// sequence numbers in the same order as items.
+//
+// Durability is all-or-nothing for the batch: if the shared Sync fails,
+// none of it should be treated as durable, including records whose Write
+// happened to land on disk before the failure — that's exactly what
+// fsync's failure means.
+func (w *Writer) AppendBatch(items []Record) ([]uint64, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	seqs := make([]uint64, len(items))
+	var buf []byte
+	for i, rec := range items {
+		rec.Seq = w.nextSeq
+		seqs[i] = rec.Seq
+		buf = append(buf, EncodeRecord(rec)...)
+		w.nextSeq++
+	}
+
+	if _, err := w.f.Write(buf); err != nil {
+		return nil, err
+	}
+	if err := w.f.Sync(); err != nil {
+		return nil, err
+	}
+	return seqs, nil
+}
+
 // Close flushes and closes the underlying file.
 func (w *Writer) Close() error {
 	w.mu.Lock()
