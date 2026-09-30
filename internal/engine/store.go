@@ -25,6 +25,7 @@ var (
 	ErrQuotaExceeded   = errors.New("engine: tenant storage quota exceeded")
 	ErrRateLimited     = errors.New("engine: tenant request rate limit exceeded")
 	ErrInvalidTenantID = errors.New("engine: tenant_id must not contain path separators")
+	ErrDefaultTenant   = errors.New("engine: the default tenant can't be deleted")
 )
 
 // Quota bounds one tenant's resource usage. A zero value for either field
@@ -36,9 +37,8 @@ type Quota struct {
 }
 
 type tenant struct {
-	engine  *Engine
-	quota   Quota
-	limiter *rate.Limiter // nil when MaxQPS == 0 (unlimited)
+	engine *Engine
+	limits atomic.Pointer[limits] // swapped whole by SetQuota
 	// reserved counts new vectors whose inserts passed the quota check but
 	// haven't finished yet, so concurrent inserts can't all squeeze past
 	// the same headroom.
@@ -158,19 +158,33 @@ func (s *Store) createTenantLocked(tenantID string, quota Quota) error {
 // vectors costs the same as n single inserts. A batch bigger than the whole
 // bucket takes the whole bucket instead of being refused forever.
 func (t *tenant) allow(n int) bool {
-	if t.limiter == nil {
+	lim := t.limits.Load().limiter
+	if lim == nil {
 		return true
 	}
-	return t.limiter.AllowN(time.Now(), min(max(n, 1), t.limiter.Burst()))
+	return lim.AllowN(time.Now(), min(max(n, 1), lim.Burst()))
+}
+
+type limits struct {
+	quota   Quota
+	limiter *rate.Limiter // nil when MaxQPS == 0 (unlimited)
+}
+
+func newLimits(quota Quota) *limits {
+	l := &limits{quota: quota}
+	if quota.MaxQPS > 0 {
+		l.limiter = rate.NewLimiter(rate.Limit(quota.MaxQPS), burstFor(quota.MaxQPS))
+	}
+	return l
 }
 
 func newTenant(quota Quota) *tenant {
-	t := &tenant{quota: quota}
-	if quota.MaxQPS > 0 {
-		t.limiter = rate.NewLimiter(rate.Limit(quota.MaxQPS), burstFor(quota.MaxQPS))
-	}
+	t := &tenant{}
+	t.limits.Store(newLimits(quota))
 	return t
 }
+
+func (t *tenant) quota() Quota { return t.limits.Load().quota }
 
 // quota.json sits next to the tenant's WAL and snapshot so a restart brings
 // the tenant back with the limits it was created with. A missing file (a
@@ -230,8 +244,11 @@ func (s *Store) acquire(tenantID string) (*tenant, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Re-check under the write lock: another goroutine may have opened it
-	// while we waited.
+	// Re-check under the write lock: another goroutine may have opened it,
+	// or deleted the tenant, while we waited.
+	if t, ok = s.tenants[tenantID]; !ok {
+		return nil, ErrTenantNotFound
+	}
 	if t.engine == nil {
 		eng, err := Open(filepath.Join(s.rootDir, tenantID), s.cfg)
 		if err != nil {
@@ -291,15 +308,102 @@ func (s *Store) CloseIdle(maxIdle time.Duration) (int, error) {
 	return closed, errors.Join(errs...)
 }
 
+// DeleteTenant closes tenantID and removes all of its data from disk. The
+// default tenant can't be deleted.
+func (s *Store) DeleteTenant(tenantID string) error {
+	if tenantID == "" || tenantID == DefaultTenant {
+		return ErrDefaultTenant
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tenants[tenantID]
+	if !ok {
+		return ErrTenantNotFound
+	}
+	t.use.Lock() // wait out requests already inside it
+	defer t.use.Unlock()
+	if t.engine != nil {
+		if err := t.engine.discard(); err != nil {
+			return err
+		}
+		t.engine = nil
+	}
+	delete(s.tenants, tenantID)
+	return os.RemoveAll(filepath.Join(s.rootDir, tenantID))
+}
+
+// SetQuota replaces tenantID's quota, on disk and for requests from now on.
+func (s *Store) SetQuota(tenantID string, quota Quota) error {
+	if tenantID == "" {
+		tenantID = DefaultTenant
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tenants[tenantID]
+	if !ok {
+		return ErrTenantNotFound
+	}
+	if err := saveQuota(filepath.Join(s.rootDir, tenantID), quota); err != nil {
+		return err
+	}
+	t.limits.Store(newLimits(quota))
+	return nil
+}
+
+// Get returns id's vector and metadata within tenantID.
+func (s *Store) Get(tenantID string, id uint64) ([]float32, map[string]string, error) {
+	t, err := s.acquire(tenantID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer t.use.RUnlock()
+	if !t.allow(1) {
+		return nil, nil, ErrRateLimited
+	}
+	v, md, ok := t.engine.Get(id)
+	if !ok {
+		return nil, nil, ErrNotFound
+	}
+	return v, md, nil
+}
+
+// List pages through tenantID's ids in ascending order (see Engine.List).
+func (s *Store) List(tenantID string, start uint64, limit int) ([]uint64, bool, error) {
+	t, err := s.acquire(tenantID)
+	if err != nil {
+		return nil, false, err
+	}
+	defer t.use.RUnlock()
+	if !t.allow(1) {
+		return nil, false, ErrRateLimited
+	}
+	ids, more := t.engine.List(start, limit)
+	return ids, more, nil
+}
+
+// UpdateMetadata replaces id's metadata within tenantID.
+func (s *Store) UpdateMetadata(tenantID string, id uint64, metadata map[string]string) error {
+	t, err := s.acquire(tenantID)
+	if err != nil {
+		return err
+	}
+	defer t.use.RUnlock()
+	if !t.allow(1) {
+		return ErrRateLimited
+	}
+	return t.engine.UpdateMetadata(id, metadata)
+}
+
 // reserve checks the quota for ids and holds room for the ones that are new.
 // Upserting an id that already exists doesn't use any. The caller must call
 // the returned release once the insert is done.
 func (s *Store) reserve(t *tenant, ids []uint64) (release func(), err error) {
-	if t.quota.MaxVectors <= 0 {
+	limit := t.quota().MaxVectors
+	if limit <= 0 {
 		return func() {}, nil
 	}
 	n := int64(t.engine.CountNew(ids))
-	if int64(t.engine.Len())+t.reserved.Add(n) > t.quota.MaxVectors {
+	if int64(t.engine.Len())+t.reserved.Add(n) > limit {
 		t.reserved.Add(-n)
 		return nil, ErrQuotaExceeded
 	}
@@ -419,7 +523,7 @@ func (s *Store) Stats(tenantID string) (TenantStats, error) {
 		return TenantStats{}, err
 	}
 	defer t.use.RUnlock()
-	return TenantStats{VectorCount: t.engine.Len(), Quota: t.quota}, nil
+	return TenantStats{VectorCount: t.engine.Len(), Quota: t.quota()}, nil
 }
 
 // AllStats reports every known tenant's current usage, without forcing an
@@ -438,7 +542,7 @@ func (s *Store) AllStats() map[string]TenantStats {
 		if t.engine != nil {
 			count = t.engine.Len()
 		}
-		out[id] = TenantStats{VectorCount: count, Quota: t.quota}
+		out[id] = TenantStats{VectorCount: count, Quota: t.quota()}
 	}
 	return out
 }

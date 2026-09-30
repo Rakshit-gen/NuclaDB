@@ -512,3 +512,52 @@ func TestStoreCloseIdleUnderLoad(t *testing.T) {
 		t.Fatalf("VectorCount = %d, want 200", st.VectorCount)
 	}
 }
+
+func TestStoreTenantAdmin(t *testing.T) {
+	root := t.TempDir()
+	s, err := OpenStore(root, testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.CreateTenant("gone", Quota{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Insert("gone", 1, []float32{1, 0, 0, 0}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// SetQuota applies to the next request.
+	if err := s.SetQuota("gone", Quota{MaxVectors: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Insert("gone", 2, []float32{0, 1, 0, 0}, nil); err != ErrQuotaExceeded {
+		t.Fatalf("insert past the new quota: got %v", err)
+	}
+	if st, _ := s.Stats("gone"); st.Quota.MaxVectors != 1 {
+		t.Fatalf("Stats quota = %+v", st.Quota)
+	}
+
+	if err := s.DeleteTenant(DefaultTenant); err != ErrDefaultTenant {
+		t.Fatalf("deleting the default tenant: got %v", err)
+	}
+	if err := s.DeleteTenant("gone"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "gone")); !os.IsNotExist(err) {
+		t.Fatalf("tenant dir still there: %v", err)
+	}
+	if err := s.Insert("gone", 1, []float32{1, 0, 0, 0}, nil); err != ErrTenantNotFound {
+		t.Fatalf("insert into a deleted tenant: got %v", err)
+	}
+	if _, ok := s.AllStats()["gone"]; ok {
+		t.Fatal("deleted tenant still listed")
+	}
+	// The id can be reused as a fresh, empty tenant.
+	if err := s.CreateTenant("gone", Quota{}); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := s.Stats("gone"); st.VectorCount != 0 {
+		t.Fatalf("recreated tenant has %d vectors", st.VectorCount)
+	}
+}

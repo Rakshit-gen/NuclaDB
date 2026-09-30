@@ -912,6 +912,16 @@ func (e *Engine) compactLocked() error {
 // minCompact keeps small graphs from being rebuilt over a few deletes.
 const minCompact = 256
 
+// discard releases the WAL file handle without snapshotting, for an engine
+// whose files are about to be deleted.
+func (e *Engine) discard() error {
+	e.snapMu.Lock()
+	defer e.snapMu.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.w.Close()
+}
+
 // Close snapshots the current state and releases the WAL file handle.
 func (e *Engine) Close() error {
 	e.snapMu.Lock()
