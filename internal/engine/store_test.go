@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
 )
@@ -437,5 +438,77 @@ func TestStoreInsertBatchesRefusesWholeRequest(t *testing.T) {
 		if st, _ := s.Stats(DefaultTenant); st.VectorCount != 0 {
 			t.Fatalf("%s: default tenant was written before the request was refused", name)
 		}
+	}
+}
+
+func TestStoreCloseIdleReopensOnNextUse(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.CreateTenant("idle", Quota{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Insert("idle", 1, []float32{1, 0, 0, 0}, map[string]string{"k": "v"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := s.CloseIdle(time.Hour); err != nil || n != 0 {
+		t.Fatalf("recently used tenant closed: n=%d err=%v", n, err)
+	}
+	n, err := s.CloseIdle(0)
+	if err != nil || n < 1 {
+		t.Fatalf("CloseIdle(0): n=%d err=%v", n, err)
+	}
+	if s.tenants["idle"].engine != nil {
+		t.Fatal("engine still open")
+	}
+	if got := s.AllStats()["idle"].VectorCount; got != 1 {
+		t.Fatalf("AllStats for a closed tenant = %d, want 1", got)
+	}
+
+	res, err := s.Search("idle", []float32{1, 0, 0, 0}, 1, 0, nil)
+	if err != nil || len(res) != 1 || res[0].Metadata["k"] != "v" {
+		t.Fatalf("search after reopen: %v, %v", res, err)
+	}
+}
+
+// Requests racing CloseIdle must never see a closed engine.
+func TestStoreCloseIdleUnderLoad(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var wg sync.WaitGroup
+	for w := 0; w < 4; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				id := uint64(w*50 + i)
+				if err := s.Insert("", id, []float32{float32(id), 1, 0, 0}, nil); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}(w)
+	}
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_, _ = s.CloseIdle(0)
+			}
+		}
+	}()
+	wg.Wait()
+	close(stop)
+	if st, _ := s.Stats(""); st.VectorCount != 200 {
+		t.Fatalf("VectorCount = %d, want 200", st.VectorCount)
 	}
 }

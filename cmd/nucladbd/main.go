@@ -42,6 +42,7 @@ func main() {
 		snapshotEvery  = flag.Duration("snapshot-interval", 5*time.Minute, "how often to snapshot to disk")
 		maxMessage     = flag.Int("max-message-bytes", 64<<20, "largest gRPC message or REST body accepted, in bytes")
 		exactFilter    = flag.Int("exact-filter-limit", engine.DefaultExactFilterLimit, "filters matching at most this many vectors are answered by scoring every match")
+		idleTimeout    = flag.Duration("tenant-idle-timeout", 30*time.Minute, "close tenants unused for this long (0 keeps them open)")
 		metricsEvery   = flag.Duration("metrics-interval", 15*time.Second, "how often to refresh per-tenant usage gauges")
 	)
 	flag.Parse()
@@ -116,6 +117,9 @@ func main() {
 	stopBackground := make(chan struct{})
 	go periodicSnapshot(store, *snapshotEvery, stopBackground)
 	go periodicMetricsRefresh(store, metrics, *metricsEvery, stopBackground)
+	if *idleTimeout > 0 {
+		go periodicIdleClose(store, *idleTimeout, stopBackground)
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -145,6 +149,25 @@ func periodicSnapshot(store *engine.Store, interval time.Duration, stop <-chan s
 				log.Printf("nucladbd: periodic snapshot failed: %v", err)
 			} else {
 				log.Printf("nucladbd: snapshot written")
+			}
+		case <-stop:
+			return
+		}
+	}
+}
+
+func periodicIdleClose(store *engine.Store, idle time.Duration, stop <-chan struct{}) {
+	ticker := time.NewTicker(idle / 2)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			n, err := store.CloseIdle(idle)
+			if err != nil {
+				log.Printf("nucladbd: closing idle tenants: %v", err)
+			}
+			if n > 0 {
+				log.Printf("nucladbd: closed %d idle tenants", n)
 			}
 		case <-stop:
 			return
