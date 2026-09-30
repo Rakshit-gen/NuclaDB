@@ -102,18 +102,21 @@ real Qdrant instance over their own network APIs on the same machine, same
 
 | ef | NuclaDB recall@10 | Qdrant recall@10 | NuclaDB QPS | Qdrant QPS |
 |---|---|---|---|---|
-| 10 | 0.896 | 1.000 | 7432 | 3661 |
-| 50 | 0.997 | 1.000 | 4933 | 5058 |
-| 200 | 1.000 | 1.000 | 2368 | 5063 |
+| 10 | 0.906 | 1.000 | 7443 | 3730 |
+| 50 | 0.997 | 1.000 | 4979 | 4838 |
+| 200 | 1.000 | 1.000 | 2258 | 5076 |
 
 | Backend | Build time (10K vectors) | RSS after build |
 |---|---|---|
-| NuclaDB | 43.9s | 45.2 MB |
-| Qdrant | 124ms | 96.4 MB |
+| NuclaDB | 3.2s | 44.8 MB |
+| Qdrant | 118ms | 97.1 MB |
 
-NuclaDB's build time is ~350x slower (a real, unhidden gap), explained in
-[`docs/writeups/01-wal-then-snapshot.md`](docs/writeups/01-wal-then-snapshot.md):
-every write fsyncs before returning, with no batching yet. Full table,
+NuclaDB still builds ~27x slower than Qdrant. It used to be ~350x (43.9s),
+when every vector paid its own fsync; `BatchUpsert` now writes a whole
+batch with one shared fsync (group commit), and what's left is
+single-threaded HNSW construction. See
+[`docs/writeups/01-wal-then-snapshot.md`](docs/writeups/01-wal-then-snapshot.md)
+for the durability side. Full table,
 methodology, and the Qdrant config bug this benchmark caught (its default
 `full_scan_threshold` would have silently made this an exact-vs-approximate
 comparison) are in [`bench/results.md`](bench/results.md) and

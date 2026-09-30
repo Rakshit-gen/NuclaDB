@@ -8,21 +8,21 @@ Real measurements from running both systems over their own network APIs on the s
 
 | Backend | Build time | RSS after build |
 |---|---|---|
-| NuclaDB | 43.90628575s | 45.2 MB |
-| Qdrant | 124.000458ms | 96.4 MB |
+| NuclaDB | 3.212119208s | 44.8 MB |
+| Qdrant | 117.986667ms | 97.1 MB |
 
 ## Recall / QPS / memory vs ef
 
 | ef | NuclaDB recall@10 | Qdrant recall@10 | NuclaDB QPS | Qdrant QPS | NuclaDB RSS | Qdrant RSS |
 |---|---|---|---|---|---|---|
-| 10 | 0.8960 | 1.0000 | 7432.4 | 3661.1 | 45.2 MB | 102.7 MB |
-| 20 | 0.9620 | 1.0000 | 6298.9 | 4522.6 | 45.2 MB | 102.7 MB |
-| 50 | 0.9970 | 1.0000 | 4932.9 | 5057.7 | 45.3 MB | 102.7 MB |
-| 100 | 1.0000 | 1.0000 | 3675.8 | 4951.5 | 45.4 MB | 102.7 MB |
-| 200 | 1.0000 | 1.0000 | 2367.5 | 5063.3 | 45.6 MB | 102.7 MB |
+| 10 | 0.9060 | 1.0000 | 7442.5 | 3730.3 | 44.8 MB | 103.4 MB |
+| 20 | 0.9520 | 1.0000 | 6609.6 | 4798.8 | 45.0 MB | 103.4 MB |
+| 50 | 0.9970 | 1.0000 | 4978.9 | 4837.5 | 45.0 MB | 103.4 MB |
+| 100 | 1.0000 | 1.0000 | 3400.4 | 5013.0 | 45.1 MB | 103.4 MB |
+| 200 | 1.0000 | 1.0000 | 2257.7 | 5075.6 | 45.1 MB | 103.4 MB |
 
 ## Notes
 
 - **Qdrant's `full_scan_threshold` is set explicitly to 10 (its API-enforced minimum) here.** Its default (10,000 KB) is comfortably above this dataset's raw size (~5120 KB), which means an out-of-the-box comparison at this scale would silently have been exact-search-vs-HNSW, not HNSW-vs-HNSW. Discovered by noticing suspiciously perfect 1.0 recall at every ef on the first run; see the writeup.
-- **Build time is the standout gap.** NuclaDB's WAL fsyncs on every single write for crash-safety durability; Qdrant batches durability differently, hence the build-time difference above. This is a genuine, unhidden weakness — see docs/writeups.
-- At only 10000 vectors, recall for both engines converges close to 1.0 by moderate ef — a real recall/QPS tradeoff separation is more visible at larger scale (SIFT1M); rerunning there is documented future work, not run here due to build-time cost at this fsync-per-write rate.
+- **Build time is still the standout gap.** NuclaDB loads through BatchUpsert in batches of 500, and each batch shares one WAL fsync; before group commit every vector paid its own fsync and this build took 43.9s. What remains is single-threaded HNSW construction (ef_construct=200) under one graph lock; Qdrant builds its index differently.
+- At only 10000 vectors, recall for both engines converges close to 1.0 by moderate ef. A clearer recall/QPS separation would show at larger scale (SIFT1M), which has not been run.

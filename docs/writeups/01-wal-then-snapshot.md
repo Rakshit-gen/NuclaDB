@@ -64,7 +64,23 @@ and the WAL-level torn-write tests in `internal/storage/wal/wal_test.go`
 would need to keep passing against the batched writer, which is the real
 constraint on how aggressive the batching can be).
 
-This is a documented follow-up, not implemented yet — the honest state of
-the system today is "durable and slow to bulk-load," not "durable and
-fast." Framing it as anything else would undersell exactly the kind of
-tradeoff this project exists to demonstrate understanding of.
+## Update: group commit, measured
+
+Group commit is now in for explicit batches. `wal.Writer.AppendBatch`
+writes a batch of records and fsyncs once, and `Engine.InsertBatch` makes
+the whole batch durable before any of it touches the graph, so a failed
+fsync applies nothing. The `BatchUpsert` RPC uses it, one group per tenant.
+Nothing is lost that wasn't already at risk: the RPC only returns after
+the shared fsync, the same promise a single `Insert` makes.
+
+Same benchmark, same machine, batches of 500:
+
+| | build time (10K vectors) |
+|---|---|
+| fsync per vector | 43.9s |
+| one fsync per batch of 500 | 3.2s |
+
+The remaining 3.2s is HNSW construction itself (ef_construct=200, one
+graph lock), not durability. Single `Insert` calls still fsync each; a
+time-window group commit for those, where concurrent single inserts share
+an fsync, is not done.

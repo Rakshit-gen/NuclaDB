@@ -140,10 +140,11 @@ func writeMarkdown(a, b *bench.Report, topK int) error {
 	ew.printf("Its default (10,000 KB) is comfortably above this dataset's raw size (~%.0f KB), which means ", float64(a.NumVectors*a.Dim*4)/1000)
 	ew.printf("an out-of-the-box comparison at this scale would silently have been exact-search-vs-HNSW, not HNSW-vs-HNSW. ")
 	ew.printf("Discovered by noticing suspiciously perfect 1.0 recall at every ef on the first run; see the writeup.\n")
-	ew.printf("- **Build time is the standout gap.** %s's WAL fsyncs on every single write for crash-safety durability; ", a.Backend)
-	ew.printf("%s batches durability differently, hence the build-time difference above. This is a genuine, unhidden weakness — see docs/writeups.\n", b.Backend)
-	ew.printf("- At only %d vectors, recall for both engines converges close to 1.0 by moderate ef — a real recall/QPS tradeoff separation ", a.NumVectors)
-	ew.printf("is more visible at larger scale (SIFT1M); rerunning there is documented future work, not run here due to build-time cost at this fsync-per-write rate.\n")
+	ew.printf("- **Build time is still the standout gap.** %s loads through BatchUpsert in batches of 500, and each batch shares one WAL fsync; ", a.Backend)
+	ew.printf("before group commit every vector paid its own fsync and this build took 43.9s. What remains is single-threaded HNSW construction ")
+	ew.printf("(ef_construct=200) under one graph lock; %s builds its index differently.\n", b.Backend)
+	ew.printf("- At only %d vectors, recall for both engines converges close to 1.0 by moderate ef. A clearer recall/QPS separation ", a.NumVectors)
+	ew.printf("would show at larger scale (SIFT1M), which has not been run.\n")
 
 	if ew.err != nil {
 		return fmt.Errorf("writing %s: %w", path, ew.err)
