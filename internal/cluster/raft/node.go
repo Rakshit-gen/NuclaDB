@@ -15,6 +15,8 @@ type Node struct {
 	id   string
 	raft *raft.Raft
 	fsm  *FSM
+
+	proposeTimeout time.Duration
 }
 
 // Deps bundles the raft.NewRaft dependencies so callers can supply either
@@ -25,6 +27,27 @@ type Deps struct {
 	Stable    raft.StableStore
 	Snapshots raft.SnapshotStore
 	Transport raft.Transport
+	// Timeouts overrides the Raft timers. Zero fields keep the fast test
+	// values; a cluster on a real network wants something closer to
+	// hashicorp/raft's defaults (1s heartbeat and election, 500ms lease).
+	Timeouts Timeouts
+}
+
+// Timeouts are the Raft timers a deployment may need to tune.
+type Timeouts struct {
+	Heartbeat   time.Duration
+	Election    time.Duration
+	LeaderLease time.Duration
+	Commit      time.Duration
+	// Propose bounds how long one topology command waits to commit.
+	Propose time.Duration
+}
+
+func pick(d, fallback time.Duration) time.Duration {
+	if d > 0 {
+		return d
+	}
+	return fallback
 }
 
 // New constructs a Node around a fresh FSM. It does not form a cluster by
@@ -32,21 +55,20 @@ type Deps struct {
 func New(id string, deps Deps) (*Node, error) {
 	cfg := raft.DefaultConfig()
 	cfg.LocalID = raft.ServerID(id)
-	// Fast timeouts so in-memory test clusters converge and fail over in
-	// well under a second; production deployments running over a real
-	// network would want the library defaults (measured in seconds), so
-	// this becomes a Deps field if/when this ever runs outside tests.
-	cfg.HeartbeatTimeout = 100 * time.Millisecond
-	cfg.ElectionTimeout = 100 * time.Millisecond
-	cfg.LeaderLeaseTimeout = 50 * time.Millisecond
-	cfg.CommitTimeout = 10 * time.Millisecond
+	// Fast defaults so in-memory test clusters converge and fail over in
+	// well under a second. Real deployments set deps.Timeouts.
+	t := deps.Timeouts
+	cfg.HeartbeatTimeout = pick(t.Heartbeat, 100*time.Millisecond)
+	cfg.ElectionTimeout = pick(t.Election, 100*time.Millisecond)
+	cfg.LeaderLeaseTimeout = pick(t.LeaderLease, 50*time.Millisecond)
+	cfg.CommitTimeout = pick(t.Commit, 10*time.Millisecond)
 
 	fsm := newFSM()
 	r, err := raft.NewRaft(cfg, fsm, deps.Logs, deps.Stable, deps.Snapshots, deps.Transport)
 	if err != nil {
 		return nil, err
 	}
-	return &Node{id: id, raft: r, fsm: fsm}, nil
+	return &Node{id: id, raft: r, fsm: fsm, proposeTimeout: pick(t.Propose, 2*time.Second)}, nil
 }
 
 // Bootstrap forms a new cluster with the given voter servers. Call this
@@ -110,8 +132,6 @@ func (n *Node) Shutdown() error {
 	return n.raft.Shutdown().Error()
 }
 
-const defaultProposeTimeout = 2 * time.Second
-
 // propose serializes cmd and replicates it through Raft consensus,
 // returning once it's committed and applied to this node's own FSM. Only
 // the leader can do this; hashicorp/raft's Apply rejects the call on a
@@ -121,7 +141,7 @@ func (n *Node) propose(cmd Command) error {
 	if err != nil {
 		return err
 	}
-	future := n.raft.Apply(data, defaultProposeTimeout)
+	future := n.raft.Apply(data, n.proposeTimeout)
 	if err := future.Error(); err != nil {
 		return err
 	}

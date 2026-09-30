@@ -210,3 +210,31 @@ func TestLeaderFailover(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestNewAppliesTimeouts(t *testing.T) {
+	deps := func(to Timeouts) Deps {
+		_, transport := raft.NewInmemTransport("")
+		return Deps{
+			Logs:      raft.NewInmemStore(),
+			Stable:    raft.NewInmemStore(),
+			Snapshots: raft.NewInmemSnapshotStore(),
+			Transport: transport,
+			Timeouts:  to,
+		}
+	}
+
+	n, err := New("n", deps(Timeouts{Heartbeat: time.Second, Election: time.Second, LeaderLease: 500 * time.Millisecond, Propose: 5 * time.Second}))
+	if err != nil {
+		t.Fatalf("New with real-network timeouts: %v", err)
+	}
+	defer n.Shutdown()
+	if n.proposeTimeout != 5*time.Second {
+		t.Fatalf("proposeTimeout = %s, want 5s", n.proposeTimeout)
+	}
+
+	// A lease longer than the heartbeat is invalid; raft must refuse it
+	// rather than run with it.
+	if _, err := New("bad", deps(Timeouts{LeaderLease: time.Second})); err == nil {
+		t.Fatal("New with lease > heartbeat: got nil error")
+	}
+}
