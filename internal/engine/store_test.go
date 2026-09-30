@@ -2,6 +2,8 @@ package engine
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -312,5 +314,35 @@ func TestStoreConcurrentFirstAccess(t *testing.T) {
 			}()
 		}
 		wg.Wait()
+	}
+}
+
+func TestStoreSnapshotContinuesPastAFailingTenant(t *testing.T) {
+	root := t.TempDir()
+	s, err := OpenStore(root, testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"a", "b"} {
+		if err := s.CreateTenant(id, Quota{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Insert(id, 1, []float32{1, 0, 0, 0}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Tenant a can't write its snapshot files.
+	badDir := filepath.Join(root, "a")
+	if err := os.Chmod(badDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(badDir, 0o755)
+
+	if err := s.Snapshot(); err == nil {
+		t.Fatal("Snapshot should report tenant a's failure")
+	}
+	if _, err := os.Stat(filepath.Join(root, "b", snapshotFile)); err != nil {
+		t.Fatalf("tenant b was not snapshotted: %v", err)
 	}
 }

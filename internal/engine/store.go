@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -309,7 +310,8 @@ func (s *Store) AllStats() map[string]TenantStats {
 	return out
 }
 
-// Snapshot snapshots every currently-open tenant engine.
+// Snapshot snapshots every currently-open tenant engine. One tenant failing
+// doesn't stop the others; every failure is returned, joined.
 func (s *Store) Snapshot() error {
 	s.mu.RLock()
 	engines := make([]*Engine, 0, len(s.tenants))
@@ -320,12 +322,13 @@ func (s *Store) Snapshot() error {
 	}
 	s.mu.RUnlock()
 
+	var errs []error
 	for _, e := range engines {
 		if err := e.Snapshot(); err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("snapshot %s: %w", e.dir, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Close snapshots and closes every currently-open tenant engine.
@@ -339,11 +342,11 @@ func (s *Store) Close() error {
 	}
 	s.mu.RUnlock()
 
-	var firstErr error
+	var errs []error
 	for _, e := range engines {
-		if err := e.Close(); err != nil && firstErr == nil {
-			firstErr = err
+		if err := e.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close %s: %w", e.dir, err))
 		}
 	}
-	return firstErr
+	return errors.Join(errs...)
 }
