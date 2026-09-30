@@ -354,12 +354,13 @@ func (e *Engine) LoadSnapshot(snapshotBytes, metadataBytes []byte, seq uint64) e
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	snapshotPath := filepath.Join(e.dir, snapshotFile)
-	if err := writeFileAtomic(snapshotPath, snapshotBytes); err != nil {
-		return err
-	}
+	// Metadata before the graph snapshot, for the same reason as Snapshot.
 	metadataPath := filepath.Join(e.dir, metadataFile)
 	if err := writeFileAtomic(metadataPath, metadataBytes); err != nil {
+		return err
+	}
+	snapshotPath := filepath.Join(e.dir, snapshotFile)
+	if err := writeFileAtomic(snapshotPath, snapshotBytes); err != nil {
 		return err
 	}
 
@@ -399,12 +400,40 @@ func (e *Engine) LoadSnapshot(snapshotBytes, metadataBytes []byte, seq uint64) e
 	return nil
 }
 
+// writeFileAtomic replaces path with data so that after a crash the file
+// holds either the old contents or the new, never a torn or empty mix: the
+// temp file is fsynced before the rename, and the directory after it so the
+// rename itself is durable.
 func writeFileAtomic(path string, data []byte) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	f, err := os.Create(tmp)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(path))
+}
+
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // Result is one scored match from Search, including its metadata payload.
@@ -496,14 +525,20 @@ func (e *Engine) Snapshot() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if err := segment.Save(filepath.Join(e.dir, snapshotFile), e.graph.Load(), e.seq); err != nil {
-		return err
-	}
-
+	// Metadata goes first. Replay skips every WAL record at or below the
+	// snapshot's seq, so if the graph snapshot landed and a crash hit before
+	// metadata.json did, the metadata for those records was gone for good.
+	// In this order a crash in between leaves metadata newer than the graph,
+	// and replaying the WAL on top of it is harmless: each record sets or
+	// clears its id's metadata outright.
 	e.metaMu.RLock()
 	err := saveMetadata(filepath.Join(e.dir, metadataFile), e.metadata)
 	e.metaMu.RUnlock()
 	if err != nil {
+		return err
+	}
+
+	if err := segment.Save(filepath.Join(e.dir, snapshotFile), e.graph.Load(), e.seq); err != nil {
 		return err
 	}
 
@@ -570,9 +605,5 @@ func saveMetadata(path string, metadata map[uint64]map[string]string) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeFileAtomic(path, b)
 }
