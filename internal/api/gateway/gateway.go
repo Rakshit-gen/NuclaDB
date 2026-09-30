@@ -158,6 +158,8 @@ func statusCodeFor(err error) int {
 		return http.StatusBadRequest
 	case codes.NotFound:
 		return http.StatusNotFound
+	case codes.AlreadyExists:
+		return http.StatusConflict
 	case codes.ResourceExhausted:
 		return http.StatusTooManyRequests
 	default:

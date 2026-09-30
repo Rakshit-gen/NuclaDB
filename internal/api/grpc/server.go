@@ -7,13 +7,14 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"strconv"
-	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/Rakshit-gen/nucladb/internal/engine"
+	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
 	pb "github.com/Rakshit-gen/nucladb/proto/nucladbv1"
 )
 
@@ -157,9 +158,8 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 	return &pb.SearchResponse{Matches: matches}, nil
 }
 
-// toStatus classifies engine/store errors for the client: dimension
-// mismatches, unknown-tenant/id errors, and quota/rate-limit rejections
-// are the caller's fault; anything else is treated as an internal error.
+// toStatus maps engine and store sentinel errors (wrapped or not) to gRPC
+// codes. Anything unrecognized is an internal error.
 func toStatus(err error) error {
 	if err == nil {
 		return nil
@@ -167,17 +167,17 @@ func toStatus(err error) error {
 	if status.Code(err) != codes.Unknown {
 		return err
 	}
-	switch err {
-	case engine.ErrTenantNotFound:
+	switch {
+	case errors.Is(err, engine.ErrTenantNotFound):
 		return status.Error(codes.NotFound, err.Error())
-	case engine.ErrTenantExists, engine.ErrInvalidTenantID:
+	case errors.Is(err, engine.ErrTenantExists):
+		return status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, engine.ErrInvalidTenantID), errors.Is(err, hnsw.ErrDimensionMismatch):
 		return status.Error(codes.InvalidArgument, err.Error())
-	case engine.ErrQuotaExceeded, engine.ErrRateLimited:
+	case errors.Is(err, engine.ErrQuotaExceeded), errors.Is(err, engine.ErrRateLimited):
 		return status.Error(codes.ResourceExhausted, err.Error())
+	case errors.Is(err, engine.ErrNotFound), errors.Is(err, hnsw.ErrNotFound):
+		return status.Error(codes.NotFound, err.Error())
 	}
-	msg := err.Error()
-	if strings.Contains(msg, "dimension mismatch") || strings.Contains(msg, "not found") {
-		return status.Error(codes.InvalidArgument, msg)
-	}
-	return status.Error(codes.Internal, msg)
+	return status.Error(codes.Internal, err.Error())
 }
