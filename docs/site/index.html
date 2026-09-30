@@ -459,12 +459,24 @@ POST   /v1/search         (Search)</code></pre>
 
     <section id="limitations">
       <h2>Known limitations</h2>
+      <ul>
+        <li>Each tenant's HNSW graph sits behind one <code>RWMutex</code>.
+          Searches share the read lock, but every insert takes the write lock
+          and blocks searches while it runs.</li>
+        <li>A single <code>insert</code> still pays its own WAL fsync. Use
+          <code>batch-upsert</code> (or <code>InsertBatch</code>) to share one
+          fsync across many vectors.</li>
+        <li>Product quantization is flat PQ with no IVF coarse index, so a PQ
+          search still scans every code. Re-ranking against full vectors fixes
+          recall, not scan cost.</li>
+        <li>The cluster router has no batch insert; batches through the router
+          go one vector at a time.</li>
+      </ul>
       <p>
-        A tenant's quota (<code>max-vectors</code> / <code>max-qps</code>)
-        is saved to <code>quota.json</code> in the tenant's data directory
-        and read back on startup, so restarting <code>nucladbd</code> keeps
-        every tenant's limits. Tenants created by older versions have no
-        <code>quota.json</code> and come back unlimited.
+        Tenant quotas (<code>max-vectors</code> / <code>max-qps</code>) are
+        saved to <code>quota.json</code> and survive restarts. Tenants created
+        by older versions have no <code>quota.json</code> and come back
+        unlimited.
       </p>
     </section>
 
