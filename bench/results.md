@@ -8,18 +8,18 @@ Real measurements from running both systems over their own network APIs on the s
 
 | Backend | Build time | RSS after build |
 |---|---|---|
-| NuclaDB | 485.780666ms | 46.2 MB |
-| Qdrant | 534.15225ms | 116.0 MB |
+| NuclaDB | 414.936792ms | 44.7 MB |
+| Qdrant | 550.786208ms | 114.8 MB |
 
 ## Recall / QPS / memory vs ef
 
 | ef | NuclaDB recall@10 | Qdrant recall@10 | NuclaDB QPS | Qdrant QPS | NuclaDB RSS | Qdrant RSS |
 |---|---|---|---|---|---|---|
-| 10 | 0.8370 | 0.9640 | 9266.1 | 5108.1 | 46.5 MB | 116.8 MB |
-| 20 | 0.9000 | 0.9890 | 9089.0 | 6073.9 | 46.6 MB | 116.8 MB |
-| 50 | 0.9980 | 0.9980 | 7765.6 | 5932.6 | 46.6 MB | 116.8 MB |
-| 100 | 1.0000 | 1.0000 | 6564.8 | 6472.4 | 46.6 MB | 117.0 MB |
-| 200 | 1.0000 | 1.0000 | 4310.5 | 5239.5 | 46.6 MB | 117.1 MB |
+| 10 | 0.9320 | 0.9640 | 10545.3 | 5551.8 | 44.8 MB | 115.6 MB |
+| 20 | 0.9830 | 0.9940 | 9338.7 | 5914.5 | 44.8 MB | 115.7 MB |
+| 50 | 0.9980 | 0.9990 | 7762.3 | 5214.1 | 44.8 MB | 115.9 MB |
+| 100 | 1.0000 | 0.9990 | 7189.7 | 1956.3 | 44.8 MB | 116.0 MB |
+| 200 | 1.0000 | 1.0000 | 4972.7 | 4729.8 | 44.9 MB | 116.2 MB |
 
 ## Notes
 

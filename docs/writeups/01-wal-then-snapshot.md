@@ -97,11 +97,12 @@ explains was never 350x against a real index build, though fsync per
 vector really did cost NuclaDB 43.9s.
 
 After faster distance kernels, a slice-based graph and a parallel batch
-build, NuclaDB builds the same index in 486ms:
+build, NuclaDB builds the same index in 415ms (including the diversity
+heuristic for neighbor selection, which costs some build time):
 
 | | build time (10K vectors) |
 |---|---|
 | fsync per vector | 43.9s |
 | one fsync per batch of 500 | 3.2s |
-| + unrolled distance, slice-based graph, parallel batch build | 486ms |
-| Qdrant, index built | 534ms |
+| + unrolled distance, slice-based graph, parallel batch build | 415ms |
+| Qdrant, index built | 551ms |

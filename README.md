@@ -102,27 +102,29 @@ real Qdrant instance over their own network APIs on the same machine, same
 
 | ef | NuclaDB recall@10 | Qdrant recall@10 | NuclaDB QPS | Qdrant QPS |
 |---|---|---|---|---|
-| 10 | 0.837 | 0.964 | 9266 | 5108 |
-| 50 | 0.998 | 0.998 | 7766 | 5933 |
-| 200 | 1.000 | 1.000 | 4311 | 5240 |
+| 10 | 0.932 | 0.964 | 10545 | 5552 |
+| 50 | 0.998 | 0.999 | 7762 | 5214 |
+| 100 | 1.000 | 0.999 | 7190 | 1956 |
+| 200 | 1.000 | 1.000 | 4973 | 4730 |
 
 | Backend | Build time (10K vectors) | RSS after build |
 |---|---|---|
-| NuclaDB | 486ms | 46.2 MB |
-| Qdrant | 534ms | 116.0 MB |
+| NuclaDB | 415ms | 44.7 MB |
+| Qdrant | 551ms | 114.8 MB |
 
-NuclaDB now builds this index slightly faster than Qdrant. Earlier
+NuclaDB now builds this index faster than Qdrant. Earlier
 versions of this table showed Qdrant at ~120ms and NuclaDB ~27x slower,
 but that compared different work: Qdrant skips building an HNSW index for
 segments under its `indexing_threshold`, so it had only ingested points
 and was answering every search by brute force. The benchmark now forces
 Qdrant to index and waits until it has. NuclaDB's own build went from
-43.9s (fsync per vector) to 3.2s (group commit) to 486ms, through faster
+43.9s (fsync per vector) to 3.2s (group commit) to 415ms, through faster
 distance kernels, a slice-based graph layout, and a parallel batch build
-(`hnsw.Graph.InsertBatch`). At low ef, Qdrant's recall is higher; NuclaDB
-picks the closest M neighbors rather than the paper's diversity
-heuristic, and its ef=10 recall moves between about 0.84 and 0.91 with
-the random level seed. See
+(`hnsw.Graph.InsertBatch`). Neighbors are picked with the HNSW paper's
+diversity heuristic, which raised ef=10 recall from 0.84-0.91 (it moved
+with the random level seed) to about 0.93; Qdrant is still a little higher
+at ef=10 and ef=20, and both reach 1.000 by ef=100-200. Qdrant's ef=100
+QPS in this run is an outlier; its other rows sit around 5,000-5,900. See
 [`docs/writeups/01-wal-then-snapshot.md`](docs/writeups/01-wal-then-snapshot.md)
 for the durability side. Full table and methodology, including the two
 Qdrant config settings that would each have made this an unfair
