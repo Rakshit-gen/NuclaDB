@@ -228,3 +228,34 @@ func TestWriterTruncatesTornTailSoLaterAppendsSurvive(t *testing.T) {
 		t.Fatalf("n=%d last=%d err=%v, want both records visible", n, last, err)
 	}
 }
+
+func TestRecoverOffsetLetsOpenWriterAtSkipTheTornTail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wal.log")
+	w, _ := OpenWriter(path, 0)
+	w.Append(OpInsert, 1, []float32{1})
+	w.Append(OpInsert, 2, []float32{2})
+	w.Close()
+	info, _ := os.Stat(path)
+
+	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	f.Write([]byte{9, 0, 0, 0, 1, 2}) // torn frame
+	f.Close()
+
+	valid, last, err := Recover(path, func(Record) error { return nil })
+	if err != nil || last != 2 || valid != info.Size() {
+		t.Fatalf("valid=%d last=%d err=%v, want valid=%d last=2", valid, last, err, info.Size())
+	}
+
+	w, err = OpenWriterAt(path, last, valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Append(OpInsert, 3, []float32{3})
+	w.Close()
+
+	n := 0
+	last, err = Replay(path, func(Record) error { n++; return nil })
+	if err != nil || n != 3 || last != 3 {
+		t.Fatalf("n=%d last=%d err=%v, want all three records", n, last, err)
+	}
+}

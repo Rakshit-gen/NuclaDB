@@ -75,7 +75,7 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 	}
 
 	lastSeq := snapshotSeq
-	_, err = wal.Replay(walPath, func(rec wal.Record) error {
+	walBytes, _, err := wal.Recover(walPath, func(rec wal.Record) error {
 		if rec.Seq <= snapshotSeq {
 			// Already reflected in the snapshot we just loaded.
 			return nil
@@ -105,7 +105,7 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 		return nil, err
 	}
 
-	w, err := wal.OpenWriter(walPath, lastSeq)
+	w, err := wal.OpenWriterAt(walPath, lastSeq, walBytes)
 	if err != nil {
 		return nil, err
 	}

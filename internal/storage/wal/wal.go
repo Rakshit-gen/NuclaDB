@@ -79,6 +79,20 @@ func OpenWriter(path string, startSeq uint64) (*Writer, error) {
 	if err := truncateTornTail(path); err != nil {
 		return nil, err
 	}
+	return openAppend(path, startSeq)
+}
+
+// OpenWriterAt is OpenWriter for a caller that has just run Recover on path
+// and knows validBytes, where its last good record ends. It cuts any torn
+// tail at that offset instead of scanning the whole log a second time.
+func OpenWriterAt(path string, startSeq uint64, validBytes int64) (*Writer, error) {
+	if err := truncateTo(path, validBytes); err != nil {
+		return nil, err
+	}
+	return openAppend(path, startSeq)
+}
+
+func openAppend(path string, startSeq uint64) (*Writer, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
@@ -90,32 +104,27 @@ func OpenWriter(path string, startSeq uint64) (*Writer, error) {
 // Replay treats the first corrupt/partial record as end-of-log, so anything
 // appended after a torn tail (a crash mid-write) would be unreachable on the
 // next recovery, i.e. silently lost acknowledged writes.
-// ponytail: one extra sequential scan at open; record the valid offset during
-// Replay if startup time on huge WALs matters.
+// Recovery paths that replay the log first should use Recover plus
+// OpenWriterAt, which gets the same offset without a second scan.
 func truncateTornTail(path string) error {
-	f, err := os.Open(path)
+	valid, _, err := Recover(path, func(Record) error { return nil })
+	if err != nil {
+		return err
+	}
+	return truncateTo(path, valid)
+}
+
+// truncateTo cuts path back to validBytes if it is longer.
+func truncateTo(path string, validBytes int64) error {
+	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	var valid int64
-	r := bufio.NewReader(f)
-	for {
-		rec, err := readRecord(r)
-		if err != nil {
-			break
-		}
-		valid += int64(len(EncodeRecord(rec)))
-	}
-	info, statErr := f.Stat()
-	f.Close()
-	if statErr != nil {
-		return statErr
-	}
-	if valid < info.Size() {
-		return os.Truncate(path, valid)
+	if info.Size() > validBytes {
+		return os.Truncate(path, validBytes)
 	}
 	return nil
 }
@@ -307,54 +316,70 @@ func decodePayload(payload []byte) (Record, error) {
 // is silently dropped, and Replay returns the sequence number of the last
 // *complete* record applied. This is the log's crash-recovery contract.
 func Replay(path string, fn func(Record) error) (lastSeq uint64, err error) {
+	_, lastSeq, err = Recover(path, fn)
+	return lastSeq, err
+}
+
+// Recover is Replay that also reports validBytes, the file offset where
+// the last complete record ends. Pass it to OpenWriterAt to start appending
+// right there.
+func Recover(path string, fn func(Record) error) (validBytes int64, lastSeq uint64, err error) {
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return 0, nil
+		return 0, 0, nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer f.Close()
 
 	r := bufio.NewReader(f)
 	for {
-		rec, err := readRecord(r)
+		rec, size, err := readFrame(r)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, errCorruptTail) {
 				break
 			}
-			return lastSeq, err
+			return validBytes, lastSeq, err
 		}
 		if err := fn(rec); err != nil {
-			return lastSeq, err
+			return validBytes, lastSeq, err
 		}
+		validBytes += size
 		lastSeq = rec.Seq
 	}
-	return lastSeq, nil
+	return validBytes, lastSeq, nil
 }
 
 func readRecord(r *bufio.Reader) (Record, error) {
+	rec, _, err := readFrame(r)
+	return rec, err
+}
+
+// readFrame reads one record and returns its size on disk.
+func readFrame(r *bufio.Reader) (Record, int64, error) {
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(r, header); err != nil {
-		return Record{}, err
+		return Record{}, 0, err
 	}
 	length := binary.LittleEndian.Uint32(header[0:4])
 	wantCRC := binary.LittleEndian.Uint32(header[4:8])
 	if length < 4 || length > maxRecordLen {
-		return Record{}, errCorruptTail
+		return Record{}, 0, errCorruptTail
 	}
 
 	payload := make([]byte, length-4)
 	if _, err := io.ReadFull(r, payload); err != nil {
 		if errors.Is(err, io.EOF) {
-			return Record{}, io.ErrUnexpectedEOF
+			return Record{}, 0, io.ErrUnexpectedEOF
 		}
-		return Record{}, err
+		return Record{}, 0, err
 	}
 	if crc32.ChecksumIEEE(payload) != wantCRC {
-		return Record{}, errCorruptTail
+		return Record{}, 0, errCorruptTail
 	}
-	return decodePayload(payload)
+	rec, err := decodePayload(payload)
+	return rec, 8 + int64(len(payload)), err
 }
 
 // Follow behaves like Replay but never stops at end-of-file: after
