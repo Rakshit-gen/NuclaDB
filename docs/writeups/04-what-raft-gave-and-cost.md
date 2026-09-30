@@ -53,12 +53,12 @@ theoretical:
 
 **Sharded routing has a real, measured throughput cost.**
 `bench/results-cluster.md` (4 shards vs. single-node, same SIFT-small
-dataset, same recall target) shows QPS dropping between **22% (ef=200)
-and 42% (ef=10)** depending on `ef` — every query now makes a router hop
+dataset, same recall target) shows QPS dropping between **38% (ef=100)
+and 45% (ef=50)** depending on `ef` — every query now makes a router hop
 plus a fan-out to all 4 shards instead of one in-process search, and each
 shard's own candidate list is thinner than the single-node graph's. In
 exchange, recall@10 actually tracks the single-node numbers closely (at
-ef=10 the cluster's 0.963 even beats single-node's 0.903, since sharding
+ef=10 the cluster's 0.978 even beats single-node's 0.910, since sharding
 by id doesn't remove any vectors, it just changes which process holds
 them). Raft's own metadata layer isn't the source of this cost — the
 scatter-gather query pattern is — but it's the tradeoff that only exists
