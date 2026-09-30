@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	site "github.com/Rakshit-gen/nucladb/docs/site"
+	"github.com/Rakshit-gen/nucladb/internal/auth"
 	pb "github.com/Rakshit-gen/nucladb/proto/nucladbv1"
 )
 
@@ -70,7 +71,8 @@ func New(svc pb.NuclaDBServer, maxBodyBytes int64) *Handler {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxBody)
-	h.mux.ServeHTTP(w, r)
+	key := auth.FromHeader(r.Header.Get("Authorization"), r.Header.Get("X-API-Key"))
+	h.mux.ServeHTTP(w, r.WithContext(auth.WithKey(r.Context(), key)))
 }
 
 type tenantJSON struct {
@@ -287,6 +289,10 @@ func statusCodeFor(err error) int {
 		return http.StatusNotFound
 	case codes.AlreadyExists:
 		return http.StatusConflict
+	case codes.Unauthenticated:
+		return http.StatusUnauthorized
+	case codes.PermissionDenied:
+		return http.StatusForbidden
 	case codes.ResourceExhausted:
 		return http.StatusTooManyRequests
 	default:

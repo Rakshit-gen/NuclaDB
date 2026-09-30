@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	grpcapi "github.com/Rakshit-gen/nucladb/internal/api/grpc"
+	"github.com/Rakshit-gen/nucladb/internal/auth"
 	"github.com/Rakshit-gen/nucladb/internal/engine"
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
 )
@@ -185,5 +188,54 @@ func TestRESTWhereFilters(t *testing.T) {
 		"where": []map[string]any{{"key": "price", "op": "between", "value": "1"}},
 	}); code != 400 {
 		t.Fatalf("unknown op: %d, want 400", code)
+	}
+}
+
+func TestRESTAPIKeys(t *testing.T) {
+	store, err := engine.OpenStore(t.TempDir(), hnsw.Config{Dim: 4, Metric: hnsw.L2(), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	svc := grpcapi.New(store)
+	path := filepath.Join(t.TempDir(), "keys.json")
+	os.WriteFile(path, []byte(`[
+		{"key": "admin-key-0123456789", "tenants": ["*"], "admin": true},
+		{"key": "user-key-01234567890", "tenants": ["default"]}
+	]`), 0o600)
+	keys, err := auth.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.RequireKeys(keys)
+	h := New(svc, 1<<20)
+
+	call := func(method, path, key string, body any) int {
+		var buf bytes.Buffer
+		json.NewEncoder(&buf).Encode(body)
+		req := httptest.NewRequest(method, path, &buf)
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	vec := map[string]any{"id": "1", "values": []float32{1, 0, 0, 0}}
+	if code := call("POST", "/v1/vectors", "", vec); code != 401 {
+		t.Fatalf("no key: %d, want 401", code)
+	}
+	if code := call("POST", "/v1/vectors", "user-key-01234567890", vec); code != 200 {
+		t.Fatalf("user key: %d, want 200", code)
+	}
+	if code := call("POST", "/v1/tenants", "user-key-01234567890", map[string]any{"tenant_id": "x"}); code != 403 {
+		t.Fatalf("user key creating a tenant: %d, want 403", code)
+	}
+	if code := call("POST", "/v1/tenants", "admin-key-0123456789", map[string]any{"tenant_id": "x"}); code != 200 {
+		t.Fatalf("admin key creating a tenant: %d, want 200", code)
+	}
+	vec["tenant_id"] = "x"
+	if code := call("POST", "/v1/vectors", "user-key-01234567890", vec); code != 403 {
+		t.Fatalf("user key on another tenant: %d, want 403", code)
 	}
 }

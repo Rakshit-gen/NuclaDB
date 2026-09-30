@@ -33,6 +33,17 @@ class ScoredVector:
     metadata: dict[str, str]
 
 
+class _APIKey(grpc.UnaryUnaryClientInterceptor):
+    """Adds the API key to every call."""
+
+    def __init__(self, key: str):
+        self._metadata = (("authorization", "Bearer " + key),)
+
+    def intercept_unary_unary(self, continuation, details, request):
+        details = details._replace(metadata=tuple(details.metadata or ()) + self._metadata)
+        return continuation(details, request)
+
+
 class Client:
     """A connection to one NuclaDB server. Use as a context manager:
 
@@ -41,10 +52,18 @@ class Client:
             db.search([0.1, 0.2, 0.3], top_k=5)
     """
 
-    def __init__(self, address: str, tenant_id: str = ""):
+    def __init__(
+        self, address: str, tenant_id: str = "", api_key: str = "", tls: bool = False
+    ):
         self.tenant_id = tenant_id
-        self.channel = grpc.insecure_channel(address)
-        self._stub = pb_grpc.NuclaDBStub(self.channel)
+        if tls:
+            self.channel = grpc.secure_channel(address, grpc.ssl_channel_credentials())
+        else:
+            self.channel = grpc.insecure_channel(address)
+        channel = self.channel
+        if api_key:
+            channel = grpc.intercept_channel(channel, _APIKey(api_key))
+        self._stub = pb_grpc.NuclaDBStub(channel)
 
     def __enter__(self) -> "Client":
         return self

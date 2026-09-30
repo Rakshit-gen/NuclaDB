@@ -18,12 +18,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
 	"github.com/Rakshit-gen/nucladb/internal/api/gateway"
 	grpcapi "github.com/Rakshit-gen/nucladb/internal/api/grpc"
+	"github.com/Rakshit-gen/nucladb/internal/auth"
 	"github.com/Rakshit-gen/nucladb/internal/engine"
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
 	"github.com/Rakshit-gen/nucladb/internal/telemetry"
@@ -43,6 +45,9 @@ func main() {
 		maxMessage     = flag.Int("max-message-bytes", 64<<20, "largest gRPC message or REST body accepted, in bytes")
 		exactFilter    = flag.Int("exact-filter-limit", engine.DefaultExactFilterLimit, "filters matching at most this many vectors are answered by scoring every match")
 		idleTimeout    = flag.Duration("tenant-idle-timeout", 30*time.Minute, "close tenants unused for this long (0 keeps them open)")
+		apiKeys        = flag.String("api-keys", "", "JSON file of API keys (see internal/auth); without it every request is allowed")
+		tlsCert        = flag.String("tls-cert", "", "TLS certificate file; with -tls-key, serves gRPC and REST over TLS")
+		tlsKey         = flag.String("tls-key", "", "TLS private key file")
 		metricsEvery   = flag.Duration("metrics-interval", 15*time.Second, "how often to refresh per-tenant usage gauges")
 	)
 	flag.Parse()
@@ -80,11 +85,32 @@ func main() {
 
 	svc := grpcapi.New(store)
 
-	grpcServer := grpc.NewServer(
+	if *apiKeys != "" {
+		keys, err := auth.Load(*apiKeys)
+		if err != nil {
+			log.Fatalf("nucladbd: %v", err)
+		}
+		svc.RequireKeys(keys)
+	} else {
+		log.Printf("nucladbd: no -api-keys file, so every request is allowed")
+	}
+	if (*tlsCert == "") != (*tlsKey == "") {
+		log.Fatalf("nucladbd: -tls-cert and -tls-key go together")
+	}
+
+	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(*maxMessage),
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
-		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor()),
-	)
+		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor(), auth.UnaryServerInterceptor()),
+	}
+	if *tlsCert != "" {
+		creds, err := credentials.NewServerTLSFromFile(*tlsCert, *tlsKey)
+		if err != nil {
+			log.Fatalf("nucladbd: loading TLS certificate: %v", err)
+		}
+		opts = append(opts, grpc.Creds(creds))
+	}
+	grpcServer := grpc.NewServer(opts...)
 	pb.RegisterNuclaDBServer(grpcServer, svc)
 	reflection.Register(grpcServer)
 
@@ -109,7 +135,11 @@ func main() {
 	httpServer := &http.Server{Addr: *httpAddr, Handler: httpMux}
 	go func() {
 		log.Printf("nucladbd: REST listening on %s (/metrics for Prometheus)", *httpAddr)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		serve := httpServer.ListenAndServe
+		if *tlsCert != "" {
+			serve = func() error { return httpServer.ListenAndServeTLS(*tlsCert, *tlsKey) }
+		}
+		if err := serve(); err != nil && err != http.ErrServerClosed {
 			log.Printf("nucladbd: REST server stopped: %v", err)
 		}
 	}()

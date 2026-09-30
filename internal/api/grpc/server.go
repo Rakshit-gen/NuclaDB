@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/Rakshit-gen/nucladb/internal/auth"
 	"github.com/Rakshit-gen/nucladb/internal/engine"
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
 	pb "github.com/Rakshit-gen/nucladb/proto/nucladbv1"
@@ -25,6 +26,25 @@ import (
 type Server struct {
 	pb.UnimplementedNuclaDBServer
 	store *engine.Store
+	keys  *auth.Keys // nil: no API keys required
+}
+
+// RequireKeys makes every RPC check the caller's API key against keys.
+// Callers must also install auth.UnaryServerInterceptor (or, for REST,
+// put the key in the context with auth.WithKey).
+func (s *Server) RequireKeys(keys *auth.Keys) { s.keys = keys }
+
+func (s *Server) allow(ctx context.Context, tenantID string, admin bool) error {
+	if s.keys == nil {
+		return nil
+	}
+	switch err := s.keys.Allow(ctx, tenantID, admin); {
+	case errors.Is(err, auth.ErrNoKey):
+		return status.Error(codes.Unauthenticated, err.Error())
+	case err != nil:
+		return status.Error(codes.PermissionDenied, err.Error())
+	}
+	return nil
 }
 
 // New wraps store as a gRPC service.
@@ -63,6 +83,9 @@ func parseID(s string) (uint64, error) {
 }
 
 func (s *Server) CreateTenant(ctx context.Context, req *pb.CreateTenantRequest) (*pb.CreateTenantResponse, error) {
+	if err := s.allow(ctx, req.GetTenantId(), true); err != nil {
+		return nil, err
+	}
 	if req.GetTenantId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
@@ -78,6 +101,9 @@ func (s *Server) CreateTenant(ctx context.Context, req *pb.CreateTenantRequest) 
 }
 
 func (s *Server) Insert(ctx context.Context, req *pb.InsertRequest) (*pb.InsertResponse, error) {
+	if err := s.allow(ctx, req.GetVector().GetTenantId(), false); err != nil {
+		return nil, err
+	}
 	v := req.GetVector()
 	if v == nil {
 		return nil, status.Error(codes.InvalidArgument, "vector is required")
@@ -107,6 +133,9 @@ func (s *Server) BatchUpsert(ctx context.Context, req *pb.BatchUpsertRequest) (*
 		}
 		tenantID := v.GetTenantId()
 		if _, ok := byTenant[tenantID]; !ok {
+			if err := s.allow(ctx, tenantID, false); err != nil {
+				return nil, err
+			}
 			tenantOrder = append(tenantOrder, tenantID)
 		}
 		byTenant[tenantID] = append(byTenant[tenantID], engine.InsertItem{
@@ -129,6 +158,9 @@ func (s *Server) BatchUpsert(ctx context.Context, req *pb.BatchUpsertRequest) (*
 }
 
 func (s *Server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
+	if err := s.allow(ctx, req.GetTenantId(), false); err != nil {
+		return nil, err
+	}
 	id, err := parseID(req.GetId())
 	if err != nil {
 		return nil, err
@@ -140,6 +172,9 @@ func (s *Server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteR
 }
 
 func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchResponse, error) {
+	if err := s.allow(ctx, req.GetTenantId(), false); err != nil {
+		return nil, err
+	}
 	// HNSW bakes its metric into which neighbors get linked, so a search
 	// can't switch metrics the way a brute-force scan could. A request
 	// naming a different one is refused rather than silently ignored.
@@ -188,6 +223,9 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 }
 
 func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+	if err := s.allow(ctx, req.GetTenantId(), false); err != nil {
+		return nil, err
+	}
 	id, err := parseID(req.GetId())
 	if err != nil {
 		return nil, err
@@ -205,6 +243,9 @@ func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 const MaxPageSize = 1000
 
 func (s *Server) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
+	if err := s.allow(ctx, req.GetTenantId(), false); err != nil {
+		return nil, err
+	}
 	size := int(req.GetPageSize())
 	if size < 0 || size > MaxPageSize {
 		return nil, status.Errorf(codes.InvalidArgument, "page_size must be between 0 (default 100) and %d", MaxPageSize)
@@ -234,6 +275,9 @@ func (s *Server) List(ctx context.Context, req *pb.ListRequest) (*pb.ListRespons
 }
 
 func (s *Server) Count(ctx context.Context, req *pb.CountRequest) (*pb.CountResponse, error) {
+	if err := s.allow(ctx, req.GetTenantId(), false); err != nil {
+		return nil, err
+	}
 	st, err := s.store.Stats(req.GetTenantId())
 	if err != nil {
 		return nil, toStatus(err)
@@ -242,6 +286,9 @@ func (s *Server) Count(ctx context.Context, req *pb.CountRequest) (*pb.CountResp
 }
 
 func (s *Server) UpdateMetadata(ctx context.Context, req *pb.UpdateMetadataRequest) (*pb.UpdateMetadataResponse, error) {
+	if err := s.allow(ctx, req.GetTenantId(), false); err != nil {
+		return nil, err
+	}
 	id, err := parseID(req.GetId())
 	if err != nil {
 		return nil, err
@@ -253,6 +300,9 @@ func (s *Server) UpdateMetadata(ctx context.Context, req *pb.UpdateMetadataReque
 }
 
 func (s *Server) DeleteTenant(ctx context.Context, req *pb.DeleteTenantRequest) (*pb.DeleteTenantResponse, error) {
+	if err := s.allow(ctx, req.GetTenantId(), true); err != nil {
+		return nil, err
+	}
 	if err := s.store.DeleteTenant(req.GetTenantId()); err != nil {
 		return nil, toStatus(err)
 	}
@@ -260,6 +310,9 @@ func (s *Server) DeleteTenant(ctx context.Context, req *pb.DeleteTenantRequest) 
 }
 
 func (s *Server) SetQuota(ctx context.Context, req *pb.SetQuotaRequest) (*pb.SetQuotaResponse, error) {
+	if err := s.allow(ctx, req.GetTenantId(), true); err != nil {
+		return nil, err
+	}
 	q := req.GetQuota()
 	if err := s.store.SetQuota(req.GetTenantId(), engine.Quota{MaxVectors: q.GetMaxVectors(), MaxQPS: q.GetMaxQps()}); err != nil {
 		return nil, toStatus(err)
@@ -268,6 +321,9 @@ func (s *Server) SetQuota(ctx context.Context, req *pb.SetQuotaRequest) (*pb.Set
 }
 
 func (s *Server) ListTenants(ctx context.Context, req *pb.ListTenantsRequest) (*pb.ListTenantsResponse, error) {
+	if err := s.allow(ctx, "", true); err != nil {
+		return nil, err
+	}
 	all := s.store.AllStats()
 	ids := make([]string, 0, len(all))
 	for id := range all {

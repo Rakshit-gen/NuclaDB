@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,8 +18,10 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/Rakshit-gen/nucladb/proto/nucladbv1"
@@ -106,8 +109,21 @@ Full reference: docs/cli.md
 `)
 }
 
+// dial connects to addr. NUCLADB_API_KEY, if set, is sent with every call;
+// NUCLADB_TLS=1 connects over TLS using the system's root certificates.
 func dial(addr string) (*grpc.ClientConn, error) {
-	return grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	creds := insecure.NewCredentials()
+	if os.Getenv("NUCLADB_TLS") == "1" {
+		creds = credentials.NewTLS(&tls.Config{})
+	}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	if key := os.Getenv("NUCLADB_API_KEY"); key != "" {
+		opts = append(opts, grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, callOpts ...grpc.CallOption) error {
+			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+key)
+			return invoker(ctx, method, req, reply, cc, callOpts...)
+		}))
+	}
+	return grpc.NewClient(addr, opts...)
 }
 
 func ctxWithTimeout() (context.Context, context.CancelFunc) {
