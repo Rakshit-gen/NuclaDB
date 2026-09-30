@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/time/rate"
 
@@ -131,6 +132,16 @@ func (s *Store) createTenantLocked(tenantID string, quota Quota) error {
 	return nil
 }
 
+// allow takes n tokens from the tenant's rate limiter, so a batch of n
+// vectors costs the same as n single inserts. A batch bigger than the whole
+// bucket takes the whole bucket instead of being refused forever.
+func (t *tenant) allow(n int) bool {
+	if t.limiter == nil {
+		return true
+	}
+	return t.limiter.AllowN(time.Now(), min(max(n, 1), t.limiter.Burst()))
+}
+
 func newTenant(quota Quota) *tenant {
 	t := &tenant{quota: quota}
 	if quota.MaxQPS > 0 {
@@ -241,7 +252,7 @@ func (s *Store) Insert(tenantID string, id uint64, vector []float32, metadata ma
 	if err != nil {
 		return err
 	}
-	if t.limiter != nil && !t.limiter.Allow() {
+	if !t.allow(1) {
 		return ErrRateLimited
 	}
 	release, err := s.reserve(t, []uint64{id})
@@ -259,7 +270,7 @@ func (s *Store) InsertBatch(tenantID string, items []InsertItem) error {
 	if err != nil {
 		return err
 	}
-	if t.limiter != nil && !t.limiter.Allow() {
+	if !t.allow(len(items)) {
 		return ErrRateLimited
 	}
 	ids := make([]uint64, len(items))
@@ -280,7 +291,7 @@ func (s *Store) Delete(tenantID string, id uint64) error {
 	if err != nil {
 		return err
 	}
-	if t.limiter != nil && !t.limiter.Allow() {
+	if !t.allow(1) {
 		return ErrRateLimited
 	}
 	return t.engine.Delete(id)
@@ -292,7 +303,7 @@ func (s *Store) Search(tenantID string, query []float32, topK, ef int, filters m
 	if err != nil {
 		return nil, err
 	}
-	if t.limiter != nil && !t.limiter.Allow() {
+	if !t.allow(1) {
 		return nil, ErrRateLimited
 	}
 	return t.engine.Search(query, topK, ef, filters)

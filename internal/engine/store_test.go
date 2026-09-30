@@ -389,3 +389,28 @@ func TestStoreQuotaIgnoresUpsertsAndHoldsUnderConcurrency(t *testing.T) {
 		t.Fatalf("new id past the quota: got %v, want ErrQuotaExceeded", err)
 	}
 }
+
+func TestStoreRateLimitCountsBatchVectors(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// Burst of 5 tokens, refilled slowly enough not to matter here.
+	if err := s.CreateTenant("r", Quota{MaxQPS: 5}); err != nil {
+		t.Fatal(err)
+	}
+	batch := func(n int) []InsertItem {
+		items := make([]InsertItem, n)
+		for i := range items {
+			items[i] = InsertItem{ID: uint64(i), Vector: []float32{float32(i), 0, 0, 0}}
+		}
+		return items
+	}
+	if err := s.InsertBatch("r", batch(4)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertBatch("r", batch(2)); err != ErrRateLimited {
+		t.Fatalf("a 2-vector batch with 1 token left: got %v, want ErrRateLimited", err)
+	}
+}
