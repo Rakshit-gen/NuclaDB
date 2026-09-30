@@ -22,23 +22,29 @@ import (
 // Server implements pb.NuclaDBServer over a tenant-isolated Store. Every
 // data RPC's tenant_id is passed straight through to the Store, which
 // resolves an empty tenant_id to engine.DefaultTenant.
-//
-// metric is the distance metric every tenant's graph was built with. HNSW
-// bakes its metric into which neighbors get linked at construction time,
-// so search can't switch metrics per-query the way a brute-force scan
-// could — a SearchRequest.metric that disagrees with it is rejected rather
-// than silently ignored.
 type Server struct {
 	pb.UnimplementedNuclaDBServer
-	store  *engine.Store
-	metric pb.DistanceMetric
+	store *engine.Store
 }
 
-// New wraps store as a gRPC service, validating incoming search requests
-// against metric (the metric every tenant's graph was actually configured
-// with).
-func New(store *engine.Store, metric pb.DistanceMetric) *Server {
-	return &Server{store: store, metric: metric}
+// New wraps store as a gRPC service.
+func New(store *engine.Store) *Server {
+	return &Server{store: store}
+}
+
+var metricNames = map[pb.DistanceMetric]string{
+	pb.DistanceMetric_DISTANCE_METRIC_COSINE: "cosine",
+	pb.DistanceMetric_DISTANCE_METRIC_L2:     "l2",
+	pb.DistanceMetric_DISTANCE_METRIC_DOT:    "dot",
+}
+
+func metricEnum(name string) pb.DistanceMetric {
+	for m, n := range metricNames {
+		if n == name {
+			return m
+		}
+	}
+	return pb.DistanceMetric_DISTANCE_METRIC_UNSPECIFIED
 }
 
 // Caps on per-search work, so one request can't ask the server to walk
@@ -61,10 +67,10 @@ func (s *Server) CreateTenant(ctx context.Context, req *pb.CreateTenantRequest) 
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 	q := req.GetQuota()
-	err := s.store.CreateTenant(req.GetTenantId(), engine.Quota{
+	err := s.store.CreateTenantWithIndex(req.GetTenantId(), engine.Quota{
 		MaxVectors: q.GetMaxVectors(),
 		MaxQPS:     q.GetMaxQps(),
-	})
+	}, engine.IndexSpec{Dim: int(req.GetDim()), Metric: metricNames[req.GetMetric()]})
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -134,10 +140,18 @@ func (s *Server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteR
 }
 
 func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchResponse, error) {
-	if req.GetMetric() != pb.DistanceMetric_DISTANCE_METRIC_UNSPECIFIED && req.GetMetric() != s.metric {
-		return nil, status.Errorf(codes.InvalidArgument,
-			"index was built with metric %s; search cannot use a different metric (HNSW neighbor selection is metric-specific)",
-			s.metric)
+	// HNSW bakes its metric into which neighbors get linked, so a search
+	// can't switch metrics the way a brute-force scan could. A request
+	// naming a different one is refused rather than silently ignored.
+	if want := req.GetMetric(); want != pb.DistanceMetric_DISTANCE_METRIC_UNSPECIFIED {
+		spec, err := s.store.IndexOf(req.GetTenantId())
+		if err != nil {
+			return nil, toStatus(err)
+		}
+		if metricNames[want] != spec.Metric {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"tenant's index was built with metric %s; search cannot use a different one", spec.Metric)
+		}
 	}
 	topK := int(req.GetTopK())
 	if topK <= 0 || topK > MaxTopK {
@@ -267,6 +281,8 @@ func (s *Server) ListTenants(ctx context.Context, req *pb.ListTenantsRequest) (*
 			TenantId:    id,
 			VectorCount: int64(st.VectorCount),
 			Quota:       &pb.TenantQuota{MaxVectors: st.Quota.MaxVectors, MaxQps: st.Quota.MaxQPS},
+			Dim:         int32(st.Index.Dim),
+			Metric:      metricEnum(st.Index.Metric),
 		})
 	}
 	return resp, nil
@@ -287,7 +303,8 @@ func toStatus(err error) error {
 	case errors.Is(err, engine.ErrTenantExists):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, engine.ErrInvalidTenantID), errors.Is(err, hnsw.ErrDimensionMismatch),
-		errors.Is(err, engine.ErrDefaultTenant), errors.Is(err, engine.ErrBadFilter):
+		errors.Is(err, engine.ErrDefaultTenant), errors.Is(err, engine.ErrBadFilter),
+		errors.Is(err, engine.ErrBadIndexSpec):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, engine.ErrQuotaExceeded), errors.Is(err, engine.ErrRateLimited):
 		return status.Error(codes.ResourceExhausted, err.Error())

@@ -48,7 +48,7 @@ func startShardServer(t *testing.T) string {
 		t.Fatal(err)
 	}
 	grpcServer := grpc.NewServer()
-	pb.RegisterNuclaDBServer(grpcServer, grpcimpl.New(store, pb.DistanceMetric_DISTANCE_METRIC_L2))
+	pb.RegisterNuclaDBServer(grpcServer, grpcimpl.New(store))
 	go func() { _ = grpcServer.Serve(ln) }()
 	t.Cleanup(grpcServer.Stop)
 

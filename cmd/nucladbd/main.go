@@ -35,8 +35,8 @@ func main() {
 		dataDir        = flag.String("data-dir", "./data", "directory holding the WAL and snapshot files")
 		grpcAddr       = flag.String("grpc-addr", ":9090", "gRPC listen address")
 		httpAddr       = flag.String("http-addr", ":8080", "REST/JSON + /metrics listen address")
-		dim            = flag.Int("dim", 128, "fixed vector dimensionality for this database")
-		metric         = flag.String("metric", "cosine", "distance metric: cosine, l2, or dot")
+		dim            = flag.Int("dim", 128, "vector dimension for tenants created without their own")
+		metric         = flag.String("metric", "cosine", "distance metric for tenants created without their own: cosine, l2, or dot")
 		m              = flag.Int("m", 16, "HNSW M: bidirectional links per node above layer 0")
 		efConstruction = flag.Int("ef-construction", 200, "HNSW build-time candidate list size")
 		snapshotEvery  = flag.Duration("snapshot-interval", 5*time.Minute, "how often to snapshot to disk")
@@ -47,9 +47,9 @@ func main() {
 	)
 	flag.Parse()
 
-	hnswMetric, pbMetric, err := parseMetric(*metric)
-	if err != nil {
-		log.Fatalf("nucladbd: %v", err)
+	hnswMetric, ok := hnsw.MetricByName(*metric)
+	if !ok {
+		log.Fatalf("nucladbd: unknown metric %q (want cosine, l2, or dot)", *metric)
 	}
 
 	ctx := context.Background()
@@ -78,7 +78,7 @@ func main() {
 	store.SetExactFilterLimit(*exactFilter)
 	log.Printf("nucladbd: opened %s (dim=%d, metric=%s)", *dataDir, *dim, *metric)
 
-	svc := grpcapi.New(store, pbMetric)
+	svc := grpcapi.New(store)
 
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(*maxMessage),
@@ -188,23 +188,4 @@ func periodicMetricsRefresh(store *engine.Store, metrics *telemetry.Metrics, int
 			return
 		}
 	}
-}
-
-func parseMetric(name string) (hnsw.Metric, pb.DistanceMetric, error) {
-	switch name {
-	case "cosine":
-		return hnsw.Cosine(), pb.DistanceMetric_DISTANCE_METRIC_COSINE, nil
-	case "l2":
-		return hnsw.L2(), pb.DistanceMetric_DISTANCE_METRIC_L2, nil
-	case "dot":
-		return hnsw.Dot(), pb.DistanceMetric_DISTANCE_METRIC_DOT, nil
-	default:
-		return nil, 0, errUnknownMetric(name)
-	}
-}
-
-type errUnknownMetric string
-
-func (e errUnknownMetric) Error() string {
-	return "unknown metric " + string(e) + " (want cosine, l2, or dot)"
 }

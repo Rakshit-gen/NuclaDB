@@ -46,9 +46,13 @@ message TenantQuota {
   double max_qps = 2;
 }
 
+// dim and metric are fixed for the tenant's life. 0 and UNSPECIFIED take
+// the server's defaults (its -dim and -metric flags).
 message CreateTenantRequest {
   string tenant_id = 1;
   TenantQuota quota = 2;
+  int32 dim = 3;
+  DistanceMetric metric = 4;
 }
 
 message CreateTenantResponse {}
@@ -188,6 +192,8 @@ message TenantInfo {
   string tenant_id = 1;
   int64 vector_count = 2;
   TenantQuota quota = 3;
+  int32 dim = 4;
+  DistanceMetric metric = 5;
 }
 
 message ListTenantsResponse {

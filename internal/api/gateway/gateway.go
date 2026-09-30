@@ -77,6 +77,13 @@ type tenantJSON struct {
 	TenantID   string  `json:"tenant_id"`
 	MaxVectors int64   `json:"max_vectors,omitempty"`
 	MaxQPS     float64 `json:"max_qps,omitempty"`
+	Dim        int32   `json:"dim,omitempty"`
+	Metric     string  `json:"metric,omitempty"` // cosine, l2 or dot
+}
+
+var metricEnums = map[string]pb.DistanceMetric{
+	"": pb.DistanceMetric_DISTANCE_METRIC_UNSPECIFIED, "cosine": pb.DistanceMetric_DISTANCE_METRIC_COSINE,
+	"l2": pb.DistanceMetric_DISTANCE_METRIC_L2, "dot": pb.DistanceMetric_DISTANCE_METRIC_DOT,
 }
 
 func (h *Handler) createTenant(w http.ResponseWriter, r *http.Request) {
@@ -84,9 +91,16 @@ func (h *Handler) createTenant(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	metric, ok := metricEnums[body.Metric]
+	if !ok {
+		writeError(w, http.StatusBadRequest, "metric must be cosine, l2 or dot")
+		return
+	}
 	resp, err := h.svc.CreateTenant(r.Context(), &pb.CreateTenantRequest{
 		TenantId: body.TenantID,
 		Quota:    &pb.TenantQuota{MaxVectors: body.MaxVectors, MaxQps: body.MaxQPS},
+		Dim:      body.Dim,
+		Metric:   metric,
 	})
 	writeResult(w, resp, err)
 }

@@ -9,7 +9,6 @@ import (
 	grpcapi "github.com/Rakshit-gen/nucladb/internal/api/grpc"
 	"github.com/Rakshit-gen/nucladb/internal/engine"
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
-	pb "github.com/Rakshit-gen/nucladb/proto/nucladbv1"
 )
 
 func newTestHandler(t *testing.T) *Handler {
@@ -19,7 +18,7 @@ func newTestHandler(t *testing.T) *Handler {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	return New(grpcapi.New(store, pb.DistanceMetric_DISTANCE_METRIC_L2), 1<<20)
+	return New(grpcapi.New(store), 1<<20)
 }
 
 func doJSON(t *testing.T, h *Handler, method, path string, body any) (int, map[string]any) {

@@ -9,6 +9,20 @@ type Metric interface {
 	Name() string
 }
 
+// MetricByName returns the built-in metric called name ("cosine", "l2" or
+// "dot").
+func MetricByName(name string) (Metric, bool) {
+	switch name {
+	case "cosine":
+		return Cosine(), true
+	case "l2":
+		return L2(), true
+	case "dot":
+		return Dot(), true
+	}
+	return nil, false
+}
+
 type cosineMetric struct{}
 
 // Cosine returns a metric based on 1 - cosine similarity, so that smaller

@@ -576,3 +576,41 @@ func TestStoreIgnoresStrayDirectories(t *testing.T) {
 		t.Fatal("a directory with no tenant files was loaded as a tenant")
 	}
 }
+
+func TestStorePerTenantDimAndMetric(t *testing.T) {
+	root := t.TempDir()
+	s, err := OpenStore(root, testStoreConfig()) // default dim 4, l2
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTenantWithIndex("wide", Quota{}, IndexSpec{Dim: 6, Metric: "cosine"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTenantWithIndex("bad", Quota{}, IndexSpec{Metric: "manhattan"}); err != ErrBadIndexSpec {
+		t.Fatalf("unknown metric: got %v", err)
+	}
+	if err := s.Insert("wide", 1, []float32{1, 0, 0, 0}, nil); err == nil {
+		t.Fatal("a 4-dim vector went into a 6-dim tenant")
+	}
+	if err := s.Insert("wide", 1, []float32{1, 0, 0, 0, 0, 0}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Insert("", 1, []float32{1, 0, 0, 0}, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	// The tenant keeps its own index after a restart.
+	s2, err := OpenStore(root, testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if spec, _ := s2.IndexOf("wide"); spec != (IndexSpec{Dim: 6, Metric: "cosine"}) {
+		t.Fatalf("after restart: %+v", spec)
+	}
+	res, err := s2.Search("wide", []float32{2, 0, 0, 0, 0, 0}, 1, 0, nil)
+	if err != nil || len(res) != 1 || res[0].Distance > 1e-6 {
+		t.Fatalf("cosine search in wide: %v, %v", res, err)
+	}
+}

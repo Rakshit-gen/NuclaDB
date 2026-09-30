@@ -48,12 +48,16 @@ class TenantQuota(_message.Message):
     def __init__(self, max_vectors: _Optional[int] = ..., max_qps: _Optional[float] = ...) -> None: ...
 
 class CreateTenantRequest(_message.Message):
-    __slots__ = ("tenant_id", "quota")
+    __slots__ = ("tenant_id", "quota", "dim", "metric")
     TENANT_ID_FIELD_NUMBER: _ClassVar[int]
     QUOTA_FIELD_NUMBER: _ClassVar[int]
+    DIM_FIELD_NUMBER: _ClassVar[int]
+    METRIC_FIELD_NUMBER: _ClassVar[int]
     tenant_id: str
     quota: TenantQuota
-    def __init__(self, tenant_id: _Optional[str] = ..., quota: _Optional[_Union[TenantQuota, _Mapping]] = ...) -> None: ...
+    dim: int
+    metric: DistanceMetric
+    def __init__(self, tenant_id: _Optional[str] = ..., quota: _Optional[_Union[TenantQuota, _Mapping]] = ..., dim: _Optional[int] = ..., metric: _Optional[_Union[DistanceMetric, str]] = ...) -> None: ...
 
 class CreateTenantResponse(_message.Message):
     __slots__ = ()
@@ -259,14 +263,18 @@ class ListTenantsRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class TenantInfo(_message.Message):
-    __slots__ = ("tenant_id", "vector_count", "quota")
+    __slots__ = ("tenant_id", "vector_count", "quota", "dim", "metric")
     TENANT_ID_FIELD_NUMBER: _ClassVar[int]
     VECTOR_COUNT_FIELD_NUMBER: _ClassVar[int]
     QUOTA_FIELD_NUMBER: _ClassVar[int]
+    DIM_FIELD_NUMBER: _ClassVar[int]
+    METRIC_FIELD_NUMBER: _ClassVar[int]
     tenant_id: str
     vector_count: int
     quota: TenantQuota
-    def __init__(self, tenant_id: _Optional[str] = ..., vector_count: _Optional[int] = ..., quota: _Optional[_Union[TenantQuota, _Mapping]] = ...) -> None: ...
+    dim: int
+    metric: DistanceMetric
+    def __init__(self, tenant_id: _Optional[str] = ..., vector_count: _Optional[int] = ..., quota: _Optional[_Union[TenantQuota, _Mapping]] = ..., dim: _Optional[int] = ..., metric: _Optional[_Union[DistanceMetric, str]] = ...) -> None: ...
 
 class ListTenantsResponse(_message.Message):
     __slots__ = ("tenants",)

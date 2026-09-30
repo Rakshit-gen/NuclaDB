@@ -38,6 +38,7 @@ type Quota struct {
 
 type tenant struct {
 	engine *Engine
+	cfg    hnsw.Config // this tenant's dimension, metric and HNSW settings
 	limits atomic.Pointer[limits] // swapped whole by SetQuota
 	// reserved counts new vectors whose inserts passed the quota check but
 	// haven't finished yet, so concurrent inserts can't all squeeze past
@@ -82,10 +83,9 @@ func (s *Store) SetExactFilterLimit(n int) {
 
 // OpenStore discovers existing tenant subdirectories under rootDir (each
 // one reopened lazily, on first use) and returns a Store ready to serve
-// them, plus accept newly created tenants. cfg is applied to every
-// tenant's graph (dimension, metric, HNSW parameters are store-wide, not
-// per-tenant, since the same client integration is expected to speak one
-// vector shape across all its tenants).
+// them, plus accept newly created tenants. cfg holds the HNSW settings for
+// every tenant, and the default dimension and metric for tenants created
+// without their own (see CreateTenantWithIndex).
 func OpenStore(rootDir string, cfg hnsw.Config) (*Store, error) {
 	if err := os.MkdirAll(rootDir, 0o755); err != nil {
 		return nil, err
@@ -101,17 +101,22 @@ func OpenStore(rootDir string, cfg hnsw.Config) (*Store, error) {
 		if !e.IsDir() || !isTenantDir(filepath.Join(rootDir, e.Name())) {
 			continue
 		}
-		quota, err := loadQuota(filepath.Join(rootDir, e.Name()))
+		dir := filepath.Join(rootDir, e.Name())
+		quota, err := loadQuota(dir)
 		if err != nil {
 			return nil, err
 		}
-		s.tenants[e.Name()] = newTenant(quota)
+		tcfg, err := loadIndex(dir, cfg)
+		if err != nil {
+			return nil, err
+		}
+		s.tenants[e.Name()] = newTenant(quota, tcfg)
 		if e.Name() == DefaultTenant {
 			foundDefault = true
 		}
 	}
 	if !foundDefault {
-		if err := s.createTenantLocked(DefaultTenant, Quota{}); err != nil {
+		if err := s.createTenantLocked(DefaultTenant, Quota{}, cfg); err != nil {
 			return nil, err
 		}
 	}
@@ -139,31 +144,130 @@ func validTenantID(id string) bool {
 // for "unlimited" if that's genuinely intended, rather than relying on an
 // implicit default.
 func (s *Store) CreateTenant(tenantID string, quota Quota) error {
+	return s.CreateTenantWithIndex(tenantID, quota, IndexSpec{})
+}
+
+// IndexSpec picks a tenant's vector dimension and metric at creation. A
+// zero Dim or empty Metric takes the store's default.
+type IndexSpec struct {
+	Dim    int
+	Metric string // "cosine", "l2" or "dot"
+}
+
+// ErrBadIndexSpec is returned for a negative dimension or unknown metric.
+var ErrBadIndexSpec = errors.New("engine: dim must be positive and metric one of cosine, l2, dot")
+
+// CreateTenantWithIndex is CreateTenant with the tenant's own dimension and
+// metric. They're fixed for the tenant's life: the graph's links depend on
+// the metric, and every stored vector has the dimension.
+func (s *Store) CreateTenantWithIndex(tenantID string, quota Quota, spec IndexSpec) error {
 	if !validTenantID(tenantID) {
 		return ErrInvalidTenantID
+	}
+	cfg := s.cfg
+	if spec.Dim < 0 {
+		return ErrBadIndexSpec
+	}
+	if spec.Dim > 0 {
+		cfg.Dim = spec.Dim
+	}
+	if spec.Metric != "" {
+		m, ok := hnsw.MetricByName(spec.Metric)
+		if !ok {
+			return ErrBadIndexSpec
+		}
+		cfg.Metric = m
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.tenants[tenantID]; exists {
 		return ErrTenantExists
 	}
-	return s.createTenantLocked(tenantID, quota)
+	return s.createTenantLocked(tenantID, quota, cfg)
 }
 
 // createTenantLocked registers tenantID with quota but does not open its
-// Engine — that happens lazily on first access via acquire, so
+// Engine. That happens lazily on first access via acquire, so
 // provisioning many tenants up front doesn't hold many open WAL file
 // handles for ones that see no traffic.
-func (s *Store) createTenantLocked(tenantID string, quota Quota) error {
+func (s *Store) createTenantLocked(tenantID string, quota Quota, cfg hnsw.Config) error {
 	dir := filepath.Join(s.rootDir, tenantID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	if err := saveIndex(dir, cfg); err != nil {
+		return err
+	}
+	// quota.json last: it marks the directory as a finished tenant.
 	if err := saveQuota(dir, quota); err != nil {
 		return err
 	}
-	s.tenants[tenantID] = newTenant(quota)
+	s.tenants[tenantID] = newTenant(quota, cfg)
 	return nil
+}
+
+// index.json records a tenant's dimension and metric. A tenant from before
+// it existed uses the store's.
+const indexFile = "index.json"
+
+type indexJSON struct {
+	Dim    int    `json:"dim"`
+	Metric string `json:"metric"`
+}
+
+func loadIndex(dir string, def hnsw.Config) (hnsw.Config, error) {
+	b, err := os.ReadFile(filepath.Join(dir, indexFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return def, nil
+	}
+	if err != nil {
+		return def, err
+	}
+	var ij indexJSON
+	if err := json.Unmarshal(b, &ij); err != nil {
+		return def, err
+	}
+	m, ok := hnsw.MetricByName(ij.Metric)
+	if !ok || ij.Dim <= 0 {
+		return def, fmt.Errorf("%s: %w", filepath.Join(dir, indexFile), ErrBadIndexSpec)
+	}
+	cfg := def
+	cfg.Dim, cfg.Metric = ij.Dim, m
+	return cfg, nil
+}
+
+func saveIndex(dir string, cfg hnsw.Config) error {
+	name := "cosine"
+	if cfg.Metric != nil {
+		name = cfg.Metric.Name()
+	}
+	b, err := json.Marshal(indexJSON{Dim: cfg.Dim, Metric: name})
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(filepath.Join(dir, indexFile), b)
+}
+
+// IndexOf returns tenantID's dimension and metric name without opening it.
+func (s *Store) IndexOf(tenantID string) (IndexSpec, error) {
+	if tenantID == "" {
+		tenantID = DefaultTenant
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	t, ok := s.tenants[tenantID]
+	if !ok {
+		return IndexSpec{}, ErrTenantNotFound
+	}
+	return t.spec(), nil
+}
+
+func (t *tenant) spec() IndexSpec {
+	name := "cosine"
+	if t.cfg.Metric != nil {
+		name = t.cfg.Metric.Name()
+	}
+	return IndexSpec{Dim: t.cfg.Dim, Metric: name}
 }
 
 // allow takes n tokens from the tenant's rate limiter, so a batch of n
@@ -190,8 +294,8 @@ func newLimits(quota Quota) *limits {
 	return l
 }
 
-func newTenant(quota Quota) *tenant {
-	t := &tenant{}
+func newTenant(quota Quota, cfg hnsw.Config) *tenant {
+	t := &tenant{cfg: cfg}
 	t.limits.Store(newLimits(quota))
 	return t
 }
@@ -262,7 +366,7 @@ func (s *Store) acquire(tenantID string) (*tenant, error) {
 		return nil, ErrTenantNotFound
 	}
 	if t.engine == nil {
-		eng, err := Open(filepath.Join(s.rootDir, tenantID), s.cfg)
+		eng, err := Open(filepath.Join(s.rootDir, tenantID), t.cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -466,7 +570,7 @@ func (s *Store) InsertBatches(batches []TenantBatch) error {
 		}
 		defer t.use.RUnlock()
 		for _, it := range b.Items {
-			if len(it.Vector) != s.cfg.Dim {
+			if len(it.Vector) != t.cfg.Dim {
 				return hnsw.ErrDimensionMismatch
 			}
 		}
@@ -526,6 +630,7 @@ func (s *Store) Search(tenantID string, query []float32, topK, ef int, filters [
 type TenantStats struct {
 	VectorCount int
 	Quota       Quota
+	Index       IndexSpec
 }
 
 // Stats returns tenantID's current usage.
@@ -535,7 +640,7 @@ func (s *Store) Stats(tenantID string) (TenantStats, error) {
 		return TenantStats{}, err
 	}
 	defer t.use.RUnlock()
-	return TenantStats{VectorCount: t.engine.Len(), Quota: t.quota()}, nil
+	return TenantStats{VectorCount: t.engine.Len(), Quota: t.quota(), Index: t.spec()}, nil
 }
 
 // AllStats reports every known tenant's current usage, without forcing an
@@ -554,7 +659,7 @@ func (s *Store) AllStats() map[string]TenantStats {
 		if t.engine != nil {
 			count = t.engine.Len()
 		}
-		out[id] = TenantStats{VectorCount: count, Quota: t.quota()}
+		out[id] = TenantStats{VectorCount: count, Quota: t.quota(), Index: t.spec()}
 	}
 	return out
 }

@@ -25,7 +25,7 @@ func startTestServer(t *testing.T) pb.NuclaDBClient {
 
 	lis := bufconn.Listen(1024 * 1024)
 	grpcServer := grpc.NewServer()
-	pb.RegisterNuclaDBServer(grpcServer, New(store, pb.DistanceMetric_DISTANCE_METRIC_L2))
+	pb.RegisterNuclaDBServer(grpcServer, New(store))
 	go func() {
 		_ = grpcServer.Serve(lis)
 	}()

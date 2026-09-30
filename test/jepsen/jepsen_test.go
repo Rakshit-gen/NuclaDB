@@ -172,7 +172,7 @@ func startMember(t *testing.T, id string) *member {
 		t.Fatalf("store.Engine: %v", err)
 	}
 
-	svc := grpcapi.New(store, pb.DistanceMetric_DISTANCE_METRIC_L2)
+	svc := grpcapi.New(store)
 	grpcSrv := grpc.NewServer()
 	pb.RegisterNuclaDBServer(grpcSrv, svc)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
