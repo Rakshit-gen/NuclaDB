@@ -46,7 +46,7 @@ func (g *Graph) InsertBatch(ids []uint64, vectors [][]float32) error {
 		// the graph.
 		size := min(maxBatchChunk, len(g.nodes)/8, len(ids)-i)
 		if workers == 1 || size < 2*workers || !g.freshIDs(ids[i:i+size]) {
-			g.insertLocked(ids[i], copyVec(vectors[i]))
+			g.insertLocked(ids[i], g.prep(vectors[i]))
 			i++
 			continue
 		}
@@ -55,8 +55,6 @@ func (g *Graph) InsertBatch(ids []uint64, vectors [][]float32) error {
 	}
 	return nil
 }
-
-func copyVec(v []float32) []float32 { return append([]float32(nil), v...) }
 
 // freshIDs reports whether no id in ids is already in the graph or appears
 // twice.
@@ -80,7 +78,7 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 	nodes := make([]*node, len(ids))
 	for k, id := range ids {
 		level := g.randomLevel() // in order, so a seeded graph stays deterministic
-		nodes[k] = &node{id: id, vector: copyVec(vectors[k]), level: level, neighbors: make([][]uint32, level+1)}
+		nodes[k] = &node{id: id, vector: g.prep(vectors[k]), level: level, neighbors: make([][]uint32, level+1)}
 	}
 
 	// Parallel stage. For node k at layer l, candidates[k][l] is its beam

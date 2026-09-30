@@ -35,3 +35,41 @@ func TestDistanceKernelsMatchReference(t *testing.T) {
 		}
 	}
 }
+
+// Cosine graphs store unit vectors and rank by dot product; the distances
+// they report must still equal cosine distance on the raw vectors.
+func TestCosineGraphMatchesCosineDistance(t *testing.T) {
+	rng := rand.New(rand.NewSource(5))
+	g := New(Config{Dim: 16, Metric: Cosine(), Seed: 1})
+	raw := make(map[uint64][]float32)
+	for i := uint64(0); i < 200; i++ {
+		v := make([]float32, 16)
+		for j := range v {
+			v[j] = (rng.Float32() - 0.5) * float32(i+1) // lengths vary a lot
+		}
+		raw[i] = v
+		if err := g.Insert(i, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := make([]float32, 16)
+	for j := range q {
+		q[j] = rng.Float32() * 40
+	}
+	qCopy := append([]float32(nil), q...)
+	res, err := g.Search(q, 10, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range res {
+		want := Cosine().Distance(q, raw[r.ID])
+		if math.Abs(float64(r.Distance-want)) > 1e-5 {
+			t.Fatalf("id %d: distance %v, cosine says %v", r.ID, r.Distance, want)
+		}
+	}
+	for j := range q {
+		if q[j] != qCopy[j] {
+			t.Fatal("Search modified the caller's query")
+		}
+	}
+}

@@ -39,6 +39,26 @@ func (cosineMetric) Distance(a, b []float32) float32 {
 	return float32(1 - sim)
 }
 
+// unitCosine is cosine distance for vectors already scaled to unit length.
+func unitCosine(a, b []float32) float32 {
+	return 1 + dotMetric{}.Distance(a, b)
+}
+
+// normalize scales v to unit length in place. A zero vector stays zero.
+func normalize(v []float32) {
+	var sum float64
+	for _, x := range v {
+		sum += float64(x) * float64(x)
+	}
+	if sum == 0 {
+		return
+	}
+	inv := float32(1 / math.Sqrt(sum))
+	for i := range v {
+		v[i] *= inv
+	}
+}
+
 type l2Metric struct{}
 
 // L2 returns a metric based on squared Euclidean distance. Squared (rather

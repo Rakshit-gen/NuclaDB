@@ -84,6 +84,12 @@ type Graph struct {
 	live       int // non-deleted nodes, kept current so Len is O(1)
 	levelMult  float64
 	rng        *rand.Rand
+
+	// unit is set for cosine: vectors and queries are scaled to length 1
+	// on the way in, so dist can be a plain dot product instead of
+	// recomputing both norms on every comparison.
+	unit bool
+	dist func(a, b []float32) float32
 }
 
 // New creates an empty graph with the given configuration.
@@ -93,12 +99,26 @@ func New(cfg Config) *Graph {
 	if cfg.Seed == 0 {
 		src = rand.NewSource(rand.Int63())
 	}
-	return &Graph{
+	g := &Graph{
 		cfg:       cfg,
 		slots:     make(map[uint64]uint32),
 		levelMult: 1 / math.Log(float64(cfg.M)),
 		rng:       rand.New(src),
+		dist:      cfg.Metric.Distance,
 	}
+	if cfg.Metric.Name() == "cosine" {
+		g.unit, g.dist = true, unitCosine
+	}
+	return g
+}
+
+// prep returns the graph's own copy of v, scaled to unit length for cosine.
+func (g *Graph) prep(v []float32) []float32 {
+	v = append([]float32(nil), v...)
+	if g.unit {
+		normalize(v)
+	}
+	return v
 }
 
 // Config returns the graph's configuration with defaults filled in.
@@ -139,8 +159,7 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 	if len(vector) != g.cfg.Dim {
 		return ErrDimensionMismatch
 	}
-	vec := make([]float32, len(vector))
-	copy(vec, vector)
+	vec := g.prep(vector)
 
 	g.wmu.Lock()
 	defer g.wmu.Unlock()
@@ -184,7 +203,7 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 	}
 
 	entry := g.entryPoint
-	curDist := g.cfg.Metric.Distance(vec, g.nodes[entry].vector)
+	curDist := g.dist(vec, g.nodes[entry].vector)
 
 	// Phase 1: greedy descent from the top layer down to level+1, keeping
 	// only the single closest node found at each layer as the entry point
@@ -304,7 +323,7 @@ func (g *Graph) connect(nbrID, newID uint32, newVec []float32, l, mMax int) {
 		if id != newID {
 			v = g.nodes[id].vector
 		}
-		cands[i] = candidate{id: id, dist: g.cfg.Metric.Distance(nbr.vector, v)}
+		cands[i] = candidate{id: id, dist: g.dist(nbr.vector, v)}
 	}
 	sort.Slice(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
 	nbr.neighbors[l] = g.selectNeighbors(cands, mMax)
@@ -322,7 +341,7 @@ func (g *Graph) greedyClosest(entry uint32, entryDist float32, query []float32, 
 			break
 		}
 		for _, nbrID := range nd.neighbors[l] {
-			d := g.cfg.Metric.Distance(query, g.nodes[nbrID].vector)
+			d := g.dist(query, g.nodes[nbrID].vector)
 			if d < bestDist {
 				bestDist = d
 				best = nbrID
@@ -373,7 +392,7 @@ func (g *Graph) searchLayer(query []float32, entry uint32, ef, l int) []candidat
 	defer visitedPool.Put(visited)
 	visited.reset(len(g.nodes))
 	visited.visit(entry)
-	entryDist := g.cfg.Metric.Distance(query, g.nodes[entry].vector)
+	entryDist := g.dist(query, g.nodes[entry].vector)
 
 	frontier := newMinHeap()
 	frontier.push(candidate{id: entry, dist: entryDist})
@@ -398,7 +417,7 @@ func (g *Graph) searchLayer(query []float32, entry uint32, ef, l int) []candidat
 				continue
 			}
 			nbr := g.nodes[nbrID]
-			d := g.cfg.Metric.Distance(query, nbr.vector)
+			d := g.dist(query, nbr.vector)
 
 			if results.Len() < ef || d < (*results)[0].dist {
 				frontier.push(candidate{id: nbrID, dist: d})
@@ -445,7 +464,7 @@ func (g *Graph) diverse(candidates []candidate, m int) []candidate {
 		v := g.nodes[c.id].vector
 		keep := true
 		for _, kept := range out {
-			if g.cfg.Metric.Distance(v, g.nodes[kept.id].vector) < c.dist {
+			if g.dist(v, g.nodes[kept.id].vector) < c.dist {
 				keep = false
 				break
 			}
@@ -512,6 +531,9 @@ func (g *Graph) Restore(nodes []NodeState, entryPoint uint64, maxLevel int, hasE
 	defer g.mu.Unlock()
 
 	for _, ns := range nodes {
+		if g.unit {
+			normalize(ns.Vector) // no-op for snapshots written since cosine vectors were stored unit length
+		}
 		g.slots[ns.ID] = uint32(len(g.nodes))
 		g.nodes = append(g.nodes, &node{id: ns.ID, vector: ns.Vector, level: ns.Level, deleted: ns.Deleted})
 		if !ns.Deleted {
@@ -573,6 +595,9 @@ func (g *Graph) Search(query []float32, topK, ef int) ([]SearchResult, error) {
 	if ef < topK {
 		ef = topK
 	}
+	if g.unit {
+		query = g.prep(query)
+	}
 
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -582,7 +607,7 @@ func (g *Graph) Search(query []float32, topK, ef int) ([]SearchResult, error) {
 	}
 
 	entry := g.entryPoint
-	curDist := g.cfg.Metric.Distance(query, g.nodes[entry].vector)
+	curDist := g.dist(query, g.nodes[entry].vector)
 	for l := g.maxLevel; l > 0; l-- {
 		entry, curDist = g.greedyClosest(entry, curDist, query, l)
 	}
@@ -610,6 +635,9 @@ func (g *Graph) ExactSearch(query []float32, ids []uint64, topK int) ([]SearchRe
 	if topK <= 0 {
 		return nil, nil
 	}
+	if g.unit {
+		query = g.prep(query)
+	}
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -619,7 +647,7 @@ func (g *Graph) ExactSearch(query []float32, ids []uint64, topK int) ([]SearchRe
 		if !ok || g.nodes[slot].deleted {
 			continue
 		}
-		d := g.cfg.Metric.Distance(query, g.nodes[slot].vector)
+		d := g.dist(query, g.nodes[slot].vector)
 		if h.Len() < topK {
 			h.push(candidate{id: slot, dist: d})
 		} else if d < (*h)[0].dist {
