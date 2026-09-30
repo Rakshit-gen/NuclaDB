@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 
 	mmap "github.com/edsrzf/mmap-go"
 
@@ -52,7 +53,17 @@ func Save(path string, g *hnsw.Graph, walSeq uint64) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	// The file itself was fsynced in writeSnapshot; the rename lives in the
+	// directory entry, which needs its own fsync to survive a power loss.
+	d, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 func writeSnapshot(f *os.File, nodes []hnsw.NodeState, entryPoint uint64, maxLevel int, hasEntry bool, walSeq uint64) error {
