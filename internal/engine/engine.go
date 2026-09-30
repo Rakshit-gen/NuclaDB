@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -61,6 +62,8 @@ type Engine struct {
 	// postings maps "key\x00value" to the ids whose metadata has that pair,
 	// so a filtered search can see how selective its filter is.
 	postings map[string]map[uint64]struct{}
+
+	exactFilterLimit atomic.Int64
 }
 
 // Open loads dir's snapshot (if any), replays any WAL records written
@@ -144,8 +147,15 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 		metadata:    metadata,
 		postings:    buildPostings(metadata),
 	}
+	e.exactFilterLimit.Store(DefaultExactFilterLimit)
 	e.graph.Store(g)
 	return e, nil
+}
+
+// SetExactFilterLimit changes the filter size up to which Search scores the
+// matching vectors directly instead of walking the graph.
+func (e *Engine) SetExactFilterLimit(n int) {
+	e.exactFilterLimit.Store(int64(n))
 }
 
 // Insert durably upserts id -> (vector, metadata). metadata may be nil.
@@ -527,12 +537,11 @@ type Result struct {
 	Metadata map[string]string
 }
 
-// exactFilterLimit is the most filter matches Search will score by brute
-// force. Below it, scanning the matches is exact and costs about as much as
-// a graph walk; above it, the filter is broad enough that post-filtering
-// the graph's candidates finds topK matches.
-// ponytail: fixed cutoff, tune from the ef/dataset size if it ever matters.
-const exactFilterLimit = 4096
+// DefaultExactFilterLimit is the most filter matches Search scores by brute
+// force up front. Below it, scanning the matches is exact and costs about as
+// much as a graph walk; above it, the filter is broad enough that
+// post-filtering the graph's candidates usually finds topK matches.
+const DefaultExactFilterLimit = 4096
 
 // DefaultEf is the search beam width used when a caller doesn't pick one.
 // In the SIFT benchmark at topK=10, ef=10 gave recall 0.93 and ef=50 gave
@@ -544,10 +553,11 @@ const DefaultEf = 64
 // (a plain equality AND across all filter keys).
 //
 // With a filter, Search first checks how many vectors match it using the
-// postings index. A selective filter (up to exactFilterLimit matches) is
+// postings index. A selective filter (up to the exact filter limit) is
 // answered exactly by scoring just those vectors, so it can't come back
 // short. A broad filter post-filters an overfetched graph search, widening
-// ef and retrying a bounded number of times if too few candidates match.
+// ef and retrying a bounded number of times; if that still finds fewer
+// than topK matches, it scores every match exactly.
 func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string) ([]Result, error) {
 	if ef <= 0 {
 		ef = DefaultEf
@@ -560,7 +570,7 @@ func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string
 	graph := e.graph.Load()
 
 	if len(filters) > 0 {
-		if ids, ok := e.filterCandidates(filters); ok {
+		if ids, ok := e.filterCandidates(filters, int(e.exactFilterLimit.Load())); ok {
 			res, err := graph.ExactSearch(query, ids, topK)
 			if err != nil {
 				return nil, err
@@ -591,13 +601,20 @@ func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string
 		}
 		overfetch *= 4
 	}
-	return e.filterMatches(candidates, filters, topK), nil
+	// The filter matched few of the graph's nearest vectors. Score all of
+	// its matches instead, so the caller still gets topK when they exist.
+	ids, _ := e.filterCandidates(filters, math.MaxInt)
+	res, err := graph.ExactSearch(query, ids, topK)
+	if err != nil {
+		return nil, err
+	}
+	return e.withMetadata(res), nil
 }
 
 // filterCandidates returns the ids matching every filter when the most
-// selective filter pair has at most exactFilterLimit ids. ok is false when
-// the filter is too broad for an exact scan.
-func (e *Engine) filterCandidates(filters map[string]string) (ids []uint64, ok bool) {
+// selective filter pair has at most limit ids. ok is false when the filter
+// is too broad for an exact scan.
+func (e *Engine) filterCandidates(filters map[string]string, limit int) (ids []uint64, ok bool) {
 	e.metaMu.RLock()
 	defer e.metaMu.RUnlock()
 
@@ -609,7 +626,7 @@ func (e *Engine) filterCandidates(filters map[string]string) (ids []uint64, ok b
 			smallest, first = p, false
 		}
 	}
-	if len(smallest) > exactFilterLimit {
+	if len(smallest) > limit {
 		return nil, false
 	}
 	ids = make([]uint64, 0, len(smallest))

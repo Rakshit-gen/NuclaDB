@@ -41,6 +41,7 @@ func main() {
 		efConstruction = flag.Int("ef-construction", 200, "HNSW build-time candidate list size")
 		snapshotEvery  = flag.Duration("snapshot-interval", 5*time.Minute, "how often to snapshot to disk")
 		maxMessage     = flag.Int("max-message-bytes", 64<<20, "largest gRPC message or REST body accepted, in bytes")
+		exactFilter    = flag.Int("exact-filter-limit", engine.DefaultExactFilterLimit, "filters matching at most this many vectors are answered by scoring every match")
 		metricsEvery   = flag.Duration("metrics-interval", 15*time.Second, "how often to refresh per-tenant usage gauges")
 	)
 	flag.Parse()
@@ -73,6 +74,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("nucladbd: opening store at %s: %v", *dataDir, err)
 	}
+	store.SetExactFilterLimit(*exactFilter)
 	log.Printf("nucladbd: opened %s (dim=%d, metric=%s)", *dataDir, *dim, *metric)
 
 	svc := grpcapi.New(store, pbMetric)

@@ -56,6 +56,21 @@ type Store struct {
 	rootDir string
 	cfg     hnsw.Config
 	tenants map[string]*tenant
+
+	exactFilterLimit int // 0 = engine default
+}
+
+// SetExactFilterLimit sets every tenant's exact filter limit (see
+// Engine.SetExactFilterLimit), including tenants opened later.
+func (s *Store) SetExactFilterLimit(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.exactFilterLimit = n
+	for _, t := range s.tenants {
+		if t.engine != nil {
+			t.engine.SetExactFilterLimit(n)
+		}
+	}
 }
 
 // OpenStore discovers existing tenant subdirectories under rootDir (each
@@ -215,6 +230,9 @@ func (s *Store) getTenant(tenantID string) (*tenant, error) {
 	eng, err := Open(filepath.Join(s.rootDir, tenantID), s.cfg)
 	if err != nil {
 		return nil, err
+	}
+	if s.exactFilterLimit > 0 {
+		eng.SetExactFilterLimit(s.exactFilterLimit)
 	}
 	t.engine = eng
 	return t, nil

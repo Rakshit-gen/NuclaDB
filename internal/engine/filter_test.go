@@ -67,3 +67,45 @@ func TestSelectiveFilterReturnsExactTopK(t *testing.T) {
 		t.Fatalf("filter with no matches: %+v, %v", none, err)
 	}
 }
+
+// With the up-front exact scan turned off, a rare filter goes through the
+// graph path. It must still come back with every match, not a short list.
+func TestBroadPathFallsBackToExactScan(t *testing.T) {
+	e, err := Open(t.TempDir(), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	e.SetExactFilterLimit(0)
+
+	rng := rand.New(rand.NewSource(3))
+	var items []InsertItem
+	want := map[uint64]bool{}
+	for i := uint64(0); i < 3000; i++ {
+		v := make([]float32, 8)
+		for j := range v {
+			v[j] = rng.Float32()
+		}
+		md := map[string]string{"kind": "common"}
+		if i%500 == 7 {
+			md["kind"] = "rare"
+			want[i] = true
+		}
+		items = append(items, InsertItem{ID: i, Vector: v, Metadata: md})
+	}
+	if err := e.InsertBatch(items); err != nil {
+		t.Fatal(err)
+	}
+	res, err := e.Search(make([]float32, 8), len(want), 10, map[string]string{"kind": "rare"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != len(want) {
+		t.Fatalf("got %d results, want all %d rare vectors", len(res), len(want))
+	}
+	for _, r := range res {
+		if !want[r.ID] {
+			t.Fatalf("result %d doesn't match the filter", r.ID)
+		}
+	}
+}
