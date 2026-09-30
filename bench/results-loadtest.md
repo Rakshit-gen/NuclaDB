@@ -2,30 +2,30 @@
 
 Saturated concurrent throughput and tail latency over the real gRPC API — the closed-loop counterpart to `results.md`'s single-connection QPS. Every number is measured by running a real `nucladbd` on this machine, not estimated.
 
-- **10000 vectors**, dim=128, metric l2, `ef=100`, `top-k=10` — recall@10 = **1.0000** against the dataset's official groundtruth (so throughput is anchored to a known accuracy point)
+- **10000 vectors**, dim=128, metric l2, `ef=100`, `top-k=10` — recall@10 = **0.9900** against the dataset's official groundtruth (so throughput is anchored to a known accuracy point)
 - Load generator and server share this machine; `N` closed-loop goroutines round-robin over a pool of gRPC client connections
-- Server RSS after load: 43.8 MB
+- Server RSS after load: 44.2 MB
 - 15s measured window, 3s warmup, per level
 
 ## Search throughput vs concurrency
 
 | conns | req/s | p50 | p90 | p99 | max | errors |
 |---|---|---|---|---|---|---|
-| 1 | 3833 | 259µs | 313µs | 526µs | 6.935ms | 0 |
-| 8 | 16451 | 456µs | 676µs | 1.216ms | 38.604ms | 0 |
-| 16 | 18262 | 717µs | 1.407ms | 3.162ms | 141.016ms | 0 |
-| 32 | 20914 | 1.292ms | 2.715ms | 5.669ms | 24.736ms | 0 |
-| 64 | 19489 | 2.564ms | 6.185ms | 15.231ms | 64.136ms | 0 |
-| 128 | 20492 | 4.445ms | 12.687ms | 33.208ms | 99.992ms | 0 |
+| 1 | 4305 | 235µs | 279µs | 348µs | 2.61ms | 0 |
+| 8 | 19129 | 397µs | 592µs | 972µs | 51.1ms | 0 |
+| 16 | 21031 | 635µs | 1.243ms | 2.601ms | 43.833ms | 0 |
+| 32 | 22390 | 1.195ms | 2.557ms | 5.377ms | 52.572ms | 0 |
+| 64 | 23059 | 2.167ms | 5.238ms | 12.966ms | 76.929ms | 0 |
+| 128 | 25752 | 3.466ms | 10.048ms | 28.516ms | 94.115ms | 0 |
 
 ## Mixed read/write at conns=128 (10% Insert)
 
-These mixed numbers were measured when every insert held the HNSW graph's write lock for its whole neighbor search, blocking searches the entire time. Inserts now take that lock only to link the new node in, and single Inserts share fsyncs under concurrency, so this section needs a rerun of `cmd/loadtest`.
+Inserts run one at a time. Each one finds its neighbors without the graph write lock and takes it only to link the new node in, so searches wait for that step alone (see the `hnsw.Graph` doc comment).
 
 | op | req/s | p50 | p99 |
 |---|---|---|---|
-| search | 2425 | 283µs | 1.124ms |
-| insert | 278 | 454.345ms | 557.078ms |
+| search | 10980 | 1.251ms | 7.237ms |
+| insert | 1215 | 87.052ms | 179.857ms |
 
 Errors: 0
 
@@ -33,7 +33,7 @@ Errors: 0
 
 | req/s | p50 | p90 | p99 | p99.9 | max | errors |
 |---|---|---|---|---|---|---|
-| 20192 | 5.124ms | 12.152ms | 26.422ms | 45.944ms | 120.274ms | 0 |
+| 25103 | 4.269ms | 9.771ms | 17.334ms | 33.099ms | 87.373ms | 0 |
 
 ## Reproduce
 
