@@ -58,14 +58,18 @@ type node struct {
 	deleted   bool
 }
 
-// Graph is a concurrency-safe HNSW index. Reads (Search) take a read lock;
-// writes (Insert, Delete) take a write lock. This is a coarse-grained but
-// correct concurrency model — see README for the finer-grained sharding
-// approach used once the single-lock graph is proven correct under
-// go test -race.
+// Graph is a concurrency-safe HNSW index.
+//
+// Writers (Insert, Delete, Restore) run one at a time under wmu. Since only
+// writers change the graph, a writer holding wmu can read it with no other
+// lock, so Insert does its neighbor search (almost all of its cost) without
+// touching mu, and takes mu's write lock only to link the new node in.
+// Searches hold mu's read lock, so they wait for that short linking step
+// but not for the search that precedes it.
 type Graph struct {
 	cfg Config
 
+	wmu        sync.Mutex // serializes writers; also guards rng
 	mu         sync.RWMutex
 	nodes      map[uint64]*node
 	entryPoint uint64
@@ -114,8 +118,8 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 	vec := make([]float32, len(vector))
 	copy(vec, vector)
 
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.wmu.Lock()
+	defer g.wmu.Unlock()
 
 	level := g.randomLevel()
 	nd := &node{
@@ -134,15 +138,15 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 	// mid-traversal, collapsing the graph to a self-loop wherever id was
 	// entryPoint or an intermediate hop (caught by TestReinsertPreservesConnectivity).
 	existing, existed := g.nodes[id]
-	if !existed || existing.deleted {
-		g.live++
-	}
 
 	if !g.hasEntry {
+		g.mu.Lock()
+		g.live++
 		g.nodes[id] = nd
 		g.entryPoint = id
 		g.hasEntry = true
 		g.maxLevel = level
+		g.mu.Unlock()
 		return nil
 	}
 
@@ -157,9 +161,9 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 	}
 
 	// Phase 2: at each layer from min(level, maxLevel) down to 0, run a
-	// beam search of width efConstruction and connect the new node to its
-	// best M neighbors, pruning any neighbor whose degree now exceeds the
-	// layer's max.
+	// beam search of width efConstruction and pick the new node's best M
+	// neighbors. The edges back to it are added in phase 3; searching layer
+	// l-1 never reads layer l's lists, so deferring them changes nothing.
 	for l := min(level, g.maxLevel); l >= 0; l-- {
 		candidates := g.searchLayer(vec, entry, g.cfg.EfConstruction, l)
 
@@ -179,21 +183,29 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 			candidates = filtered
 		}
 
-		neighbors := g.selectNeighbors(candidates, g.cfg.M)
-		nd.neighbors[l] = neighbors
-
-		mMax := g.cfg.M
-		if l == 0 {
-			mMax = g.cfg.M * 2
-		}
-		for _, nbrID := range neighbors {
-			g.connect(nbrID, id, vec, l, mMax)
-		}
+		nd.neighbors[l] = g.selectNeighbors(candidates, g.cfg.M)
 		if len(candidates) > 0 {
 			entry = candidates[0].id
 		}
 	}
 
+	// Phase 3: link the node in. This is the only part searches wait for.
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	for l := range nd.neighbors {
+		mMax := g.cfg.M
+		if l == 0 {
+			mMax = g.cfg.M * 2
+		}
+		for _, nbrID := range nd.neighbors[l] {
+			g.connect(nbrID, id, vec, l, mMax)
+		}
+	}
+
+	if !existed || existing.deleted {
+		g.live++
+	}
 	if existed {
 		existing.deleted = true
 	}
@@ -404,6 +416,8 @@ func (g *Graph) Snapshot() (nodes []NodeState, entryPoint uint64, maxLevel int, 
 // graph: it trusts the neighbor lists as-is rather than recomputing them.
 // Restore must be called on a freshly created, empty Graph.
 func (g *Graph) Restore(nodes []NodeState, entryPoint uint64, maxLevel int, hasEntry bool) {
+	g.wmu.Lock()
+	defer g.wmu.Unlock()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -429,6 +443,8 @@ func (g *Graph) Restore(nodes []NodeState, entryPoint uint64, maxLevel int, hasE
 // edges are left intact so traversal through it still works. This mirrors
 // hnswlib's mark_deleted and avoids the cost of a full graph repair.
 func (g *Graph) Delete(id uint64) error {
+	g.wmu.Lock()
+	defer g.wmu.Unlock()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	nd, ok := g.nodes[id]
