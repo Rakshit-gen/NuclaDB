@@ -127,25 +127,25 @@ comparison) are in [`bench/results.md`](bench/results.md) and
 The table above is single-connection and sequential (latency-bound).
 `bench/cmd/loadtest` is the closed-loop version: a pool of gRPC
 connections, N workers looping searches for a fixed window, against the
-same real `nucladbd`. 10,000 vectors, `ef=100` (recall@10 0.999),
+same real `nucladbd`. 10,000 vectors, `ef=100` (recall@10 1.000),
 median of three runs on a 10-core machine shared by the load generator,
 server, and mock:
 
 | connections | searches/s | p50 | p99 |
 |---|---|---|---|
-| 1 | 3,260 | 0.31 ms | 0.55 ms |
-| 8 | 16,400 | 0.46 ms | 1.1 ms |
-| 16 | 19,000 | 0.70 ms | 2.7 ms |
-| 64 | 19,500 | 1.8 ms | 19 ms |
-| 128 | 19,100 | 3.0 ms | 46 ms |
+| 1 | 3,800 | 0.26 ms | 0.54 ms |
+| 8 | 16,450 | 0.46 ms | 1.2 ms |
+| 16 | 18,260 | 0.72 ms | 2.9 ms |
+| 32 | 20,900 | 1.3 ms | 5.7 ms |
+| 64 | 20,000 | 2.4 ms | 14 ms |
+| 128 | 21,900 | 4.4 ms | 30 ms |
 
-Throughput saturates near **~19,500 searches/s** (peak 20,600); past
-~16 connections, added concurrency buys latency, not throughput —
-searches hold the HNSW graph's read lock for the whole traversal, and
-that single `RWMutex` is the ceiling (per-segment locking is the planned
-next step). A 60-second sustained run at 128 connections held ~16,500
-searches/s with **0 errored requests** (over 5M requests across the full
-sweep, 0 errors). Full numbers, including a mixed read/write run, are in
+Throughput levels off around **~21,000 searches/s** (peak 23,300); past
+~32 connections, added concurrency buys latency, not throughput.
+Searches hold the HNSW graph's read lock for the whole traversal, and
+that single `RWMutex` is still the ceiling. A 60-second sustained run at
+128 connections held ~22,100 searches/s with **0 errored requests**.
+Full numbers, including a mixed read/write run, are in
 [`bench/results-loadtest.md`](bench/results-loadtest.md).
 
 Product quantization: 57.7% recall@10 at a 16x memory reduction with flat
