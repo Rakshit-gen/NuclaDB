@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/Rakshit-gen/nucladb/internal/cluster/router"
@@ -76,39 +75,24 @@ func (b *NuclaDBClusterBackend) Name() string {
 	return fmt.Sprintf("NuclaDB-cluster(%d shards)", len(b.nodes))
 }
 
-// Upsert routes every vector through the router individually — it has no
-// batch-insert API yet (unlike the single-node BatchUpsert RPC), a real,
-// unhidden cost of the cluster path worth reporting alongside the
-// recall/QPS numbers. Inserts fan out over a bounded worker pool so the
-// lack of batching doesn't make a 10k-vector build prohibitively slow to
-// run, while every insert is still its own real RPC through the real
-// router — no batching added on the sly to make the number look better.
+// Upsert sends vectors through the router in batches of 500. Each batch is
+// split by shard and sent as one BatchUpsert per shard (Router.InsertBatch).
 func (b *NuclaDBClusterBackend) Upsert(vectors [][]float32) error {
-	const concurrency = 32
-	sem := make(chan struct{}, concurrency)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var firstErr error
-
-	for i, v := range vectors {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(id uint64, vec []float32) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err := b.router.Insert(ctx, id, vec, nil); err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				mu.Unlock()
-			}
-		}(uint64(i), v)
+	const batchSize = 500
+	for start := 0; start < len(vectors); start += batchSize {
+		end := min(start+batchSize, len(vectors))
+		items := make([]router.Item, 0, end-start)
+		for i := start; i < end; i++ {
+			items = append(items, router.Item{ID: uint64(i), Vector: vectors[i]})
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := b.router.InsertBatch(ctx, items)
+		cancel()
+		if err != nil {
+			return err
+		}
 	}
-	wg.Wait()
-	return firstErr
+	return nil
 }
 
 func (b *NuclaDBClusterBackend) Search(query []float32, topK, ef int) ([]uint64, error) {

@@ -127,10 +127,9 @@ func writeMarkdown(single, cluster *bench.Report, numShards, topK int) error {
 	}
 
 	w("\n## Notes\n\n")
-	w("- **Build (insert) is single-vector RPCs through the router, not batched.** Unlike the single-node path's ")
-	w("`BatchUpsert`, `internal/cluster/router.Router` has no batch-insert API yet — every vector is its own round trip ")
-	w("to whichever shard owns it, run over a bounded worker pool (32 concurrent) purely so a %d-vector build finishes ", single.NumVectors)
-	w("in reasonable time, not to hide the per-RPC cost. This is a real, unhidden gap versus the single-node path.\n")
+	w("- **Build uses batches on both paths.** The single node gets `BatchUpsert` calls of 500 vectors; the cluster ")
+	w("gets the same batches through `Router.InsertBatch`, which splits each one by shard and sends every shard its ")
+	w("part as one `BatchUpsert`, all shards in parallel.\n")
 	w("- **Search fans out to every shard and merges.** `Router.Search` queries all %d shards concurrently per request ", numShards)
 	w("and merges each shard's own top-k into one globally-ranked top-k — recall should track the single-node numbers ")
 	w("closely (sharding by id doesn't change which vectors exist, only where), while QPS reflects added network hops ")
