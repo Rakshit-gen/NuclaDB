@@ -315,3 +315,20 @@ func TestSelectNeighborsSpreadsLinks(t *testing.T) {
 		t.Fatalf("picked ids %v, want 0 (nearest in the cluster) and 3 (the outlier)", ids)
 	}
 }
+
+func TestSearchWithNonPositiveTopKReturnsNothing(t *testing.T) {
+	g := New(Config{Dim: 2, Metric: L2(), Seed: 1})
+	for i := uint64(0); i < 10; i++ {
+		if err := g.Insert(i, []float32{float32(i), 0}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, k := range []int{0, -1} {
+		if res, err := g.Search([]float32{0, 0}, k, 10); err != nil || len(res) != 0 {
+			t.Fatalf("Search topK=%d: %v, %v", k, res, err)
+		}
+		if res, err := g.ExactSearch([]float32{0, 0}, []uint64{1, 2}, k); err != nil || len(res) != 0 {
+			t.Fatalf("ExactSearch topK=%d: %v, %v", k, res, err)
+		}
+	}
+}

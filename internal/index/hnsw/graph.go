@@ -552,6 +552,9 @@ func (g *Graph) Search(query []float32, topK, ef int) ([]SearchResult, error) {
 	if len(query) != g.cfg.Dim {
 		return nil, ErrDimensionMismatch
 	}
+	if topK <= 0 {
+		return nil, nil
+	}
 	if ef < topK {
 		ef = topK
 	}
@@ -588,6 +591,9 @@ func (g *Graph) Search(query []float32, topK, ef int) ([]SearchResult, error) {
 func (g *Graph) ExactSearch(query []float32, ids []uint64, topK int) ([]SearchResult, error) {
 	if len(query) != g.cfg.Dim {
 		return nil, ErrDimensionMismatch
+	}
+	if topK <= 0 {
+		return nil, nil
 	}
 	g.mu.RLock()
 	defer g.mu.RUnlock()
