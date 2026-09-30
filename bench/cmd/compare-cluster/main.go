@@ -20,8 +20,8 @@ import (
 
 func main() {
 	var (
-		nucladbdBin = flag.String("nucladbd", "../../bin/nucladbd", "path to the nucladbd binary")
-		dataDir     = flag.String("data", "../../bench/data/siftsmall", "path to the extracted siftsmall dataset")
+		nucladbdBin = flag.String("nucladbd", "../bin/nucladbd", "path to the nucladbd binary (default assumes running from bench/)")
+		dataDir     = flag.String("data", "./data/siftsmall", "path to the extracted siftsmall dataset")
 		topK        = flag.Int("top-k", 10, "k for recall@k")
 		numShards   = flag.Int("shards", 4, "number of shards in the cluster run")
 		basePort    = flag.Int("base-port", 19300, "first gRPC port the cluster's shards bind, one port per shard")
