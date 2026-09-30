@@ -231,6 +231,18 @@ func (w *Writer) AppendBatch(items []Record) ([]uint64, error) {
 	return seqs, nil
 }
 
+// Size returns the log's length in bytes. Every append is fsynced before it
+// returns, so this is also where the next record will start.
+func (w *Writer) Size() (int64, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	info, err := w.f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}
+
 // Close flushes and closes the underlying file.
 func (w *Writer) Close() error {
 	w.mu.Lock()

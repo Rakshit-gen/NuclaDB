@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -43,6 +44,9 @@ const (
 // concurrent Insert.
 type Engine struct {
 	mu sync.Mutex
+	// snapMu serializes snapshots, which drop mu while writing files. Taken
+	// before mu, never after.
+	snapMu sync.Mutex
 	// qmu guards queue and flushing, the group commit state for Insert and
 	// Delete.
 	qmu      sync.Mutex
@@ -420,7 +424,11 @@ func (e *Engine) ApplyReplicated(rec wal.Record) error {
 // base backup plays before streaming replication in a system like
 // Postgres.
 func (e *Engine) SnapshotBytes() (snapshot, metadata []byte, seq uint64, err error) {
-	if err := e.Snapshot(); err != nil {
+	// Holding snapMu keeps another snapshot from replacing the files
+	// between the two reads.
+	e.snapMu.Lock()
+	defer e.snapMu.Unlock()
+	if err := e.snapshotLocked(); err != nil {
 		return nil, nil, 0, err
 	}
 
@@ -444,6 +452,8 @@ func (e *Engine) SnapshotBytes() (snapshot, metadata []byte, seq uint64, err err
 // the same as if this Engine had just restarted from a local snapshot at
 // that point.
 func (e *Engine) LoadSnapshot(snapshotBytes, metadataBytes []byte, seq uint64) error {
+	e.snapMu.Lock()
+	defer e.snapMu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -719,14 +729,39 @@ func (e *Engine) setMeta(id uint64, md map[string]string) {
 }
 
 // Snapshot writes the current graph and metadata to disk and rotates the
-// WAL, since everything in it up to the current sequence number is now
+// WAL, since everything in it up to the snapshot's sequence number is now
 // captured in the snapshot. Called periodically in the background (see
 // cmd/nucladbd) and once more on clean shutdown.
+//
+// Writes are blocked only while the state is copied and while the WAL is
+// rotated, not while the snapshot is written and fsynced.
 func (e *Engine) Snapshot() error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.snapMu.Lock()
+	defer e.snapMu.Unlock()
+	return e.snapshotLocked()
+}
 
+// snapshotLocked is Snapshot. Caller holds snapMu, not mu.
+// ponytail: the copy under mu is O(vectors); copy-on-write graph pages if
+// that pause starts to matter for very large tenants.
+func (e *Engine) snapshotLocked() error {
+	e.mu.Lock()
 	if err := e.compactLocked(); err != nil {
+		e.mu.Unlock()
+		return err
+	}
+	g := e.graph.Load()
+	seq := e.seq
+	nodes, entryPoint, maxLevel, hasEntry := g.Snapshot()
+	e.metaMu.RLock()
+	metaJSON, err := json.Marshal(e.metadata)
+	e.metaMu.RUnlock()
+	var walOffset int64
+	if err == nil {
+		walOffset, err = e.w.Size()
+	}
+	e.mu.Unlock()
+	if err != nil {
 		return err
 	}
 
@@ -736,22 +771,27 @@ func (e *Engine) Snapshot() error {
 	// In this order a crash in between leaves metadata newer than the graph,
 	// and replaying the WAL on top of it is harmless: each record sets or
 	// clears its id's metadata outright.
-	e.metaMu.RLock()
-	err := saveMetadata(filepath.Join(e.dir, metadataFile), e.metadata)
-	e.metaMu.RUnlock()
-	if err != nil {
+	if err := writeFileAtomic(filepath.Join(e.dir, metadataFile), metaJSON); err != nil {
+		return err
+	}
+	if err := segment.SaveState(filepath.Join(e.dir, snapshotFile), g.Config(), nodes, entryPoint, maxLevel, hasEntry, seq); err != nil {
 		return err
 	}
 
-	if err := segment.Save(filepath.Join(e.dir, snapshotFile), e.graph.Load(), e.seq); err != nil {
-		return err
-	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.rotateWALLocked(seq, walOffset)
+}
 
-	if err := e.w.Close(); err != nil {
-		return err
-	}
+// rotateWALLocked replaces the WAL with one holding only what was appended
+// after byte offset from, i.e. the records after seq, which the snapshot
+// just written doesn't cover. Caller holds mu.
+func (e *Engine) rotateWALLocked(seq uint64, from int64) error {
 	walPath := filepath.Join(e.dir, walFile)
 	tmpPath := walPath + ".new"
+	if err := copyTail(walPath, tmpPath, from); err != nil {
+		return err
+	}
 	w, err := wal.OpenWriter(tmpPath, e.seq)
 	if err != nil {
 		return err
@@ -760,16 +800,43 @@ func (e *Engine) Snapshot() error {
 	// internal/storage/wal.Follow) may have this file open mid-tail, and
 	// a same-path truncate can race its size-based staleness check. A
 	// rename gives the post-snapshot WAL a genuinely new file identity at
-	// the same path — a follower detects that via os.SameFile and reopens
+	// the same path. A follower detects that via os.SameFile and reopens
 	// cleanly, while its existing fd on the old (now unlinked) file stays
 	// valid and fully readable until it does.
 	if err := os.Rename(tmpPath, walPath); err != nil {
 		_ = w.Close()
 		return err
 	}
+	if err := syncDir(e.dir); err != nil {
+		_ = w.Close()
+		return err
+	}
+	_ = e.w.Close()
 	e.w = w
-	e.snapshotSeq = e.seq
+	e.snapshotSeq = seq
 	return nil
+}
+
+// copyTail writes src's bytes from offset on into a new, fsynced dst.
+func copyTail(src, dst string, offset int64) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, io.NewSectionReader(in, offset, math.MaxInt64-offset)); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // compactLocked rebuilds the graph without its deleted nodes once they
@@ -795,7 +862,9 @@ const minCompact = 256
 
 // Close snapshots the current state and releases the WAL file handle.
 func (e *Engine) Close() error {
-	if err := e.Snapshot(); err != nil {
+	e.snapMu.Lock()
+	defer e.snapMu.Unlock()
+	if err := e.snapshotLocked(); err != nil {
 		return err
 	}
 	e.mu.Lock()

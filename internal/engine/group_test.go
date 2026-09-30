@@ -107,3 +107,59 @@ func TestConcurrentInsertsAndDeletesAreDurable(t *testing.T) {
 		t.Fatalf("recovered %d vectors, want %d", e2.Len(), workers*per/2)
 	}
 }
+
+// Snapshots drop the write lock while they write files, so inserts land in
+// the WAL mid-snapshot. Every acknowledged insert must survive a restart.
+func TestInsertsDuringSnapshotsSurviveRestart(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Open(dir, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const workers, per = 4, 150
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < per; i++ {
+				id := uint64(w*per + i)
+				v := make([]float32, 8)
+				v[int(id)%8] = float32(id + 1)
+				if err := e.Insert(id, v, map[string]string{"id": strconv.Itoa(int(id))}); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}(w)
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+loop:
+	for {
+		select {
+		case <-done:
+			break loop
+		default:
+			if err := e.Snapshot(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// No Close: recover from the last snapshot plus the rotated WAL.
+	e2, err := Open(dir, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e2.Close()
+	if e2.Len() != workers*per {
+		t.Fatalf("recovered %d vectors, want %d", e2.Len(), workers*per)
+	}
+	for id := uint64(0); id < workers*per; id++ {
+		if e2.metadata[id]["id"] != strconv.Itoa(int(id)) {
+			t.Fatalf("id %d lost its metadata", id)
+		}
+	}
+}

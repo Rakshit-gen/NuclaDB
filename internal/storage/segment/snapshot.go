@@ -66,14 +66,20 @@ func metricName(cfg hnsw.Config) string {
 // never corrupt a previously-good snapshot.
 func Save(path string, g *hnsw.Graph, walSeq uint64) error {
 	nodes, entryPoint, maxLevel, hasEntry := g.Snapshot()
+	return SaveState(path, g.Config(), nodes, entryPoint, maxLevel, hasEntry, walSeq)
+}
 
+// SaveState is Save for graph state the caller already captured with
+// hnsw.Graph.Snapshot, so the slow part (writing and fsyncing) can run
+// without holding whatever lock kept that capture consistent.
+func SaveState(path string, cfg hnsw.Config, nodes []hnsw.NodeState, entryPoint uint64, maxLevel int, hasEntry bool, walSeq uint64) error {
 	tmp := path + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
 
-	if err := writeSnapshot(f, g.Config(), nodes, entryPoint, maxLevel, hasEntry, walSeq); err != nil {
+	if err := writeSnapshot(f, cfg, nodes, entryPoint, maxLevel, hasEntry, walSeq); err != nil {
 		f.Close()
 		return err
 	}
