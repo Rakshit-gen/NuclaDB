@@ -77,17 +77,36 @@ func (s *Server) Insert(ctx context.Context, req *pb.InsertRequest) (*pb.InsertR
 	return &pb.InsertResponse{Id: v.GetId()}, nil
 }
 
+// BatchUpsert groups the request's vectors by tenant (tenant_id is set per
+// vector on the wire, so one request can mix tenants) and writes each group
+// as one durable batch: one fsync per tenant instead of one per vector. A
+// bulk load into a single tenant gets the full benefit.
 func (s *Server) BatchUpsert(ctx context.Context, req *pb.BatchUpsertRequest) (*pb.BatchUpsertResponse, error) {
-	var n int64
+	byTenant := make(map[string][]engine.InsertItem)
+	var tenantOrder []string
 	for _, v := range req.GetVectors() {
 		id, err := parseID(v.GetId())
 		if err != nil {
 			return nil, err
 		}
-		if err := s.store.Insert(v.GetTenantId(), id, v.GetValues(), v.GetMetadata()); err != nil {
+		tenantID := v.GetTenantId()
+		if _, ok := byTenant[tenantID]; !ok {
+			tenantOrder = append(tenantOrder, tenantID)
+		}
+		byTenant[tenantID] = append(byTenant[tenantID], engine.InsertItem{
+			ID:       id,
+			Vector:   v.GetValues(),
+			Metadata: v.GetMetadata(),
+		})
+	}
+
+	var n int64
+	for _, tenantID := range tenantOrder {
+		items := byTenant[tenantID]
+		if err := s.store.InsertBatch(tenantID, items); err != nil {
 			return nil, toStatus(err)
 		}
-		n++
+		n += int64(len(items))
 	}
 	return &pb.BatchUpsertResponse{Upserted: n}, nil
 }
