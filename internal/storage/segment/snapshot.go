@@ -6,10 +6,15 @@
 // replay only the WAL records written after it (see internal/storage/wal).
 //
 // Loading mmaps the file read-only rather than a buffered ReadFile, so
-// decoding walks the page-cache-backed mapping directly instead of first
-// copying the whole file into a heap-allocated []byte — the dataset's
-// resident memory during load isn't doubled, and a file larger than
-// available RAM is paged in by the OS instead of failing to load.
+// decoding walks the page-cache-backed mapping instead of first copying the
+// whole file into a heap []byte. Decoding still copies every vector and
+// neighbor list onto the heap, so the whole graph must fit in RAM; the mmap
+// only avoids holding a second full copy of the file while it loads.
+//
+// Format version 2 (magic "NUCLADB2") adds the vector dimension and metric
+// name to the header, checked against the caller's config on load, and a
+// CRC32 of every preceding byte as a 4-byte trailer. Version 1 files still
+// load, with each vector's length checked against the configured dimension.
 package segment
 
 import (
@@ -17,6 +22,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/crc32"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -26,11 +33,31 @@ import (
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
 )
 
-var magic = [8]byte{'N', 'U', 'C', 'L', 'A', 'D', 'B', '1'}
+var (
+	magicV1 = [8]byte{'N', 'U', 'C', 'L', 'A', 'D', 'B', '1'}
+	magic   = [8]byte{'N', 'U', 'C', 'L', 'A', 'D', 'B', '2'}
+)
 
 // ErrInvalidFormat is returned when a snapshot file's header doesn't match
 // the expected magic, indicating it's missing, foreign, or corrupt.
 var ErrInvalidFormat = errors.New("segment: invalid or corrupt snapshot format")
+
+// ErrChecksum is returned when a version 2 snapshot's CRC32 trailer doesn't
+// match its contents.
+var ErrChecksum = errors.New("segment: snapshot checksum mismatch")
+
+// ErrConfigMismatch is returned when a snapshot was written with a
+// different vector dimension or metric than the config it is loaded with.
+// Loading it anyway would search vectors of the wrong length, or rank them
+// with a metric the graph wasn't built for.
+var ErrConfigMismatch = errors.New("segment: snapshot dimension or metric differs from config")
+
+func metricName(cfg hnsw.Config) string {
+	if cfg.Metric == nil {
+		return hnsw.Cosine().Name() // hnsw.New's default
+	}
+	return cfg.Metric.Name()
+}
 
 // Save atomically writes a full snapshot of g to path, tagged with walSeq —
 // the WAL sequence number this snapshot reflects, so a later Load knows
@@ -46,7 +73,7 @@ func Save(path string, g *hnsw.Graph, walSeq uint64) error {
 		return err
 	}
 
-	if err := writeSnapshot(f, nodes, entryPoint, maxLevel, hasEntry, walSeq); err != nil {
+	if err := writeSnapshot(f, g.Config(), nodes, entryPoint, maxLevel, hasEntry, walSeq); err != nil {
 		f.Close()
 		return err
 	}
@@ -66,8 +93,9 @@ func Save(path string, g *hnsw.Graph, walSeq uint64) error {
 	return d.Sync()
 }
 
-func writeSnapshot(f *os.File, nodes []hnsw.NodeState, entryPoint uint64, maxLevel int, hasEntry bool, walSeq uint64) error {
-	w := bufio.NewWriterSize(f, 1<<20)
+func writeSnapshot(f *os.File, cfg hnsw.Config, nodes []hnsw.NodeState, entryPoint uint64, maxLevel int, hasEntry bool, walSeq uint64) error {
+	sum := crc32.NewIEEE()
+	w := bufio.NewWriterSize(io.MultiWriter(f, sum), 1<<20)
 
 	var hasEntryByte byte
 	if hasEntry {
@@ -80,6 +108,10 @@ func writeSnapshot(f *os.File, nodes []hnsw.NodeState, entryPoint uint64, maxLev
 	binary.LittleEndian.PutUint64(header[17:25], entryPoint)
 	binary.LittleEndian.PutUint32(header[25:29], uint32(int32(maxLevel)))
 	binary.LittleEndian.PutUint64(header[29:37], uint64(len(nodes)))
+	name := metricName(cfg)
+	header = binary.LittleEndian.AppendUint32(header, uint32(cfg.Dim))
+	header = append(header, byte(len(name)))
+	header = append(header, name...)
 	if _, err := w.Write(header); err != nil {
 		return err
 	}
@@ -90,6 +122,10 @@ func writeSnapshot(f *os.File, nodes []hnsw.NodeState, entryPoint uint64, maxLev
 		}
 	}
 	if err := w.Flush(); err != nil {
+		return err
+	}
+	// The trailer goes straight to f so it isn't part of its own checksum.
+	if _, err := f.Write(binary.LittleEndian.AppendUint32(nil, sum.Sum32())); err != nil {
 		return err
 	}
 	return f.Sync()
@@ -238,8 +274,19 @@ func Load(path string, cfg hnsw.Config) (*hnsw.Graph, uint64, error) {
 	}
 	copy(hdr[:], c.data[:8])
 	c.pos = 8
-	if hdr != magic {
+	v2 := hdr == magic
+	if !v2 && hdr != magicV1 {
 		return nil, 0, ErrInvalidFormat
+	}
+	if v2 {
+		if len(m) < 12 {
+			return nil, 0, ErrInvalidFormat
+		}
+		body := m[:len(m)-4]
+		if crc32.ChecksumIEEE(body) != binary.LittleEndian.Uint32(m[len(m)-4:]) {
+			return nil, 0, ErrChecksum
+		}
+		c.data = body
 	}
 
 	walSeq, err := c.uint64()
@@ -262,12 +309,34 @@ func Load(path string, cfg hnsw.Config) (*hnsw.Graph, uint64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
+	if v2 {
+		dim, err := c.uint32()
+		if err != nil {
+			return nil, 0, err
+		}
+		nameLen, err := c.byte()
+		if err != nil {
+			return nil, 0, err
+		}
+		if err := c.need(int(nameLen)); err != nil {
+			return nil, 0, err
+		}
+		name := string(c.data[c.pos : c.pos+int(nameLen)])
+		c.pos += int(nameLen)
+		if int(dim) != cfg.Dim || name != metricName(cfg) {
+			return nil, 0, fmt.Errorf("%w: snapshot has dim %d, metric %s; config has dim %d, metric %s",
+				ErrConfigMismatch, dim, name, cfg.Dim, metricName(cfg))
+		}
+	}
 
-	nodes := make([]hnsw.NodeState, 0, nodeCount)
+	nodes := make([]hnsw.NodeState, 0, min(nodeCount, uint64(len(c.data))))
 	for i := uint64(0); i < nodeCount; i++ {
 		nd, err := readNode(c)
 		if err != nil {
 			return nil, 0, fmt.Errorf("segment: decoding node %d: %w", i, err)
+		}
+		if len(nd.Vector) != cfg.Dim {
+			return nil, 0, fmt.Errorf("%w: node %d has dim %d, config has %d", ErrConfigMismatch, nd.ID, len(nd.Vector), cfg.Dim)
 		}
 		nodes = append(nodes, nd)
 	}

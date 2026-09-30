@@ -1,6 +1,7 @@
 package segment
 
 import (
+	"errors"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -90,5 +91,81 @@ func TestLoadRejectsCorruptHeader(t *testing.T) {
 	}
 	if _, _, err := Load(path, hnsw.Config{Dim: 4}); err != ErrInvalidFormat {
 		t.Fatalf("expected ErrInvalidFormat, got %v", err)
+	}
+}
+
+func savedSnapshot(t *testing.T, cfg hnsw.Config) string {
+	t.Helper()
+	g := hnsw.New(cfg)
+	for i := uint64(0); i < 50; i++ {
+		v := make([]float32, cfg.Dim)
+		v[int(i)%cfg.Dim] = float32(i + 1)
+		if err := g.Insert(i, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "snapshot.bin")
+	if err := Save(path, g, 7); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadRejectsFlippedByte(t *testing.T) {
+	cfg := hnsw.Config{Dim: 4, Metric: hnsw.L2(), Seed: 1}
+	path := savedSnapshot(t, cfg)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b[len(b)/2] ^= 0x01 // inside some vector or neighbor list: still parses
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Load(path, cfg); !errors.Is(err, ErrChecksum) {
+		t.Fatalf("err = %v, want ErrChecksum", err)
+	}
+}
+
+func TestLoadRejectsDifferentDimOrMetric(t *testing.T) {
+	cfg := hnsw.Config{Dim: 4, Metric: hnsw.L2(), Seed: 1}
+	path := savedSnapshot(t, cfg)
+	for _, other := range []hnsw.Config{
+		{Dim: 8, Metric: hnsw.L2()},
+		{Dim: 4, Metric: hnsw.Cosine()},
+	} {
+		if _, _, err := Load(path, other); !errors.Is(err, ErrConfigMismatch) {
+			t.Fatalf("dim %d metric %s: err = %v, want ErrConfigMismatch", other.Dim, other.Metric.Name(), err)
+		}
+	}
+	if _, seq, err := Load(path, cfg); err != nil || seq != 7 {
+		t.Fatalf("matching config: seq %d, err %v", seq, err)
+	}
+}
+
+// Rewrites a version 2 file as version 1 (no dim/metric, no trailer) to
+// check old snapshots still load, and still get the per-vector dim check.
+func TestLoadsVersion1Snapshots(t *testing.T) {
+	cfg := hnsw.Config{Dim: 4, Metric: hnsw.L2(), Seed: 1}
+	path := savedSnapshot(t, cfg)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const fixed = 37 // magic, seq, hasEntry, entry, maxLevel, count
+	nameLen := int(b[fixed+4])
+	v1 := append([]byte{}, b[:fixed]...)
+	copy(v1, magicV1[:])
+	v1 = append(v1, b[fixed+4+1+nameLen:len(b)-4]...)
+	if err := os.WriteFile(path, v1, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	g, seq, err := Load(path, cfg)
+	if err != nil || seq != 7 || g.Len() != 50 {
+		t.Fatalf("v1 load: len %v, seq %d, err %v", g, seq, err)
+	}
+	if _, _, err := Load(path, hnsw.Config{Dim: 8, Metric: hnsw.L2()}); !errors.Is(err, ErrConfigMismatch) {
+		t.Fatalf("v1 with wrong dim: err = %v, want ErrConfigMismatch", err)
 	}
 }

@@ -101,6 +101,9 @@ func New(cfg Config) *Graph {
 	}
 }
 
+// Config returns the graph's configuration with defaults filled in.
+func (g *Graph) Config() Config { return g.cfg }
+
 // Len returns the number of live (non-deleted) vectors in the graph.
 func (g *Graph) Len() int {
 	g.mu.RLock()
