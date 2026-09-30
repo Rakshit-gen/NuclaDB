@@ -102,24 +102,32 @@ real Qdrant instance over their own network APIs on the same machine, same
 
 | ef | NuclaDB recall@10 | Qdrant recall@10 | NuclaDB QPS | Qdrant QPS |
 |---|---|---|---|---|
-| 10 | 0.906 | 1.000 | 7443 | 3730 |
-| 50 | 0.997 | 1.000 | 4979 | 4838 |
-| 200 | 1.000 | 1.000 | 2258 | 5076 |
+| 10 | 0.837 | 0.964 | 9266 | 5108 |
+| 50 | 0.998 | 0.998 | 7766 | 5933 |
+| 200 | 1.000 | 1.000 | 4311 | 5240 |
 
 | Backend | Build time (10K vectors) | RSS after build |
 |---|---|---|
-| NuclaDB | 3.2s | 44.8 MB |
-| Qdrant | 118ms | 97.1 MB |
+| NuclaDB | 486ms | 46.2 MB |
+| Qdrant | 534ms | 116.0 MB |
 
-NuclaDB still builds ~27x slower than Qdrant. It used to be ~350x (43.9s),
-when every vector paid its own fsync; `BatchUpsert` now writes a whole
-batch with one shared fsync (group commit), and what's left is
-single-threaded HNSW construction. See
+NuclaDB now builds this index slightly faster than Qdrant. Earlier
+versions of this table showed Qdrant at ~120ms and NuclaDB ~27x slower,
+but that compared different work: Qdrant skips building an HNSW index for
+segments under its `indexing_threshold`, so it had only ingested points
+and was answering every search by brute force. The benchmark now forces
+Qdrant to index and waits until it has. NuclaDB's own build went from
+43.9s (fsync per vector) to 3.2s (group commit) to 486ms, through faster
+distance kernels, a slice-based graph layout, and a parallel batch build
+(`hnsw.Graph.InsertBatch`). At low ef, Qdrant's recall is higher; NuclaDB
+picks the closest M neighbors rather than the paper's diversity
+heuristic, and its ef=10 recall moves between about 0.84 and 0.91 with
+the random level seed. See
 [`docs/writeups/01-wal-then-snapshot.md`](docs/writeups/01-wal-then-snapshot.md)
-for the durability side. Full table,
-methodology, and the Qdrant config bug this benchmark caught (its default
-`full_scan_threshold` would have silently made this an exact-vs-approximate
-comparison) are in [`bench/results.md`](bench/results.md) and
+for the durability side. Full table and methodology, including the two
+Qdrant config settings that would each have made this an unfair
+comparison (`full_scan_threshold` and `indexing_threshold`), are in
+[`bench/results.md`](bench/results.md) and
 [`bench/README.md`](bench/README.md).
 
 ### Concurrent throughput

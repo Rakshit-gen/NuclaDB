@@ -67,6 +67,12 @@ Both are fetched by `download.sh` and are `.gitignore`d.
   this an exact-vs-approximate comparison rather than HNSW-vs-HNSW. This
   was caught by noticing suspiciously perfect 1.0 recall at every `ef` on
   the first run; see `docs/writeups/` for the full story.
+- **Qdrant's `indexing_threshold` is set to 1 KB and build time waits for
+  indexing.** The `full_scan_threshold` fix alone wasn't enough: Qdrant
+  also skips building an index for segments under `indexing_threshold`
+  (10,000 KB by default), so earlier runs timed point ingest against
+  NuclaDB's full HNSW build, and Qdrant's searches were still brute force.
+  The harness now polls until `indexed_vectors_count` covers every vector.
 - **`cmd/compare`'s QPS is single-connection and sequential** — it
   measures latency-bound throughput. For saturated concurrent throughput
   and tail latency, `cmd/loadtest` runs a closed-loop load generator (a

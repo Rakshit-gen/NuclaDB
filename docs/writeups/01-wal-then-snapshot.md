@@ -80,7 +80,28 @@ Same benchmark, same machine, batches of 500:
 | fsync per vector | 43.9s |
 | one fsync per batch of 500 | 3.2s |
 
-The remaining 3.2s is HNSW construction itself (ef_construct=200, one
-graph lock), not durability. Single `Insert` calls still fsync each; a
-time-window group commit for those, where concurrent single inserts share
-an fsync, is not done.
+The remaining 3.2s was HNSW construction itself (ef_construct=200, one
+graph lock), not durability. Concurrent single `Insert` calls now share
+fsyncs too: the first caller logs everything queued behind it in one
+group.
+
+## Update: the Qdrant number was wrong
+
+The 124ms Qdrant build time at the top of this writeup never included an
+index. Qdrant skips HNSW indexing for segments under its
+`indexing_threshold` (10,000 KB by default), and this dataset is about
+5,000 KB, so it had only ingested the points and answered every search by
+brute force. With indexing forced on and build time measured until every
+vector is indexed, Qdrant takes about 0.53-0.6s. So the gap this writeup
+explains was never 350x against a real index build, though fsync per
+vector really did cost NuclaDB 43.9s.
+
+After faster distance kernels, a slice-based graph and a parallel batch
+build, NuclaDB builds the same index in 486ms:
+
+| | build time (10K vectors) |
+|---|---|
+| fsync per vector | 43.9s |
+| one fsync per batch of 500 | 3.2s |
+| + unrolled distance, slice-based graph, parallel batch build | 486ms |
+| Qdrant, index built | 534ms |
