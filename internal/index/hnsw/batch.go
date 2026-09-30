@@ -83,9 +83,13 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 		nodes[k] = &node{id: id, vector: copyVec(vectors[k]), level: level, neighbors: make([][]uint32, level+1)}
 	}
 
-	// Parallel stage: candidates[k][l] is node k's beam search result at
-	// layer l, for every layer the current graph has at or below its level.
+	// Parallel stage. For node k at layer l, candidates[k][l] is its beam
+	// search result already thinned by the diversity heuristic (for layers
+	// the current graph has), and mates[k][l] its distances to the earlier
+	// chunk-mates that reach layer l. Neither depends on the link stage, so
+	// doing them here keeps the sequential part short.
 	candidates := make([][][]candidate, len(ids))
+	mates := make([][][]candidate, len(ids))
 	entry0, maxLevel0 := g.entryPoint, g.maxLevel
 	var next atomic.Int64
 	var wg sync.WaitGroup
@@ -107,33 +111,37 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 				top := min(nd.level, maxLevel0)
 				perLayer := make([][]candidate, top+1)
 				for l := top; l >= 0; l-- {
-					perLayer[l] = g.searchLayer(nd.vector, entry, g.cfg.EfConstruction, l)
-					if len(perLayer[l]) > 0 {
-						entry = perLayer[l][0].id
+					found := g.searchLayer(nd.vector, entry, g.cfg.EfConstruction, l)
+					if len(found) > 0 {
+						entry = found[0].id
 					}
+					perLayer[l] = g.diverse(found, g.cfg.M)
 				}
 				candidates[k] = perLayer
+
+				m := make([][]candidate, nd.level+1)
+				for j := 0; j < k; j++ {
+					d := g.cfg.Metric.Distance(nd.vector, nodes[j].vector)
+					for l := 0; l <= min(nd.level, nodes[j].level); l++ {
+						m[l] = append(m[l], candidate{id: base + uint32(j), dist: d})
+					}
+				}
+				mates[k] = m
 			}
 		}()
 	}
 	wg.Wait()
 
-	// Link stage, in order.
-	var mates []candidate
+	// Link stage, in order. The final pick reruns the heuristic over the
+	// thinned search result plus the chunk-mates, now all placed.
 	for k, nd := range nodes {
 		slot := base + uint32(k)
 		for l := 0; l <= nd.level; l++ {
-			mates = mates[:0]
-			for j := 0; j < k; j++ {
-				if nodes[j].level >= l {
-					mates = append(mates, candidate{id: base + uint32(j), dist: g.cfg.Metric.Distance(nd.vector, nodes[j].vector)})
-				}
-			}
 			var found []candidate
 			if l < len(candidates[k]) {
 				found = candidates[k][l]
 			}
-			nd.neighbors[l] = g.selectNeighbors(mergeClosest(found, mates, len(found)+len(mates)), g.cfg.M)
+			nd.neighbors[l] = g.selectNeighbors(mergeClosest(found, mates[k][l], len(found)+len(mates[k][l])), g.cfg.M)
 		}
 
 		g.mu.Lock()

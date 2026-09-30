@@ -409,7 +409,17 @@ func (g *Graph) searchLayer(query []float32, entry uint32, ef, l int) []candidat
 // the heuristic spreads links out, so a greedy search can leave a cluster
 // through them, which is what lifts recall at low ef.
 func (g *Graph) selectNeighbors(candidates []candidate, m int) []uint32 {
-	out := make([]uint32, 0, m)
+	kept := g.diverse(candidates, m)
+	out := make([]uint32, len(kept))
+	for i, c := range kept {
+		out[i] = c.id
+	}
+	return out
+}
+
+// diverse is selectNeighbors keeping each pick's distance.
+func (g *Graph) diverse(candidates []candidate, m int) []candidate {
+	out := make([]candidate, 0, m)
 	for _, c := range candidates {
 		if len(out) >= m {
 			break
@@ -417,13 +427,13 @@ func (g *Graph) selectNeighbors(candidates []candidate, m int) []uint32 {
 		v := g.nodes[c.id].vector
 		keep := true
 		for _, kept := range out {
-			if g.cfg.Metric.Distance(v, g.nodes[kept].vector) < c.dist {
+			if g.cfg.Metric.Distance(v, g.nodes[kept.id].vector) < c.dist {
 				keep = false
 				break
 			}
 		}
 		if keep {
-			out = append(out, c.id)
+			out = append(out, c)
 		}
 	}
 	return out
