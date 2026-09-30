@@ -42,9 +42,10 @@ const (
 // concurrent Insert.
 type Engine struct {
 	mu sync.Mutex
-	// qmu guards queue and flushing, the group commit state for Insert.
+	// qmu guards queue and flushing, the group commit state for Insert and
+	// Delete.
 	qmu      sync.Mutex
-	queue    []*pendingInsert
+	queue    []*pendingOp
 	flushing bool
 
 	dir string
@@ -168,12 +169,17 @@ func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string)
 		extra = b
 	}
 
-	p := &pendingInsert{
-		item: InsertItem{ID: id, Vector: vector, Metadata: metadata},
+	return e.group(&pendingOp{
 		rec:  wal.Record{Op: wal.OpInsert, ID: id, Vector: vector, Extra: extra},
+		meta: metadata,
 		done: make(chan groupResult, 1),
-	}
+	})
+}
 
+// group queues p for the next group commit and returns once it is durable
+// and applied. The first caller in becomes the leader and commits every op
+// queued behind it with one shared fsync.
+func (e *Engine) group(p *pendingOp) error {
 	e.qmu.Lock()
 	e.queue = append(e.queue, p)
 	lead := !e.flushing
@@ -192,13 +198,13 @@ func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string)
 	e.queue = nil
 	e.qmu.Unlock()
 
-	items := make([]InsertItem, len(group))
 	records := make([]wal.Record, len(group))
+	metas := make([]map[string]string, len(group))
 	for i, q := range group {
-		items[i], records[i] = q.item, q.rec
+		records[i], metas[i] = q.rec, q.meta
 	}
 	e.mu.Lock()
-	err := e.commitLocked(items, records)
+	err := e.commitLocked(records, metas)
 	e.mu.Unlock()
 
 	for _, q := range group {
@@ -219,10 +225,10 @@ func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string)
 	return err
 }
 
-type pendingInsert struct {
-	item InsertItem
+type pendingOp struct {
 	rec  wal.Record
-	done chan groupResult // buffered, receives exactly one value
+	meta map[string]string // inserts only
+	done chan groupResult  // buffered, receives exactly one value
 }
 
 // groupResult is either a finished insert's error, or lead=true telling a
@@ -261,7 +267,9 @@ func (e *Engine) InsertBatch(items []InsertItem) error {
 	}
 
 	records := make([]wal.Record, len(items))
+	metas := make([]map[string]string, len(items))
 	for i, it := range items {
+		metas[i] = it.Metadata
 		var extra []byte
 		if len(it.Metadata) > 0 {
 			b, err := json.Marshal(it.Metadata)
@@ -275,48 +283,59 @@ func (e *Engine) InsertBatch(items []InsertItem) error {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.commitLocked(items, records)
+	return e.commitLocked(records, metas)
 }
 
-// commitLocked logs records with one fsync, then applies items to the graph
-// in the same order. items must already be validated. Caller holds e.mu.
-func (e *Engine) commitLocked(items []InsertItem, records []wal.Record) error {
+// commitLocked logs records with one fsync, then applies them to the graph
+// in the same order. Runs of inserts go through InsertBatch; a delete ends
+// the run so the graph sees operations in log order. metas[i] is record
+// i's metadata. Records must already be validated. Caller holds e.mu.
+func (e *Engine) commitLocked(records []wal.Record, metas []map[string]string) error {
 	seqs, err := e.w.AppendBatch(records)
 	if err != nil {
 		return err
 	}
 
-	ids := make([]uint64, len(items))
-	vectors := make([][]float32, len(items))
-	for i, it := range items {
-		ids[i], vectors[i] = it.ID, it.Vector
-	}
-	if err := e.graph.Load().InsertBatch(ids, vectors); err != nil {
+	g := e.graph.Load()
+	var ids []uint64
+	var vectors [][]float32
+	flush := func() error {
+		err := g.InsertBatch(ids, vectors)
+		ids, vectors = ids[:0], vectors[:0]
 		return err
 	}
-	for _, it := range items {
-		e.setMeta(it.ID, it.Metadata)
+	for _, rec := range records {
+		if rec.Op == wal.OpInsert {
+			ids = append(ids, rec.ID)
+			vectors = append(vectors, rec.Vector)
+			continue
+		}
+		if err := flush(); err != nil {
+			return err
+		}
+		_ = g.Delete(rec.ID)
+	}
+	if err := flush(); err != nil {
+		return err
+	}
+	for i, rec := range records {
+		e.setMeta(rec.ID, metas[i])
 	}
 	e.seq = seqs[len(seqs)-1]
 	return nil
 }
 
 // Delete durably removes id. It is not an error to delete an id that was
-// already deleted or never existed — deletes are idempotent by design so
-// WAL replay can safely re-apply them.
+// already deleted or never existed; nothing is logged for one, so it costs
+// no fsync. Concurrent deletes and inserts share group commits.
 func (e *Engine) Delete(id uint64) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	seq, err := e.w.AppendWithExtra(wal.OpDelete, id, nil, nil)
-	if err != nil {
-		return err
+	if e.CountNew([]uint64{id}) == 1 {
+		return nil
 	}
-	_ = e.graph.Load().Delete(id)
-	e.setMeta(id, nil)
-
-	e.seq = seq
-	return nil
+	return e.group(&pendingOp{
+		rec:  wal.Record{Op: wal.OpDelete, ID: id},
+		done: make(chan groupResult, 1),
+	})
 }
 
 // LastSeq returns the sequence number of the most recently applied
