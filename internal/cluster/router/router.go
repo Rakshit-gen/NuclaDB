@@ -53,14 +53,21 @@ type Router struct {
 	resolver ShardResolver
 	tenantID string
 
+	dialOpts []grpc.DialOption
+
 	mu    sync.Mutex
 	conns map[string]*grpc.ClientConn // API addr -> reused connection
 }
 
 // New creates a Router over resolver, scoping every request to tenantID
-// (the reserved "default" tenant if empty).
-func New(resolver ShardResolver, tenantID string) *Router {
-	return &Router{resolver: resolver, tenantID: tenantID, conns: make(map[string]*grpc.ClientConn)}
+// (the reserved "default" tenant if empty). opts are used to dial every
+// shard (TLS credentials, auth.Bearer for an API key); with none, shards
+// are dialed without TLS.
+func New(resolver ShardResolver, tenantID string, opts ...grpc.DialOption) *Router {
+	if len(opts) == 0 {
+		opts = []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	}
+	return &Router{resolver: resolver, tenantID: tenantID, dialOpts: opts, conns: make(map[string]*grpc.ClientConn)}
 }
 
 // Close closes every pooled connection.
@@ -82,7 +89,7 @@ func (r *Router) clientFor(addr string) (pb.NuclaDBClient, error) {
 	if conn, ok := r.conns[addr]; ok {
 		return pb.NewNuclaDBClient(conn), nil
 	}
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr, r.dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("router: dial %s: %w", addr, err)
 	}

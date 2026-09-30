@@ -5,12 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	grpcimpl "github.com/Rakshit-gen/nucladb/internal/api/grpc"
+	"github.com/Rakshit-gen/nucladb/internal/auth"
 	"github.com/Rakshit-gen/nucladb/internal/engine"
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
 	pb "github.com/Rakshit-gen/nucladb/proto/nucladbv1"
@@ -265,5 +271,50 @@ func TestSearchRetriesAgainstTheNewOwner(t *testing.T) {
 	}
 	if res.calls.Load() != 2 {
 		t.Fatalf("resolved the owner %d times, want 2", res.calls.Load())
+	}
+}
+
+func TestRouterSendsAPIKey(t *testing.T) {
+	const key = "router-test-key-0123456789"
+	path := filepath.Join(t.TempDir(), "keys.json")
+	if err := os.WriteFile(path, []byte(`[{"key":"`+key+`","tenants":["*"]}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := auth.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := engine.OpenStore(t.TempDir(), hnsw.Config{Dim: 4, M: 16, EfConstruction: 100, Metric: hnsw.L2(), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := grpcimpl.New(store)
+	svc.RequireKeys(keys)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := grpc.NewServer(grpc.UnaryInterceptor(auth.UnaryServerInterceptor()))
+	pb.RegisterNuclaDBServer(srv, svc)
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(srv.Stop)
+	resolver := &fakeResolver{addrs: []string{ln.Addr().String()}}
+	ctx := context.Background()
+
+	anon := New(resolver, "")
+	t.Cleanup(func() { _ = anon.Close() })
+	if err := anon.Insert(ctx, 1, []float32{1, 0, 0, 0}, nil); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("Insert without a key: %v, want Unauthenticated", err)
+	}
+
+	keyed := New(resolver, "", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithPerRPCCredentials(auth.Bearer(key)))
+	t.Cleanup(func() { _ = keyed.Close() })
+	if err := keyed.Insert(ctx, 1, []float32{1, 0, 0, 0}, nil); err != nil {
+		t.Fatalf("Insert with a key: %v", err)
+	}
+	if res, err := keyed.Search(ctx, []float32{1, 0, 0, 0}, 1, 10, nil); err != nil || len(res) != 1 {
+		t.Fatalf("Search with a key = %v, %v; want 1 match", res, err)
 	}
 }

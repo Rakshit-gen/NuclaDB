@@ -106,3 +106,15 @@ func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 		return handler(WithKey(ctx, FromHeader(first("authorization"), first("x-api-key"))), req)
 	}
 }
+
+// Bearer sends an API key on every RPC, for server-to-server clients
+// (grpc.WithPerRPCCredentials(auth.Bearer(key))).
+type Bearer string
+
+func (b Bearer) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
+	return map[string]string{"authorization": "Bearer " + string(b)}, nil
+}
+
+// RequireTransportSecurity is false so a key also works on a plaintext
+// localhost link; over a network, pair it with TLS.
+func (Bearer) RequireTransportSecurity() bool { return false }

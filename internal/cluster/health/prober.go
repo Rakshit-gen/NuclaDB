@@ -12,15 +12,23 @@ import (
 // GRPCProber checks liveness via the standard gRPC health-checking
 // protocol (google.golang.org/grpc/health) that every nucladbd process
 // already serves (see cmd/nucladbd) — no NuclaDB-specific RPC needed.
-type GRPCProber struct{}
+// Health checks need no API key, so DialOptions only has to carry TLS
+// credentials when nodes serve TLS; empty means dial without TLS.
+type GRPCProber struct {
+	DialOptions []grpc.DialOption
+}
 
 // Probe dials addr and issues one health check, bounded by ctx's
 // deadline. A fresh connection per call keeps the prober stateless and
 // correct (no pooled-connection staleness to reason about) at the cost of
 // a new TCP handshake per probe — an acceptable trade at a health-check
 // cadence measured in seconds, not one worth pooling for.
-func (GRPCProber) Probe(ctx context.Context, addr string) error {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func (p GRPCProber) Probe(ctx context.Context, addr string) error {
+	opts := p.DialOptions
+	if len(opts) == 0 {
+		opts = []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	}
+	conn, err := grpc.NewClient(addr, opts...)
 	if err != nil {
 		return fmt.Errorf("health: dial %s: %w", addr, err)
 	}
