@@ -131,6 +131,34 @@ func (g *Graph) Len() int {
 	return g.live
 }
 
+// Tombstones returns how many deleted nodes are still in the graph. Deletes
+// only mark a node, so it keeps its memory and still gets walked through
+// by searches until Compact drops it.
+func (g *Graph) Tombstones() int {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return len(g.nodes) - g.live
+}
+
+// Compact returns a new graph holding only g's live vectors. g itself is
+// left as it was. The caller must stop writes to g until it has swapped
+// in the result, or they won't be in it.
+func (g *Graph) Compact() (*Graph, error) {
+	g.wmu.Lock()
+	var ids []uint64
+	var vecs [][]float32
+	for _, nd := range g.nodes {
+		if !nd.deleted {
+			ids = append(ids, nd.id)
+			vecs = append(vecs, nd.vector)
+		}
+	}
+	g.wmu.Unlock()
+
+	ng := New(g.cfg)
+	return ng, ng.InsertBatch(ids, vecs)
+}
+
 // CountNew returns how many distinct ids in ids are not live in the graph,
 // i.e. how much Len would grow if they were all inserted now.
 func (g *Graph) CountNew(ids []uint64) int {

@@ -726,6 +726,10 @@ func (e *Engine) Snapshot() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	if err := e.compactLocked(); err != nil {
+		return err
+	}
+
 	// Metadata goes first. Replay skips every WAL record at or below the
 	// snapshot's seq, so if the graph snapshot landed and a crash hit before
 	// metadata.json did, the metadata for those records was gone for good.
@@ -767,6 +771,27 @@ func (e *Engine) Snapshot() error {
 	e.snapshotSeq = e.seq
 	return nil
 }
+
+// compactLocked rebuilds the graph without its deleted nodes once they
+// outnumber the live ones. Caller holds e.mu.
+// ponytail: a full rebuild with writes blocked, fine while rebuilds take
+// well under a second; an incremental repair (hnswlib's markDelete plus
+// slot reuse) if they stop being rare or quick.
+func (e *Engine) compactLocked() error {
+	g := e.graph.Load()
+	if dead := g.Tombstones(); dead < minCompact || dead <= g.Len() {
+		return nil
+	}
+	ng, err := g.Compact()
+	if err != nil {
+		return err
+	}
+	e.graph.Store(ng)
+	return nil
+}
+
+// minCompact keeps small graphs from being rebuilt over a few deletes.
+const minCompact = 256
 
 // Close snapshots the current state and releases the WAL file handle.
 func (e *Engine) Close() error {

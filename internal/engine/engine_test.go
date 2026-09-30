@@ -192,3 +192,48 @@ func TestSnapshotThenRecover(t *testing.T) {
 		t.Fatalf("Len() = %d, want 50", e2.Len())
 	}
 }
+
+func TestSnapshotCompactsMostlyDeletedGraph(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Open(dir, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var items []InsertItem
+	for i := uint64(0); i < 1000; i++ {
+		v := make([]float32, 8)
+		v[i%8] = float32(i + 1)
+		items = append(items, InsertItem{ID: i, Vector: v})
+	}
+	if err := e.InsertBatch(items); err != nil {
+		t.Fatal(err)
+	}
+	for i := uint64(0); i < 700; i++ {
+		if err := e.Delete(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.Snapshot(); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.graph.Load().Tombstones(); n != 0 {
+		t.Fatalf("%d tombstones left after snapshot, want 0", n)
+	}
+	if e.Len() != 300 {
+		t.Fatalf("Len = %d, want 300", e.Len())
+	}
+	res, err := e.Search(items[900].Vector, 1, 0, nil)
+	if err != nil || len(res) != 1 || res[0].ID != 900 {
+		t.Fatalf("search after compaction: %v, %v", res, err)
+	}
+	e.Close()
+
+	e2, err := Open(dir, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e2.Close()
+	if e2.Len() != 300 || e2.graph.Load().Tombstones() != 0 {
+		t.Fatalf("reopened: Len %d, tombstones %d", e2.Len(), e2.graph.Load().Tombstones())
+	}
+}
