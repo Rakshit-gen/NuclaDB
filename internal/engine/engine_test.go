@@ -274,3 +274,40 @@ func TestGetAndList(t *testing.T) {
 		t.Fatalf("page 2 = %v more=%v", ids, more)
 	}
 }
+
+func TestUpdateMetadataIsDurable(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Open(dir, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := make([]float32, 8)
+	v[0] = 1
+	if err := e.Insert(1, v, map[string]string{"tier": "free"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.UpdateMetadata(1, map[string]string{"tier": "pro"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.UpdateMetadata(2, map[string]string{"x": "y"}); err != ErrNotFound {
+		t.Fatalf("update of a missing id: got %v, want ErrNotFound", err)
+	}
+	res, err := e.Search(v, 1, 0, map[string]string{"tier": "pro"})
+	if err != nil || len(res) != 1 {
+		t.Fatalf("filter on the new metadata: %v, %v", res, err)
+	}
+	if res, _ := e.Search(v, 1, 0, map[string]string{"tier": "free"}); len(res) != 0 {
+		t.Fatal("old metadata still matches a filter")
+	}
+
+	// No Close: recover from the WAL alone.
+	e2, err := Open(dir, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e2.Close()
+	got, md, ok := e2.Get(1)
+	if !ok || md["tier"] != "pro" || got[0] != 1 {
+		t.Fatalf("after restart: %v %v %v", got, md, ok)
+	}
+}

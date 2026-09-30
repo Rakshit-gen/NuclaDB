@@ -42,6 +42,8 @@ type Op byte
 const (
 	OpInsert Op = 1
 	OpDelete Op = 2
+	// OpMeta replaces an id's metadata (in Extra) and leaves its vector.
+	OpMeta Op = 3
 )
 
 // Record is one durable operation in the log.
@@ -49,7 +51,7 @@ type Record struct {
 	Seq    uint64
 	Op     Op
 	ID     uint64
-	Vector []float32 // nil for OpDelete
+	Vector []float32 // nil for OpDelete and OpMeta
 	Extra  []byte    // opaque caller payload, e.g. JSON metadata; nil if none
 }
 

@@ -109,9 +109,11 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 			return nil
 		}
 		switch rec.Op {
-		case wal.OpInsert:
-			pendingIDs = append(pendingIDs, rec.ID)
-			pendingVecs = append(pendingVecs, rec.Vector)
+		case wal.OpInsert, wal.OpMeta:
+			if rec.Op == wal.OpInsert {
+				pendingIDs = append(pendingIDs, rec.ID)
+				pendingVecs = append(pendingVecs, rec.Vector)
+			}
 			if len(rec.Extra) > 0 {
 				var m map[string]string
 				if err := json.Unmarshal(rec.Extra, &m); err != nil {
@@ -136,6 +138,13 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	// A metadata update logged just before a concurrent delete of the same
+	// id can leave metadata for an id the graph no longer has.
+	for id := range metadata {
+		if _, ok := g.Get(id); !ok {
+			delete(metadata, id)
+		}
 	}
 
 	w, err := wal.OpenWriterAt(walPath, lastSeq, walBytes)
@@ -242,7 +251,7 @@ func (e *Engine) group(p *pendingOp) error {
 
 type pendingOp struct {
 	rec  wal.Record
-	meta map[string]string // inserts only
+	meta map[string]string // inserts and metadata updates
 	done chan groupResult  // buffered, receives exactly one value
 }
 
@@ -320,23 +329,61 @@ func (e *Engine) commitLocked(records []wal.Record, metas []map[string]string) e
 		return err
 	}
 	for _, rec := range records {
-		if rec.Op == wal.OpInsert {
+		switch rec.Op {
+		case wal.OpInsert:
 			ids = append(ids, rec.ID)
 			vectors = append(vectors, rec.Vector)
-			continue
+		case wal.OpDelete:
+			if err := flush(); err != nil {
+				return err
+			}
+			_ = g.Delete(rec.ID)
 		}
-		if err := flush(); err != nil {
-			return err
-		}
-		_ = g.Delete(rec.ID)
 	}
 	if err := flush(); err != nil {
 		return err
 	}
 	for i, rec := range records {
-		e.setMeta(rec.ID, metas[i])
+		if _, ok := g.Get(rec.ID); ok || rec.Op == wal.OpDelete {
+			e.setMeta(rec.ID, metas[i])
+		}
 	}
 	e.seq = seqs[len(seqs)-1]
+	return nil
+}
+
+// UpdateMetadata durably replaces id's metadata without touching its
+// vector. nil or empty clears it. Returns ErrNotFound if id isn't stored.
+func (e *Engine) UpdateMetadata(id uint64, metadata map[string]string) error {
+	if e.CountNew([]uint64{id}) == 1 {
+		return ErrNotFound
+	}
+	var extra []byte
+	if len(metadata) > 0 {
+		b, err := json.Marshal(metadata)
+		if err != nil {
+			return err
+		}
+		extra = b
+	}
+	return e.group(&pendingOp{
+		rec:  wal.Record{Op: wal.OpMeta, ID: id, Extra: extra},
+		meta: metadata,
+		done: make(chan groupResult, 1),
+	})
+}
+
+// applyMeta applies a replicated OpMeta record. Caller holds e.mu.
+func (e *Engine) applyMeta(rec wal.Record) error {
+	var m map[string]string
+	if len(rec.Extra) > 0 {
+		if err := json.Unmarshal(rec.Extra, &m); err != nil {
+			return err
+		}
+	}
+	if _, ok := e.graph.Load().Get(rec.ID); ok {
+		e.setMeta(rec.ID, m)
+	}
 	return nil
 }
 
@@ -411,6 +458,10 @@ func (e *Engine) ApplyReplicated(rec wal.Record) error {
 	case wal.OpDelete:
 		_ = e.graph.Load().Delete(rec.ID)
 		e.setMeta(rec.ID, nil)
+	case wal.OpMeta:
+		if err := e.applyMeta(rec); err != nil {
+			return err
+		}
 	}
 
 	e.seq = rec.Seq
