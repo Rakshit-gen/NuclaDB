@@ -1,11 +1,20 @@
 # NuclaDB
 
-A vector search engine written from scratch in Go: HNSW indexing, product
-quantization, a crash-safe write-ahead log, mmap-backed snapshot
-persistence, tenant-isolated multi-tenancy with quotas and rate limiting,
-OpenTelemetry tracing, Prometheus metrics, a gRPC + REST API, and a CLI,
-benchmarked head-to-head against a real Qdrant instance, not a wrapper
-around one.
+A vector search engine written from scratch in Go. The server,
+`nucladbd`, runs HNSW indexing, a crash-safe write-ahead log, mmap-backed
+snapshot persistence, tenant-isolated multi-tenancy with quotas and rate
+limiting, OpenTelemetry tracing, Prometheus metrics, and a gRPC + REST API,
+with a CLI alongside. It is benchmarked head-to-head against a real Qdrant
+instance, and it is not a wrapper around one.
+
+Two more parts exist as tested Go packages but are not wired into
+`nucladbd` yet, so a server you start today does not use them:
+
+- product quantization (`internal/index/pq`)
+- Raft-replicated sharding (`internal/cluster`)
+
+The sharded cluster is exercised in-process by `bench/cmd/compare-cluster`
+and by the Jepsen-style tests in `test/jepsen`. See [Status](#status).
 
 Every number in this README and in `bench/results.md` comes from actually
 running the code. Where NuclaDB loses to Qdrant, that's reported too: see
@@ -221,8 +230,19 @@ apply across restarts of the demo itself.
 
 ## Status
 
-Actively built in phases; see the project plan for the full roadmap
-(product quantization and multi-tenancy are done, not deferred; Docker
-packaging, chaos testing in CI, and a distributed Phase 2 with
-Raft-replicated sharding and Jepsen-style linearizability testing are in
-progress). Test suite: `go test ./... -race`.
+Single node, done and running in `nucladbd`: HNSW, WAL, snapshots,
+multi-tenancy, the gRPC/REST API and the CLI. Docker packaging is in
+`Dockerfile` and `docker-compose.yml`, and crash tests are in `test/chaos`.
+
+Built and tested as packages, but not yet run by the server:
+
+- product quantization (flat and IVF)
+- the distributed layer: Raft control plane, consistent-hash sharding,
+  WAL-stream replication, scatter-gather router, health checks and
+  failover
+- Jepsen-style linearizability tests in `test/jepsen`, which run a real
+  in-process 2-node cluster through `porcupine`
+
+Not done: a `nucladbd` cluster mode and PQ index option, CI, and the
+remaining replication gaps (divergence detection, rebalance moving data).
+Test suite: `go test ./... -race`.
