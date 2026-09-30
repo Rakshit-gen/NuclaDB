@@ -27,9 +27,24 @@ type Cluster struct {
 	virtualNodes      int
 	replicationFactor int
 
-	mu    sync.RWMutex
-	ring  *ring.Ring
-	addrs map[string]string // node id -> API address, snapshotted alongside ring
+	mu       sync.RWMutex
+	ring     *ring.Ring
+	addrs    map[string]string // node id -> API address, snapshotted alongside ring
+	progress ReplicaProgress
+}
+
+// ReplicaProgress reports the last WAL sequence nodeID's copy of shard has
+// applied (engine.Engine.LastSeq on that node). ok is false when the node
+// can't be asked.
+type ReplicaProgress func(shard int, nodeID string) (seq uint64, ok bool)
+
+// SetReplicaProgress lets failover promote the replica that has applied
+// the most, instead of the first one listed. Without it, or when no
+// replica answers, failover falls back to the first healthy replica.
+func (c *Cluster) SetReplicaProgress(p ReplicaProgress) {
+	c.mu.Lock()
+	c.progress = p
+	c.mu.Unlock()
 }
 
 // New creates a Cluster over node, with a ring of numShards fixed shards
@@ -231,16 +246,33 @@ func (c *Cluster) FailoverShardLeader(shardID int, deadNodeID string) error {
 	if state.ShardLeader[shardID] != deadNodeID {
 		return nil
 	}
+	c.mu.RLock()
+	progress := c.progress
+	c.mu.RUnlock()
+
+	best, bestSeq, bestKnown := "", uint64(0), false
 	for _, replica := range state.ShardReplicas[shardID] {
 		if replica == deadNodeID {
 			continue
 		}
-		if err := c.node.SetShardLeader(shardID, replica); err != nil {
-			return fmt.Errorf("cluster: failover shard %d to %s: %w", shardID, replica, err)
+		if best == "" {
+			best = replica
 		}
-		return nil
+		if progress == nil {
+			break
+		}
+		// A shard has only a few replicas, so asking them in turn is fine.
+		if seq, ok := progress(shardID, replica); ok && (!bestKnown || seq > bestSeq) {
+			best, bestSeq, bestKnown = replica, seq, true
+		}
 	}
-	return fmt.Errorf("cluster: shard %d has no healthy replica to fail over to", shardID)
+	if best == "" {
+		return fmt.Errorf("cluster: shard %d has no healthy replica to fail over to", shardID)
+	}
+	if err := c.node.SetShardLeader(shardID, best); err != nil {
+		return fmt.Errorf("cluster: failover shard %d to %s: %w", shardID, best, err)
+	}
+	return nil
 }
 
 // FailoverNode promotes a healthy replica to lead every shard deadNodeID

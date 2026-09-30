@@ -229,3 +229,50 @@ func TestClusterLeaveRemovesNodeFromAssignment(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+func TestFailoverPromotesMostCaughtUpReplica(t *testing.T) {
+	node, addr := newTCPNode(t, "self")
+	if err := node.Bootstrap([]hraft.Server{{ID: "self", Address: hraft.ServerAddress(addr)}}); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	awaitLeader(t, node, 5*time.Second)
+	c := New(node, 1, 16, 4)
+
+	setup := func() {
+		t.Helper()
+		if err := node.SetShardLeader(0, "dead"); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"a", "b", "c"} {
+			if err := node.AddShardReplica(0, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	leader := func() string { return node.State().ShardLeader[0] }
+
+	setup()
+	if err := c.FailoverShardLeader(0, "dead"); err != nil {
+		t.Fatal(err)
+	}
+	if leader() != "a" {
+		t.Fatalf("without progress: leader = %q, want first replica a", leader())
+	}
+
+	setup()
+	c.SetReplicaProgress(func(_ int, id string) (uint64, bool) {
+		switch id {
+		case "a":
+			return 10, true
+		case "b":
+			return 42, true
+		}
+		return 0, false // c unreachable
+	})
+	if err := c.FailoverShardLeader(0, "dead"); err != nil {
+		t.Fatal(err)
+	}
+	if leader() != "b" {
+		t.Fatalf("with progress: leader = %q, want most caught-up replica b", leader())
+	}
+}
