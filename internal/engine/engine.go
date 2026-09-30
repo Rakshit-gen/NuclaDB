@@ -52,6 +52,9 @@ type Engine struct {
 
 	metaMu   sync.RWMutex
 	metadata map[uint64]map[string]string
+	// postings maps "key\x00value" to the ids whose metadata has that pair,
+	// so a filtered search can see how selective its filter is.
+	postings map[string]map[uint64]struct{}
 }
 
 // Open loads dir's snapshot (if any), replays any WAL records written
@@ -117,6 +120,7 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 		seq:         lastSeq,
 		snapshotSeq: snapshotSeq,
 		metadata:    metadata,
+		postings:    buildPostings(metadata),
 	}
 	e.graph.Store(g)
 	return e, nil
@@ -147,14 +151,7 @@ func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string)
 		return err
 	}
 
-	e.metaMu.Lock()
-	if len(metadata) > 0 {
-		e.metadata[id] = metadata
-	} else {
-		delete(e.metadata, id)
-	}
-	e.metaMu.Unlock()
-
+	e.setMeta(id, metadata)
 	e.seq = seq
 	return nil
 }
@@ -214,14 +211,7 @@ func (e *Engine) InsertBatch(items []InsertItem) error {
 			return err
 		}
 
-		e.metaMu.Lock()
-		if len(it.Metadata) > 0 {
-			e.metadata[it.ID] = it.Metadata
-		} else {
-			delete(e.metadata, it.ID)
-		}
-		e.metaMu.Unlock()
-
+		e.setMeta(it.ID, it.Metadata)
 		e.seq = seqs[i]
 	}
 	return nil
@@ -239,10 +229,7 @@ func (e *Engine) Delete(id uint64) error {
 		return err
 	}
 	_ = e.graph.Load().Delete(id)
-
-	e.metaMu.Lock()
-	delete(e.metadata, id)
-	e.metaMu.Unlock()
+	e.setMeta(id, nil)
 
 	e.seq = seq
 	return nil
@@ -296,23 +283,16 @@ func (e *Engine) ApplyReplicated(rec wal.Record) error {
 		if err := e.graph.Load().Insert(rec.ID, rec.Vector); err != nil {
 			return err
 		}
-		e.metaMu.Lock()
+		var m map[string]string
 		if len(rec.Extra) > 0 {
-			var m map[string]string
 			if err := json.Unmarshal(rec.Extra, &m); err != nil {
-				e.metaMu.Unlock()
 				return err
 			}
-			e.metadata[rec.ID] = m
-		} else {
-			delete(e.metadata, rec.ID)
 		}
-		e.metaMu.Unlock()
+		e.setMeta(rec.ID, m)
 	case wal.OpDelete:
 		_ = e.graph.Load().Delete(rec.ID)
-		e.metaMu.Lock()
-		delete(e.metadata, rec.ID)
-		e.metaMu.Unlock()
+		e.setMeta(rec.ID, nil)
 	}
 
 	e.seq = rec.Seq
@@ -396,6 +376,7 @@ func (e *Engine) LoadSnapshot(snapshotBytes, metadataBytes []byte, seq uint64) e
 	e.snapshotSeq = gotSeq
 	e.metaMu.Lock()
 	e.metadata = metadata
+	e.postings = buildPostings(metadata)
 	e.metaMu.Unlock()
 	return nil
 }
@@ -515,6 +496,49 @@ func matchesFilters(metadata map[string]string, filters map[string]string) bool 
 		}
 	}
 	return true
+}
+
+func postingKey(k, v string) string { return k + "\x00" + v }
+
+func buildPostings(metadata map[uint64]map[string]string) map[string]map[uint64]struct{} {
+	p := make(map[string]map[uint64]struct{})
+	for id, md := range metadata {
+		for k, v := range md {
+			addPosting(p, postingKey(k, v), id)
+		}
+	}
+	return p
+}
+
+func addPosting(p map[string]map[uint64]struct{}, key string, id uint64) {
+	ids := p[key]
+	if ids == nil {
+		ids = make(map[uint64]struct{})
+		p[key] = ids
+	}
+	ids[id] = struct{}{}
+}
+
+// setMeta replaces id's metadata (nil or empty clears it) and keeps the
+// postings index in step.
+func (e *Engine) setMeta(id uint64, md map[string]string) {
+	e.metaMu.Lock()
+	defer e.metaMu.Unlock()
+	for k, v := range e.metadata[id] {
+		key := postingKey(k, v)
+		delete(e.postings[key], id)
+		if len(e.postings[key]) == 0 {
+			delete(e.postings, key)
+		}
+	}
+	if len(md) == 0 {
+		delete(e.metadata, id)
+		return
+	}
+	e.metadata[id] = md
+	for k, v := range md {
+		addPosting(e.postings, postingKey(k, v), id)
+	}
 }
 
 // Snapshot writes the current graph and metadata to disk and rotates the
