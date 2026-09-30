@@ -41,7 +41,12 @@ const (
 // LoadSnapshot (the only reassignment) still holds mu, so it can't race a
 // concurrent Insert.
 type Engine struct {
-	mu  sync.Mutex
+	mu sync.Mutex
+	// qmu guards queue and flushing, the group commit state for Insert.
+	qmu      sync.Mutex
+	queue    []*pendingInsert
+	flushing bool
+
 	dir string
 	cfg hnsw.Config
 
@@ -127,6 +132,13 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 }
 
 // Insert durably upserts id -> (vector, metadata). metadata may be nil.
+//
+// Concurrent Inserts are group committed: the first caller becomes the
+// leader and logs every insert queued behind it with one shared fsync (the
+// same path InsertBatch takes). A caller still returns only once its own
+// record is durable and applied. Under one writer this is one fsync per
+// insert, same as before; under N concurrent writers it is roughly one per
+// round instead of N.
 func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string) error {
 	if len(vector) != e.cfg.Dim {
 		return hnsw.ErrDimensionMismatch
@@ -140,20 +152,68 @@ func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string)
 		extra = b
 	}
 
+	p := &pendingInsert{
+		item: InsertItem{ID: id, Vector: vector, Metadata: metadata},
+		rec:  wal.Record{Op: wal.OpInsert, ID: id, Vector: vector, Extra: extra},
+		done: make(chan groupResult, 1),
+	}
+
+	e.qmu.Lock()
+	e.queue = append(e.queue, p)
+	lead := !e.flushing
+	e.flushing = true
+	e.qmu.Unlock()
+
+	if !lead {
+		r := <-p.done
+		if !r.lead {
+			return r.err
+		}
+	}
+
+	e.qmu.Lock()
+	group := e.queue
+	e.queue = nil
+	e.qmu.Unlock()
+
+	items := make([]InsertItem, len(group))
+	records := make([]wal.Record, len(group))
+	for i, q := range group {
+		items[i], records[i] = q.item, q.rec
+	}
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	err := e.commitLocked(items, records)
+	e.mu.Unlock()
 
-	seq, err := e.w.AppendWithExtra(wal.OpInsert, id, vector, extra)
-	if err != nil {
-		return err
-	}
-	if err := e.graph.Load().Insert(id, vector); err != nil {
-		return err
+	for _, q := range group {
+		if q != p {
+			q.done <- groupResult{err: err}
+		}
 	}
 
-	e.setMeta(id, metadata)
-	e.seq = seq
-	return nil
+	// Hand leadership to the next waiter instead of looping here, so one
+	// caller never gets stuck flushing everyone else's writes.
+	e.qmu.Lock()
+	if len(e.queue) == 0 {
+		e.flushing = false
+	} else {
+		e.queue[0].done <- groupResult{lead: true}
+	}
+	e.qmu.Unlock()
+	return err
+}
+
+type pendingInsert struct {
+	item InsertItem
+	rec  wal.Record
+	done chan groupResult // buffered, receives exactly one value
+}
+
+// groupResult is either a finished insert's error, or lead=true telling a
+// waiter to flush the queue itself.
+type groupResult struct {
+	err  error
+	lead bool
 }
 
 // InsertItem is one vector in an InsertBatch call, the same shape Insert
@@ -199,7 +259,12 @@ func (e *Engine) InsertBatch(items []InsertItem) error {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.commitLocked(items, records)
+}
 
+// commitLocked logs records with one fsync, then applies items to the graph
+// in the same order. items must already be validated. Caller holds e.mu.
+func (e *Engine) commitLocked(items []InsertItem, records []wal.Record) error {
 	seqs, err := e.w.AppendBatch(records)
 	if err != nil {
 		return err
