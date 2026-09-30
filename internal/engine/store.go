@@ -266,23 +266,56 @@ func (s *Store) Insert(tenantID string, id uint64, vector []float32, metadata ma
 // InsertBatch durably upserts items within tenantID with one shared fsync.
 // Used by the BatchUpsert RPC for bulk loads.
 func (s *Store) InsertBatch(tenantID string, items []InsertItem) error {
-	t, err := s.getTenant(tenantID)
-	if err != nil {
-		return err
+	return s.InsertBatches([]TenantBatch{{TenantID: tenantID, Items: items}})
+}
+
+// TenantBatch is one tenant's share of a multi-tenant upsert.
+type TenantBatch struct {
+	TenantID string
+	Items    []InsertItem
+}
+
+// InsertBatches upserts several tenants' batches. Every tenant, vector
+// dimension, rate limit and quota is checked before anything is written,
+// so a request that would be refused is refused whole. Each tenant is then
+// its own durable batch: a disk error partway through can still leave the
+// earlier tenants written.
+func (s *Store) InsertBatches(batches []TenantBatch) error {
+	tenants := make([]*tenant, len(batches))
+	for i, b := range batches {
+		t, err := s.getTenant(b.TenantID)
+		if err != nil {
+			return err
+		}
+		for _, it := range b.Items {
+			if len(it.Vector) != s.cfg.Dim {
+				return hnsw.ErrDimensionMismatch
+			}
+		}
+		tenants[i] = t
 	}
-	if !t.allow(len(items)) {
-		return ErrRateLimited
+	for i, b := range batches {
+		if !tenants[i].allow(len(b.Items)) {
+			return ErrRateLimited
+		}
 	}
-	ids := make([]uint64, len(items))
-	for i, it := range items {
-		ids[i] = it.ID
+	for i, b := range batches {
+		ids := make([]uint64, len(b.Items))
+		for j, it := range b.Items {
+			ids[j] = it.ID
+		}
+		release, err := s.reserve(tenants[i], ids)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
-	release, err := s.reserve(t, ids)
-	if err != nil {
-		return err
+	for i, b := range batches {
+		if err := tenants[i].engine.InsertBatch(b.Items); err != nil {
+			return err
+		}
 	}
-	defer release()
-	return t.engine.InsertBatch(items)
+	return nil
 }
 
 // Delete durably removes id within tenantID.

@@ -414,3 +414,28 @@ func TestStoreRateLimitCountsBatchVectors(t *testing.T) {
 		t.Fatalf("a 2-vector batch with 1 token left: got %v, want ErrRateLimited", err)
 	}
 }
+
+func TestStoreInsertBatchesRefusesWholeRequest(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.CreateTenant("small", Quota{MaxVectors: 1}); err != nil {
+		t.Fatal(err)
+	}
+	ok := TenantBatch{TenantID: DefaultTenant, Items: []InsertItem{{ID: 1, Vector: []float32{1, 0, 0, 0}}}}
+	cases := map[string]TenantBatch{
+		"unknown tenant": {TenantID: "nope", Items: ok.Items},
+		"bad dimension":  {TenantID: "small", Items: []InsertItem{{ID: 1, Vector: []float32{1}}}},
+		"over quota":     {TenantID: "small", Items: []InsertItem{{ID: 1, Vector: []float32{1, 0, 0, 0}}, {ID: 2, Vector: []float32{0, 1, 0, 0}}}},
+	}
+	for name, bad := range cases {
+		if err := s.InsertBatches([]TenantBatch{ok, bad}); err == nil {
+			t.Fatalf("%s: expected an error", name)
+		}
+		if st, _ := s.Stats(DefaultTenant); st.VectorCount != 0 {
+			t.Fatalf("%s: default tenant was written before the request was refused", name)
+		}
+	}
+}
