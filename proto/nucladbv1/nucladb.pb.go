@@ -73,6 +73,75 @@ func (DistanceMetric) EnumDescriptor() ([]byte, []int) {
 	return file_proto_nucladb_proto_rawDescGZIP(), []int{0}
 }
 
+// FilterOp is how a MetadataFilter compares. The zero value is EQ, so a
+// filter that sets only key and value is an equality check.
+type FilterOp int32
+
+const (
+	FilterOp_FILTER_OP_EQ     FilterOp = 0
+	FilterOp_FILTER_OP_NE     FilterOp = 1 // key missing, or value differs
+	FilterOp_FILTER_OP_IN     FilterOp = 2 // value is one of values
+	FilterOp_FILTER_OP_NOT_IN FilterOp = 3 // key missing, or value is none of values
+	FilterOp_FILTER_OP_GT     FilterOp = 4 // numeric comparisons parse the stored value
+	FilterOp_FILTER_OP_GTE    FilterOp = 5 // as a number; a non-number never matches
+	FilterOp_FILTER_OP_LT     FilterOp = 6
+	FilterOp_FILTER_OP_LTE    FilterOp = 7
+	FilterOp_FILTER_OP_EXISTS FilterOp = 8 // key is present
+)
+
+// Enum value maps for FilterOp.
+var (
+	FilterOp_name = map[int32]string{
+		0: "FILTER_OP_EQ",
+		1: "FILTER_OP_NE",
+		2: "FILTER_OP_IN",
+		3: "FILTER_OP_NOT_IN",
+		4: "FILTER_OP_GT",
+		5: "FILTER_OP_GTE",
+		6: "FILTER_OP_LT",
+		7: "FILTER_OP_LTE",
+		8: "FILTER_OP_EXISTS",
+	}
+	FilterOp_value = map[string]int32{
+		"FILTER_OP_EQ":     0,
+		"FILTER_OP_NE":     1,
+		"FILTER_OP_IN":     2,
+		"FILTER_OP_NOT_IN": 3,
+		"FILTER_OP_GT":     4,
+		"FILTER_OP_GTE":    5,
+		"FILTER_OP_LT":     6,
+		"FILTER_OP_LTE":    7,
+		"FILTER_OP_EXISTS": 8,
+	}
+)
+
+func (x FilterOp) Enum() *FilterOp {
+	p := new(FilterOp)
+	*p = x
+	return p
+}
+
+func (x FilterOp) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FilterOp) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_nucladb_proto_enumTypes[1].Descriptor()
+}
+
+func (FilterOp) Type() protoreflect.EnumType {
+	return &file_proto_nucladb_proto_enumTypes[1]
+}
+
+func (x FilterOp) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FilterOp.Descriptor instead.
+func (FilterOp) EnumDescriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{1}
+}
+
 // TenantQuota bounds one tenant's resource usage. A zero value for either
 // field means unlimited.
 type TenantQuota struct {
@@ -555,10 +624,13 @@ func (x *DeleteResponse) GetDeleted() bool {
 	return false
 }
 
+// A search keeps vectors matching every filter it's given.
 type MetadataFilter struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"` // for EQ, NE and the numeric ops
+	Op            FilterOp               `protobuf:"varint,3,opt,name=op,proto3,enum=nucladb.v1.FilterOp" json:"op,omitempty"`
+	Values        []string               `protobuf:"bytes,4,rep,name=values,proto3" json:"values,omitempty"` // for IN and NOT_IN
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -605,6 +677,20 @@ func (x *MetadataFilter) GetValue() string {
 		return x.Value
 	}
 	return ""
+}
+
+func (x *MetadataFilter) GetOp() FilterOp {
+	if x != nil {
+		return x.Op
+	}
+	return FilterOp_FILTER_OP_EQ
+}
+
+func (x *MetadataFilter) GetValues() []string {
+	if x != nil {
+		return x.Values
+	}
+	return nil
 }
 
 type SearchRequest struct {
@@ -1536,10 +1622,12 @@ const file_proto_nucladb_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\"*\n" +
 	"\x0eDeleteResponse\x12\x18\n" +
-	"\adeleted\x18\x01 \x01(\bR\adeleted\"8\n" +
+	"\adeleted\x18\x01 \x01(\bR\adeleted\"v\n" +
 	"\x0eMetadataFilter\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"\xde\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\x12$\n" +
+	"\x02op\x18\x03 \x01(\x0e2\x14.nucladb.v1.FilterOpR\x02op\x12\x16\n" +
+	"\x06values\x18\x04 \x03(\tR\x06values\"\xde\x01\n" +
 	"\rSearchRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x03(\x02R\x05query\x12\x13\n" +
 	"\x05top_k\x18\x02 \x01(\x05R\x04topK\x122\n" +
@@ -1601,7 +1689,17 @@ const file_proto_nucladb_proto_rawDesc = "" +
 	"\x1bDISTANCE_METRIC_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16DISTANCE_METRIC_COSINE\x10\x01\x12\x16\n" +
 	"\x12DISTANCE_METRIC_L2\x10\x02\x12\x17\n" +
-	"\x13DISTANCE_METRIC_DOT\x10\x032\xe3\x06\n" +
+	"\x13DISTANCE_METRIC_DOT\x10\x03*\xb6\x01\n" +
+	"\bFilterOp\x12\x10\n" +
+	"\fFILTER_OP_EQ\x10\x00\x12\x10\n" +
+	"\fFILTER_OP_NE\x10\x01\x12\x10\n" +
+	"\fFILTER_OP_IN\x10\x02\x12\x14\n" +
+	"\x10FILTER_OP_NOT_IN\x10\x03\x12\x10\n" +
+	"\fFILTER_OP_GT\x10\x04\x12\x11\n" +
+	"\rFILTER_OP_GTE\x10\x05\x12\x10\n" +
+	"\fFILTER_OP_LT\x10\x06\x12\x11\n" +
+	"\rFILTER_OP_LTE\x10\a\x12\x14\n" +
+	"\x10FILTER_OP_EXISTS\x10\b2\xe3\x06\n" +
 	"\aNuclaDB\x12Q\n" +
 	"\fCreateTenant\x12\x1f.nucladb.v1.CreateTenantRequest\x1a .nucladb.v1.CreateTenantResponse\x12?\n" +
 	"\x06Insert\x12\x19.nucladb.v1.InsertRequest\x1a\x1a.nucladb.v1.InsertResponse\x12N\n" +
@@ -1628,86 +1726,88 @@ func file_proto_nucladb_proto_rawDescGZIP() []byte {
 	return file_proto_nucladb_proto_rawDescData
 }
 
-var file_proto_nucladb_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_proto_nucladb_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_proto_nucladb_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_proto_nucladb_proto_goTypes = []any{
 	(DistanceMetric)(0),            // 0: nucladb.v1.DistanceMetric
-	(*TenantQuota)(nil),            // 1: nucladb.v1.TenantQuota
-	(*CreateTenantRequest)(nil),    // 2: nucladb.v1.CreateTenantRequest
-	(*CreateTenantResponse)(nil),   // 3: nucladb.v1.CreateTenantResponse
-	(*Vector)(nil),                 // 4: nucladb.v1.Vector
-	(*InsertRequest)(nil),          // 5: nucladb.v1.InsertRequest
-	(*InsertResponse)(nil),         // 6: nucladb.v1.InsertResponse
-	(*BatchUpsertRequest)(nil),     // 7: nucladb.v1.BatchUpsertRequest
-	(*BatchUpsertResponse)(nil),    // 8: nucladb.v1.BatchUpsertResponse
-	(*DeleteRequest)(nil),          // 9: nucladb.v1.DeleteRequest
-	(*DeleteResponse)(nil),         // 10: nucladb.v1.DeleteResponse
-	(*MetadataFilter)(nil),         // 11: nucladb.v1.MetadataFilter
-	(*SearchRequest)(nil),          // 12: nucladb.v1.SearchRequest
-	(*ScoredVector)(nil),           // 13: nucladb.v1.ScoredVector
-	(*SearchResponse)(nil),         // 14: nucladb.v1.SearchResponse
-	(*GetRequest)(nil),             // 15: nucladb.v1.GetRequest
-	(*GetResponse)(nil),            // 16: nucladb.v1.GetResponse
-	(*ListRequest)(nil),            // 17: nucladb.v1.ListRequest
-	(*ListResponse)(nil),           // 18: nucladb.v1.ListResponse
-	(*CountRequest)(nil),           // 19: nucladb.v1.CountRequest
-	(*CountResponse)(nil),          // 20: nucladb.v1.CountResponse
-	(*UpdateMetadataRequest)(nil),  // 21: nucladb.v1.UpdateMetadataRequest
-	(*UpdateMetadataResponse)(nil), // 22: nucladb.v1.UpdateMetadataResponse
-	(*DeleteTenantRequest)(nil),    // 23: nucladb.v1.DeleteTenantRequest
-	(*DeleteTenantResponse)(nil),   // 24: nucladb.v1.DeleteTenantResponse
-	(*SetQuotaRequest)(nil),        // 25: nucladb.v1.SetQuotaRequest
-	(*SetQuotaResponse)(nil),       // 26: nucladb.v1.SetQuotaResponse
-	(*ListTenantsRequest)(nil),     // 27: nucladb.v1.ListTenantsRequest
-	(*TenantInfo)(nil),             // 28: nucladb.v1.TenantInfo
-	(*ListTenantsResponse)(nil),    // 29: nucladb.v1.ListTenantsResponse
-	nil,                            // 30: nucladb.v1.Vector.MetadataEntry
-	nil,                            // 31: nucladb.v1.ScoredVector.MetadataEntry
-	nil,                            // 32: nucladb.v1.UpdateMetadataRequest.MetadataEntry
+	(FilterOp)(0),                  // 1: nucladb.v1.FilterOp
+	(*TenantQuota)(nil),            // 2: nucladb.v1.TenantQuota
+	(*CreateTenantRequest)(nil),    // 3: nucladb.v1.CreateTenantRequest
+	(*CreateTenantResponse)(nil),   // 4: nucladb.v1.CreateTenantResponse
+	(*Vector)(nil),                 // 5: nucladb.v1.Vector
+	(*InsertRequest)(nil),          // 6: nucladb.v1.InsertRequest
+	(*InsertResponse)(nil),         // 7: nucladb.v1.InsertResponse
+	(*BatchUpsertRequest)(nil),     // 8: nucladb.v1.BatchUpsertRequest
+	(*BatchUpsertResponse)(nil),    // 9: nucladb.v1.BatchUpsertResponse
+	(*DeleteRequest)(nil),          // 10: nucladb.v1.DeleteRequest
+	(*DeleteResponse)(nil),         // 11: nucladb.v1.DeleteResponse
+	(*MetadataFilter)(nil),         // 12: nucladb.v1.MetadataFilter
+	(*SearchRequest)(nil),          // 13: nucladb.v1.SearchRequest
+	(*ScoredVector)(nil),           // 14: nucladb.v1.ScoredVector
+	(*SearchResponse)(nil),         // 15: nucladb.v1.SearchResponse
+	(*GetRequest)(nil),             // 16: nucladb.v1.GetRequest
+	(*GetResponse)(nil),            // 17: nucladb.v1.GetResponse
+	(*ListRequest)(nil),            // 18: nucladb.v1.ListRequest
+	(*ListResponse)(nil),           // 19: nucladb.v1.ListResponse
+	(*CountRequest)(nil),           // 20: nucladb.v1.CountRequest
+	(*CountResponse)(nil),          // 21: nucladb.v1.CountResponse
+	(*UpdateMetadataRequest)(nil),  // 22: nucladb.v1.UpdateMetadataRequest
+	(*UpdateMetadataResponse)(nil), // 23: nucladb.v1.UpdateMetadataResponse
+	(*DeleteTenantRequest)(nil),    // 24: nucladb.v1.DeleteTenantRequest
+	(*DeleteTenantResponse)(nil),   // 25: nucladb.v1.DeleteTenantResponse
+	(*SetQuotaRequest)(nil),        // 26: nucladb.v1.SetQuotaRequest
+	(*SetQuotaResponse)(nil),       // 27: nucladb.v1.SetQuotaResponse
+	(*ListTenantsRequest)(nil),     // 28: nucladb.v1.ListTenantsRequest
+	(*TenantInfo)(nil),             // 29: nucladb.v1.TenantInfo
+	(*ListTenantsResponse)(nil),    // 30: nucladb.v1.ListTenantsResponse
+	nil,                            // 31: nucladb.v1.Vector.MetadataEntry
+	nil,                            // 32: nucladb.v1.ScoredVector.MetadataEntry
+	nil,                            // 33: nucladb.v1.UpdateMetadataRequest.MetadataEntry
 }
 var file_proto_nucladb_proto_depIdxs = []int32{
-	1,  // 0: nucladb.v1.CreateTenantRequest.quota:type_name -> nucladb.v1.TenantQuota
-	30, // 1: nucladb.v1.Vector.metadata:type_name -> nucladb.v1.Vector.MetadataEntry
-	4,  // 2: nucladb.v1.InsertRequest.vector:type_name -> nucladb.v1.Vector
-	4,  // 3: nucladb.v1.BatchUpsertRequest.vectors:type_name -> nucladb.v1.Vector
-	0,  // 4: nucladb.v1.SearchRequest.metric:type_name -> nucladb.v1.DistanceMetric
-	11, // 5: nucladb.v1.SearchRequest.filters:type_name -> nucladb.v1.MetadataFilter
-	31, // 6: nucladb.v1.ScoredVector.metadata:type_name -> nucladb.v1.ScoredVector.MetadataEntry
-	13, // 7: nucladb.v1.SearchResponse.matches:type_name -> nucladb.v1.ScoredVector
-	4,  // 8: nucladb.v1.GetResponse.vector:type_name -> nucladb.v1.Vector
-	32, // 9: nucladb.v1.UpdateMetadataRequest.metadata:type_name -> nucladb.v1.UpdateMetadataRequest.MetadataEntry
-	1,  // 10: nucladb.v1.SetQuotaRequest.quota:type_name -> nucladb.v1.TenantQuota
-	1,  // 11: nucladb.v1.TenantInfo.quota:type_name -> nucladb.v1.TenantQuota
-	28, // 12: nucladb.v1.ListTenantsResponse.tenants:type_name -> nucladb.v1.TenantInfo
-	2,  // 13: nucladb.v1.NuclaDB.CreateTenant:input_type -> nucladb.v1.CreateTenantRequest
-	5,  // 14: nucladb.v1.NuclaDB.Insert:input_type -> nucladb.v1.InsertRequest
-	7,  // 15: nucladb.v1.NuclaDB.BatchUpsert:input_type -> nucladb.v1.BatchUpsertRequest
-	9,  // 16: nucladb.v1.NuclaDB.Delete:input_type -> nucladb.v1.DeleteRequest
-	12, // 17: nucladb.v1.NuclaDB.Search:input_type -> nucladb.v1.SearchRequest
-	15, // 18: nucladb.v1.NuclaDB.Get:input_type -> nucladb.v1.GetRequest
-	17, // 19: nucladb.v1.NuclaDB.List:input_type -> nucladb.v1.ListRequest
-	19, // 20: nucladb.v1.NuclaDB.Count:input_type -> nucladb.v1.CountRequest
-	21, // 21: nucladb.v1.NuclaDB.UpdateMetadata:input_type -> nucladb.v1.UpdateMetadataRequest
-	23, // 22: nucladb.v1.NuclaDB.DeleteTenant:input_type -> nucladb.v1.DeleteTenantRequest
-	25, // 23: nucladb.v1.NuclaDB.SetQuota:input_type -> nucladb.v1.SetQuotaRequest
-	27, // 24: nucladb.v1.NuclaDB.ListTenants:input_type -> nucladb.v1.ListTenantsRequest
-	3,  // 25: nucladb.v1.NuclaDB.CreateTenant:output_type -> nucladb.v1.CreateTenantResponse
-	6,  // 26: nucladb.v1.NuclaDB.Insert:output_type -> nucladb.v1.InsertResponse
-	8,  // 27: nucladb.v1.NuclaDB.BatchUpsert:output_type -> nucladb.v1.BatchUpsertResponse
-	10, // 28: nucladb.v1.NuclaDB.Delete:output_type -> nucladb.v1.DeleteResponse
-	14, // 29: nucladb.v1.NuclaDB.Search:output_type -> nucladb.v1.SearchResponse
-	16, // 30: nucladb.v1.NuclaDB.Get:output_type -> nucladb.v1.GetResponse
-	18, // 31: nucladb.v1.NuclaDB.List:output_type -> nucladb.v1.ListResponse
-	20, // 32: nucladb.v1.NuclaDB.Count:output_type -> nucladb.v1.CountResponse
-	22, // 33: nucladb.v1.NuclaDB.UpdateMetadata:output_type -> nucladb.v1.UpdateMetadataResponse
-	24, // 34: nucladb.v1.NuclaDB.DeleteTenant:output_type -> nucladb.v1.DeleteTenantResponse
-	26, // 35: nucladb.v1.NuclaDB.SetQuota:output_type -> nucladb.v1.SetQuotaResponse
-	29, // 36: nucladb.v1.NuclaDB.ListTenants:output_type -> nucladb.v1.ListTenantsResponse
-	25, // [25:37] is the sub-list for method output_type
-	13, // [13:25] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	2,  // 0: nucladb.v1.CreateTenantRequest.quota:type_name -> nucladb.v1.TenantQuota
+	31, // 1: nucladb.v1.Vector.metadata:type_name -> nucladb.v1.Vector.MetadataEntry
+	5,  // 2: nucladb.v1.InsertRequest.vector:type_name -> nucladb.v1.Vector
+	5,  // 3: nucladb.v1.BatchUpsertRequest.vectors:type_name -> nucladb.v1.Vector
+	1,  // 4: nucladb.v1.MetadataFilter.op:type_name -> nucladb.v1.FilterOp
+	0,  // 5: nucladb.v1.SearchRequest.metric:type_name -> nucladb.v1.DistanceMetric
+	12, // 6: nucladb.v1.SearchRequest.filters:type_name -> nucladb.v1.MetadataFilter
+	32, // 7: nucladb.v1.ScoredVector.metadata:type_name -> nucladb.v1.ScoredVector.MetadataEntry
+	14, // 8: nucladb.v1.SearchResponse.matches:type_name -> nucladb.v1.ScoredVector
+	5,  // 9: nucladb.v1.GetResponse.vector:type_name -> nucladb.v1.Vector
+	33, // 10: nucladb.v1.UpdateMetadataRequest.metadata:type_name -> nucladb.v1.UpdateMetadataRequest.MetadataEntry
+	2,  // 11: nucladb.v1.SetQuotaRequest.quota:type_name -> nucladb.v1.TenantQuota
+	2,  // 12: nucladb.v1.TenantInfo.quota:type_name -> nucladb.v1.TenantQuota
+	29, // 13: nucladb.v1.ListTenantsResponse.tenants:type_name -> nucladb.v1.TenantInfo
+	3,  // 14: nucladb.v1.NuclaDB.CreateTenant:input_type -> nucladb.v1.CreateTenantRequest
+	6,  // 15: nucladb.v1.NuclaDB.Insert:input_type -> nucladb.v1.InsertRequest
+	8,  // 16: nucladb.v1.NuclaDB.BatchUpsert:input_type -> nucladb.v1.BatchUpsertRequest
+	10, // 17: nucladb.v1.NuclaDB.Delete:input_type -> nucladb.v1.DeleteRequest
+	13, // 18: nucladb.v1.NuclaDB.Search:input_type -> nucladb.v1.SearchRequest
+	16, // 19: nucladb.v1.NuclaDB.Get:input_type -> nucladb.v1.GetRequest
+	18, // 20: nucladb.v1.NuclaDB.List:input_type -> nucladb.v1.ListRequest
+	20, // 21: nucladb.v1.NuclaDB.Count:input_type -> nucladb.v1.CountRequest
+	22, // 22: nucladb.v1.NuclaDB.UpdateMetadata:input_type -> nucladb.v1.UpdateMetadataRequest
+	24, // 23: nucladb.v1.NuclaDB.DeleteTenant:input_type -> nucladb.v1.DeleteTenantRequest
+	26, // 24: nucladb.v1.NuclaDB.SetQuota:input_type -> nucladb.v1.SetQuotaRequest
+	28, // 25: nucladb.v1.NuclaDB.ListTenants:input_type -> nucladb.v1.ListTenantsRequest
+	4,  // 26: nucladb.v1.NuclaDB.CreateTenant:output_type -> nucladb.v1.CreateTenantResponse
+	7,  // 27: nucladb.v1.NuclaDB.Insert:output_type -> nucladb.v1.InsertResponse
+	9,  // 28: nucladb.v1.NuclaDB.BatchUpsert:output_type -> nucladb.v1.BatchUpsertResponse
+	11, // 29: nucladb.v1.NuclaDB.Delete:output_type -> nucladb.v1.DeleteResponse
+	15, // 30: nucladb.v1.NuclaDB.Search:output_type -> nucladb.v1.SearchResponse
+	17, // 31: nucladb.v1.NuclaDB.Get:output_type -> nucladb.v1.GetResponse
+	19, // 32: nucladb.v1.NuclaDB.List:output_type -> nucladb.v1.ListResponse
+	21, // 33: nucladb.v1.NuclaDB.Count:output_type -> nucladb.v1.CountResponse
+	23, // 34: nucladb.v1.NuclaDB.UpdateMetadata:output_type -> nucladb.v1.UpdateMetadataResponse
+	25, // 35: nucladb.v1.NuclaDB.DeleteTenant:output_type -> nucladb.v1.DeleteTenantResponse
+	27, // 36: nucladb.v1.NuclaDB.SetQuota:output_type -> nucladb.v1.SetQuotaResponse
+	30, // 37: nucladb.v1.NuclaDB.ListTenants:output_type -> nucladb.v1.ListTenantsResponse
+	26, // [26:38] is the sub-list for method output_type
+	14, // [14:26] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_proto_nucladb_proto_init() }
@@ -1720,7 +1820,7 @@ func file_proto_nucladb_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_nucladb_proto_rawDesc), len(file_proto_nucladb_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,

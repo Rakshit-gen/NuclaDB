@@ -132,12 +132,31 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, resp, err)
 }
 
+// Filters is the short form, equality only. Where takes any operator:
+// {"key": "price", "op": "lt", "value": "10"} or
+// {"key": "tier", "op": "in", "values": ["pro", "team"]}.
 type searchJSON struct {
 	Query    []float32         `json:"query"`
 	TopK     int32             `json:"top_k"`
 	EfSearch int32             `json:"ef_search,omitempty"`
 	Filters  map[string]string `json:"filters,omitempty"`
+	Where    []whereJSON       `json:"where,omitempty"`
 	TenantID string            `json:"tenant_id,omitempty"`
+}
+
+type whereJSON struct {
+	Key    string   `json:"key"`
+	Op     string   `json:"op"`
+	Value  string   `json:"value,omitempty"`
+	Values []string `json:"values,omitempty"`
+}
+
+var filterOps = map[string]pb.FilterOp{
+	"": pb.FilterOp_FILTER_OP_EQ, "eq": pb.FilterOp_FILTER_OP_EQ, "ne": pb.FilterOp_FILTER_OP_NE,
+	"in": pb.FilterOp_FILTER_OP_IN, "not_in": pb.FilterOp_FILTER_OP_NOT_IN,
+	"gt": pb.FilterOp_FILTER_OP_GT, "gte": pb.FilterOp_FILTER_OP_GTE,
+	"lt": pb.FilterOp_FILTER_OP_LT, "lte": pb.FilterOp_FILTER_OP_LTE,
+	"exists": pb.FilterOp_FILTER_OP_EXISTS,
 }
 
 func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +167,14 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 	filters := make([]*pb.MetadataFilter, 0, len(body.Filters))
 	for k, v := range body.Filters {
 		filters = append(filters, &pb.MetadataFilter{Key: k, Value: v})
+	}
+	for _, f := range body.Where {
+		op, ok := filterOps[f.Op]
+		if !ok {
+			writeError(w, http.StatusBadRequest, "unknown filter op "+strconv.Quote(f.Op))
+			return
+		}
+		filters = append(filters, &pb.MetadataFilter{Key: f.Key, Op: op, Value: f.Value, Values: f.Values})
 	}
 	resp, err := h.svc.Search(r.Context(), &pb.SearchRequest{
 		Query: body.Query, TopK: body.TopK, EfSearch: body.EfSearch, Filters: filters, TenantId: body.TenantID,

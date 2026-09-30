@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"errors"
 	"math/rand"
 	"sort"
+	"strconv"
 	"testing"
 
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
@@ -43,7 +45,7 @@ func TestSelectiveFilterReturnsExactTopK(t *testing.T) {
 	}
 
 	query := make([]float32, 8)
-	res, err := e.Search(query, 5, 10, map[string]string{"kind": "rare"})
+	res, err := e.Search(query, 5, 10, []Filter{Eq("kind", "rare")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +64,7 @@ func TestSelectiveFilterReturnsExactTopK(t *testing.T) {
 		}
 	}
 
-	none, err := e.Search(query, 5, 10, map[string]string{"kind": "missing"})
+	none, err := e.Search(query, 5, 10, []Filter{Eq("kind", "missing")})
 	if err != nil || len(none) != 0 {
 		t.Fatalf("filter with no matches: %+v, %v", none, err)
 	}
@@ -96,7 +98,7 @@ func TestBroadPathFallsBackToExactScan(t *testing.T) {
 	if err := e.InsertBatch(items); err != nil {
 		t.Fatal(err)
 	}
-	res, err := e.Search(make([]float32, 8), len(want), 10, map[string]string{"kind": "rare"})
+	res, err := e.Search(make([]float32, 8), len(want), 10, []Filter{Eq("kind", "rare")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,5 +109,62 @@ func TestBroadPathFallsBackToExactScan(t *testing.T) {
 		if !want[r.ID] {
 			t.Fatalf("result %d doesn't match the filter", r.ID)
 		}
+	}
+}
+
+func TestFilterOps(t *testing.T) {
+	e, err := Open(t.TempDir(), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	// id i has price i and tier a/b/c; id 0 has no metadata at all.
+	tiers := []string{"a", "b", "c"}
+	for i := uint64(0); i < 30; i++ {
+		v := make([]float32, 8)
+		v[i%8] = float32(i + 1)
+		var md map[string]string
+		if i > 0 {
+			md = map[string]string{"price": strconv.Itoa(int(i)), "tier": tiers[i%3]}
+		}
+		if err := e.Insert(i, v, md); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func(fs ...Filter) int {
+		t.Helper()
+		res, err := e.Search(make([]float32, 8), 100, 0, fs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(res)
+	}
+	cases := []struct {
+		name string
+		f    []Filter
+		want int
+	}{
+		{"eq", []Filter{Eq("tier", "a")}, 9},
+		{"ne", []Filter{{Key: "tier", Op: OpNe, Values: []string{"a"}}}, 21}, // includes id 0
+		{"in", []Filter{{Key: "tier", Op: OpIn, Values: []string{"a", "b"}}}, 19},
+		{"not_in", []Filter{{Key: "tier", Op: OpNotIn, Values: []string{"a", "b"}}}, 11},
+		{"gt", []Filter{{Key: "price", Op: OpGt, Values: []string{"20"}}}, 9},
+		{"gte", []Filter{{Key: "price", Op: OpGte, Values: []string{"20"}}}, 10},
+		{"lt", []Filter{{Key: "price", Op: OpLt, Values: []string{"5"}}}, 4},
+		{"lte", []Filter{{Key: "price", Op: OpLte, Values: []string{"5"}}}, 5},
+		{"exists", []Filter{{Key: "price", Op: OpExists}}, 29},
+		{"range and eq", []Filter{
+			{Key: "price", Op: OpGte, Values: []string{"10"}},
+			{Key: "price", Op: OpLt, Values: []string{"20"}},
+			Eq("tier", "b"),
+		}, 4}, // prices 10, 13, 16, 19
+	}
+	for _, c := range cases {
+		if got := count(c.f...); got != c.want {
+			t.Errorf("%s: %d matches, want %d", c.name, got, c.want)
+		}
+	}
+	if _, err := e.Search(make([]float32, 8), 1, 0, []Filter{{Key: "price", Op: OpGt, Values: []string{"cheap"}}}); !errors.Is(err, ErrBadFilter) {
+		t.Fatalf("non-numeric gt: got %v, want ErrBadFilter", err)
 	}
 }

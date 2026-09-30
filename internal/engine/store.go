@@ -510,7 +510,7 @@ func (s *Store) Delete(tenantID string, id uint64) error {
 }
 
 // Search finds the nearest neighbors of query within tenantID.
-func (s *Store) Search(tenantID string, query []float32, topK, ef int, filters map[string]string) ([]Result, error) {
+func (s *Store) Search(tenantID string, query []float32, topK, ef int, filters []Filter) ([]Result, error) {
 	t, err := s.acquire(tenantID)
 	if err != nil {
 		return nil, err

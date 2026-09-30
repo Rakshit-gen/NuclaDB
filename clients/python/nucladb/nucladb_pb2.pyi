@@ -13,10 +13,31 @@ class DistanceMetric(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DISTANCE_METRIC_COSINE: _ClassVar[DistanceMetric]
     DISTANCE_METRIC_L2: _ClassVar[DistanceMetric]
     DISTANCE_METRIC_DOT: _ClassVar[DistanceMetric]
+
+class FilterOp(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    FILTER_OP_EQ: _ClassVar[FilterOp]
+    FILTER_OP_NE: _ClassVar[FilterOp]
+    FILTER_OP_IN: _ClassVar[FilterOp]
+    FILTER_OP_NOT_IN: _ClassVar[FilterOp]
+    FILTER_OP_GT: _ClassVar[FilterOp]
+    FILTER_OP_GTE: _ClassVar[FilterOp]
+    FILTER_OP_LT: _ClassVar[FilterOp]
+    FILTER_OP_LTE: _ClassVar[FilterOp]
+    FILTER_OP_EXISTS: _ClassVar[FilterOp]
 DISTANCE_METRIC_UNSPECIFIED: DistanceMetric
 DISTANCE_METRIC_COSINE: DistanceMetric
 DISTANCE_METRIC_L2: DistanceMetric
 DISTANCE_METRIC_DOT: DistanceMetric
+FILTER_OP_EQ: FilterOp
+FILTER_OP_NE: FilterOp
+FILTER_OP_IN: FilterOp
+FILTER_OP_NOT_IN: FilterOp
+FILTER_OP_GT: FilterOp
+FILTER_OP_GTE: FilterOp
+FILTER_OP_LT: FilterOp
+FILTER_OP_LTE: FilterOp
+FILTER_OP_EXISTS: FilterOp
 
 class TenantQuota(_message.Message):
     __slots__ = ("max_vectors", "max_qps")
@@ -96,12 +117,16 @@ class DeleteResponse(_message.Message):
     def __init__(self, deleted: _Optional[bool] = ...) -> None: ...
 
 class MetadataFilter(_message.Message):
-    __slots__ = ("key", "value")
+    __slots__ = ("key", "value", "op", "values")
     KEY_FIELD_NUMBER: _ClassVar[int]
     VALUE_FIELD_NUMBER: _ClassVar[int]
+    OP_FIELD_NUMBER: _ClassVar[int]
+    VALUES_FIELD_NUMBER: _ClassVar[int]
     key: str
     value: str
-    def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    op: FilterOp
+    values: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ..., op: _Optional[_Union[FilterOp, str]] = ..., values: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class SearchRequest(_message.Message):
     __slots__ = ("query", "top_k", "metric", "ef_search", "filters", "tenant_id")

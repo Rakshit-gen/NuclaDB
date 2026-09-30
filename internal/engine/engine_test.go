@@ -77,7 +77,7 @@ func TestMetadataFilteredSearch(t *testing.T) {
 	for j := range query {
 		query[j] = rng.Float32()
 	}
-	res, err := e.Search(query, 5, 20, map[string]string{"team": "search"})
+	res, err := e.Search(query, 5, 20, []Filter{Eq("team", "search")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,11 +292,11 @@ func TestUpdateMetadataIsDurable(t *testing.T) {
 	if err := e.UpdateMetadata(2, map[string]string{"x": "y"}); err != ErrNotFound {
 		t.Fatalf("update of a missing id: got %v, want ErrNotFound", err)
 	}
-	res, err := e.Search(v, 1, 0, map[string]string{"tier": "pro"})
+	res, err := e.Search(v, 1, 0, []Filter{Eq("tier", "pro")})
 	if err != nil || len(res) != 1 {
 		t.Fatalf("filter on the new metadata: %v, %v", res, err)
 	}
-	if res, _ := e.Search(v, 1, 0, map[string]string{"tier": "free"}); len(res) != 0 {
+	if res, _ := e.Search(v, 1, 0, []Filter{Eq("tier", "free")}); len(res) != 0 {
 		t.Fatal("old metadata still matches a filter")
 	}
 

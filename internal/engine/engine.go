@@ -611,16 +611,21 @@ const DefaultExactFilterLimit = 4096
 const DefaultEf = 64
 
 // Search returns up to topK nearest neighbors of query, optionally
-// restricted to vectors whose metadata matches every key/value in filters
-// (a plain equality AND across all filter keys).
+// restricted to vectors whose metadata matches every filter.
 //
-// With a filter, Search first checks how many vectors match it using the
-// postings index. A selective filter (up to the exact filter limit) is
+// With a filter, Search first uses the postings index to count the vectors
+// an Eq or In filter allows. A selective filter (up to the exact filter
+// limit) is
 // answered exactly by scoring just those vectors, so it can't come back
 // short. A broad filter post-filters an overfetched graph search, widening
 // ef and retrying a bounded number of times; if that still finds fewer
 // than topK matches, it scores every match exactly.
-func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string) ([]Result, error) {
+func (e *Engine) Search(query []float32, topK, ef int, filters []Filter) ([]Result, error) {
+	for _, f := range filters {
+		if err := f.validate(); err != nil {
+			return nil, err
+		}
+	}
 	if ef <= 0 {
 		ef = DefaultEf
 	}
@@ -632,7 +637,7 @@ func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string
 	graph := e.graph.Load()
 
 	if len(filters) > 0 {
-		if ids, ok := e.filterCandidates(filters, int(e.exactFilterLimit.Load())); ok {
+		if ids, ok := e.filterCandidates(graph, filters, int(e.exactFilterLimit.Load())); ok {
 			res, err := graph.ExactSearch(query, ids, topK)
 			if err != nil {
 				return nil, err
@@ -665,7 +670,7 @@ func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string
 	}
 	// The filter matched few of the graph's nearest vectors. Score all of
 	// its matches instead, so the caller still gets topK when they exist.
-	ids, _ := e.filterCandidates(filters, math.MaxInt)
+	ids, _ := e.filterCandidates(graph, filters, math.MaxInt)
 	res, err := graph.ExactSearch(query, ids, topK)
 	if err != nil {
 		return nil, err
@@ -673,26 +678,47 @@ func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string
 	return e.withMetadata(res), nil
 }
 
-// filterCandidates returns the ids matching every filter when the most
-// selective filter pair has at most limit ids. ok is false when the filter
-// is too broad for an exact scan.
-func (e *Engine) filterCandidates(filters map[string]string, limit int) (ids []uint64, ok bool) {
+// filterCandidates returns the ids matching every filter, if the most
+// selective Eq or In filter allows at most limit ids. ok is false when
+// the filter is too broad for an exact scan. With no Eq or In filter, only
+// an unlimited call scans, and it checks every stored id.
+func (e *Engine) filterCandidates(g *hnsw.Graph, filters []Filter, limit int) (ids []uint64, ok bool) {
 	e.metaMu.RLock()
 	defer e.metaMu.RUnlock()
 
-	var smallest map[uint64]struct{}
-	first := true
-	for k, v := range filters {
-		p := e.postings[postingKey(k, v)]
-		if first || len(p) < len(smallest) {
-			smallest, first = p, false
+	var best []map[uint64]struct{}
+	bestSize := -1
+	for _, f := range filters {
+		if f.Op != OpEq && f.Op != OpIn {
+			continue
+		}
+		var sets []map[uint64]struct{}
+		size := 0
+		for _, v := range f.Values {
+			p := e.postings[postingKey(f.Key, v)]
+			sets, size = append(sets, p), size+len(p)
+		}
+		if bestSize < 0 || size < bestSize {
+			best, bestSize = sets, size
 		}
 	}
-	if len(smallest) > limit {
+
+	var pool []uint64
+	switch {
+	case bestSize >= 0 && bestSize <= limit:
+		pool = make([]uint64, 0, bestSize)
+		for _, set := range best {
+			for id := range set {
+				pool = append(pool, id)
+			}
+		}
+	case bestSize < 0 && limit == math.MaxInt:
+		pool = g.IDs()
+	default:
 		return nil, false
 	}
-	ids = make([]uint64, 0, len(smallest))
-	for id := range smallest {
+	ids = pool[:0]
+	for _, id := range pool {
 		if matchesFilters(e.metadata[id], filters) {
 			ids = append(ids, id)
 		}
@@ -710,7 +736,7 @@ func (e *Engine) withMetadata(res []hnsw.SearchResult) []Result {
 	return out
 }
 
-func (e *Engine) filterMatches(candidates []hnsw.SearchResult, filters map[string]string, topK int) []Result {
+func (e *Engine) filterMatches(candidates []hnsw.SearchResult, filters []Filter, topK int) []Result {
 	e.metaMu.RLock()
 	defer e.metaMu.RUnlock()
 
@@ -726,15 +752,6 @@ func (e *Engine) filterMatches(candidates []hnsw.SearchResult, filters map[strin
 		}
 	}
 	return out
-}
-
-func matchesFilters(metadata map[string]string, filters map[string]string) bool {
-	for k, want := range filters {
-		if metadata[k] != want {
-			return false
-		}
-	}
-	return true
 }
 
 func postingKey(k, v string) string { return k + "\x00" + v }

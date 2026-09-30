@@ -85,9 +85,26 @@ message DeleteResponse {
   bool deleted = 1;
 }
 
+// FilterOp is how a MetadataFilter compares. The zero value is EQ, so a
+// filter that sets only key and value is an equality check.
+enum FilterOp {
+  FILTER_OP_EQ = 0;
+  FILTER_OP_NE = 1;      // key missing, or value differs
+  FILTER_OP_IN = 2;      // value is one of values
+  FILTER_OP_NOT_IN = 3;  // key missing, or value is none of values
+  FILTER_OP_GT = 4;      // numeric comparisons parse the stored value
+  FILTER_OP_GTE = 5;     // as a number; a non-number never matches
+  FILTER_OP_LT = 6;
+  FILTER_OP_LTE = 7;
+  FILTER_OP_EXISTS = 8;  // key is present
+}
+
+// A search keeps vectors matching every filter it's given.
 message MetadataFilter {
   string key = 1;
-  string value = 2;
+  string value = 2;             // for EQ, NE and the numeric ops
+  FilterOp op = 3;
+  repeated string values = 4;   // for IN and NOT_IN
 }
 
 message SearchRequest {

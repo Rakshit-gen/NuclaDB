@@ -148,9 +148,13 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 		return nil, status.Errorf(codes.InvalidArgument, "ef_search must be between 0 (server default) and %d", MaxEf)
 	}
 
-	filters := make(map[string]string, len(req.GetFilters()))
-	for _, f := range req.GetFilters() {
-		filters[f.GetKey()] = f.GetValue()
+	// engine.FilterOp and pb.FilterOp number their ops the same way.
+	filters := make([]engine.Filter, len(req.GetFilters()))
+	for i, f := range req.GetFilters() {
+		filters[i] = engine.Filter{Key: f.GetKey(), Op: engine.FilterOp(f.GetOp()), Values: f.GetValues()}
+		if len(f.GetValues()) == 0 && f.GetOp() != pb.FilterOp_FILTER_OP_EXISTS {
+			filters[i].Values = []string{f.GetValue()}
+		}
 	}
 
 	results, err := s.store.Search(req.GetTenantId(), req.GetQuery(), topK, ef, filters)
@@ -283,7 +287,7 @@ func toStatus(err error) error {
 	case errors.Is(err, engine.ErrTenantExists):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, engine.ErrInvalidTenantID), errors.Is(err, hnsw.ErrDimensionMismatch),
-		errors.Is(err, engine.ErrDefaultTenant):
+		errors.Is(err, engine.ErrDefaultTenant), errors.Is(err, engine.ErrBadFilter):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, engine.ErrQuotaExceeded), errors.Is(err, engine.ErrRateLimited):
 		return status.Error(codes.ResourceExhausted, err.Error())

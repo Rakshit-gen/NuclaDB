@@ -163,3 +163,28 @@ func TestRESTGetListCountUpdateAndTenantAdmin(t *testing.T) {
 		t.Fatalf("delete default tenant: %d, want 400", code)
 	}
 }
+
+func TestRESTWhereFilters(t *testing.T) {
+	h := newTestHandler(t)
+	for i, price := range []string{"5", "15", "25"} {
+		v := []float32{float32(i + 1), 1, 0, 0}
+		if code, resp := doJSON(t, h, "POST", "/v1/vectors", map[string]any{
+			"id": string(rune('1' + i)), "values": v, "metadata": map[string]string{"price": price},
+		}); code != 200 {
+			t.Fatalf("insert: %d %v", code, resp)
+		}
+	}
+	code, resp := doJSON(t, h, "POST", "/v1/search", map[string]any{
+		"query": []float32{1, 1, 0, 0}, "top_k": 3,
+		"where": []map[string]any{{"key": "price", "op": "gte", "value": "15"}},
+	})
+	if code != 200 || len(resp["matches"].([]any)) != 2 {
+		t.Fatalf("where gte: %d %v", code, resp)
+	}
+	if code, _ := doJSON(t, h, "POST", "/v1/search", map[string]any{
+		"query": []float32{1, 1, 0, 0}, "top_k": 3,
+		"where": []map[string]any{{"key": "price", "op": "between", "value": "1"}},
+	}); code != 400 {
+		t.Fatalf("unknown op: %d, want 400", code)
+	}
+}
