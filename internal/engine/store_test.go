@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 
@@ -290,5 +291,32 @@ func TestStoreReopenRediscoversTenants(t *testing.T) {
 	// call rather than persisted per tenant.
 	if stats.Quota.MaxVectors != 0 {
 		t.Fatalf("expected quota to reset to unlimited on reopen (documented behavior), got %+v", stats.Quota)
+	}
+}
+
+// Several goroutines hitting tenants that haven't been opened yet: the lazy
+// open must not race with the fast-path check (run under -race).
+func TestStoreConcurrentFirstAccess(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for n := 0; n < 30; n++ {
+		id := fmt.Sprintf("lazy-%d", n)
+		if err := s.CreateTenant(id, Quota{}); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if _, err := s.Stats(id); err != nil {
+					t.Error(err)
+				}
+			}()
+		}
+		wg.Wait()
 	}
 }

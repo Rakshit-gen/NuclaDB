@@ -135,13 +135,16 @@ func (s *Store) getTenant(tenantID string) (*tenant, error) {
 		tenantID = DefaultTenant
 	}
 
+	// t.engine is written under s.mu by the lazy open below, so the fast
+	// path has to read it under the lock too.
 	s.mu.RLock()
 	t, ok := s.tenants[tenantID]
+	opened := ok && t.engine != nil
 	s.mu.RUnlock()
 	if !ok {
 		return nil, ErrTenantNotFound
 	}
-	if t.engine != nil {
+	if opened {
 		return t, nil
 	}
 
