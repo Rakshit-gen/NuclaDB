@@ -72,6 +72,7 @@ type Graph struct {
 	entryPoint uint64
 	hasEntry   bool
 	maxLevel   int
+	live       int // non-deleted nodes, kept current so Len is O(1)
 	levelMult  float64
 	rng        *rand.Rand
 }
@@ -95,13 +96,7 @@ func New(cfg Config) *Graph {
 func (g *Graph) Len() int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	n := 0
-	for _, nd := range g.nodes {
-		if !nd.deleted {
-			n++
-		}
-	}
-	return n
+	return g.live
 }
 
 func (g *Graph) randomLevel() int {
@@ -140,6 +135,9 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 	// mid-traversal, collapsing the graph to a self-loop wherever id was
 	// entryPoint or an intermediate hop (caught by TestReinsertPreservesConnectivity).
 	existing, existed := g.nodes[id]
+	if !existed || existing.deleted {
+		g.live++
+	}
 
 	if !g.hasEntry {
 		g.nodes[id] = nd
@@ -409,6 +407,9 @@ func (g *Graph) Restore(nodes []NodeState, entryPoint uint64, maxLevel int, hasE
 			neighbors: ns.Neighbors,
 			deleted:   ns.Deleted,
 		}
+		if !ns.Deleted {
+			g.live++
+		}
 	}
 	g.entryPoint = entryPoint
 	g.maxLevel = maxLevel
@@ -427,6 +428,7 @@ func (g *Graph) Delete(id uint64) error {
 		return ErrNotFound
 	}
 	nd.deleted = true
+	g.live--
 	return nil
 }
 
