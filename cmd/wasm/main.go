@@ -186,8 +186,8 @@ func msFloat(d time.Duration) float64 {
 }
 
 var (
-	errMissingArg      = jsonErr("missing argument")
-	errNotInitialized  = jsonErr("graph not initialized: call reset first")
+	errMissingArg     = jsonErr("missing argument")
+	errNotInitialized = jsonErr("graph not initialized: call reset first")
 )
 
 type jsonErr string
