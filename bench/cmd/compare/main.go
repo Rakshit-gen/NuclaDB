@@ -20,9 +20,9 @@ import (
 
 func main() {
 	var (
-		nucladbdBin = flag.String("nucladbd", "../../bin/nucladbd", "path to the nucladbd binary")
-		qdrantBin   = flag.String("qdrant", "../../bench/.qdrant-bin/qdrant", "path to the qdrant binary")
-		dataDir     = flag.String("data", "../../bench/data/siftsmall", "path to the extracted siftsmall dataset")
+		nucladbdBin = flag.String("nucladbd", "../bin/nucladbd", "path to the nucladbd binary (default assumes running from bench/)")
+		qdrantBin   = flag.String("qdrant", "./.qdrant-bin/qdrant", "path to the qdrant binary")
+		dataDir     = flag.String("data", "./data/siftsmall", "path to the extracted siftsmall dataset")
 		topK        = flag.Int("top-k", 10, "k for recall@k")
 		m           = flag.Int("m", 16, "HNSW M (bidirectional links per node)")
 		efConstruct = flag.Int("ef-construct", 200, "HNSW build-time candidate list size")

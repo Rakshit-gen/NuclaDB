@@ -91,6 +91,15 @@ func (b *QdrantBackend) createCollection(dim int, distance string, m, efConstruc
 			// always does.
 			"full_scan_threshold": 10,
 		},
+		// Qdrant only builds an HNSW index for a segment once it passes
+		// indexing_threshold (KB). The default, 10,000 KB in 1.19, is again
+		// above this dataset's size, so without this Qdrant never built an
+		// index at all: indexed_vectors_count stayed 0, every search was
+		// brute force, and "build time" was just point ingest. 1 KB makes
+		// it index everything.
+		"optimizers_config": map[string]any{
+			"indexing_threshold": 1,
+		},
 	}
 	return b.doJSON(http.MethodPut, "/collections/"+b.collection, body, nil)
 }
@@ -113,7 +122,31 @@ func (b *QdrantBackend) Upsert(vectors [][]float32) error {
 			return err
 		}
 	}
-	return nil
+	return b.waitIndexed(len(vectors), 5*time.Minute)
+}
+
+// waitIndexed blocks until Qdrant reports every vector in its HNSW index
+// and the collection green. wait=true on upsert only waits for the write,
+// while the index is built in the background, so build time has to
+// include this wait to compare with NuclaDB, which indexes on insert.
+func (b *QdrantBackend) waitIndexed(n int, timeout time.Duration) error {
+	var info struct {
+		Result struct {
+			Status              string `json:"status"`
+			IndexedVectorsCount int    `json:"indexed_vectors_count"`
+		} `json:"result"`
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := b.doJSON(http.MethodGet, "/collections/"+b.collection, nil, &info); err != nil {
+			return err
+		}
+		if info.Result.Status == "green" && info.Result.IndexedVectorsCount >= n {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("qdrant indexed %d of %d vectors within %s", info.Result.IndexedVectorsCount, n, timeout)
 }
 
 type qdrantSearchResponse struct {
