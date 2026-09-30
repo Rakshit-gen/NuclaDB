@@ -69,5 +69,25 @@ vector, and re-orders them by exact distance. Same test, same data, same
 
 The codes still pick which vectors get looked at, so the memory saving
 holds when the full vectors live somewhere cheaper than RAM, like a
-snapshot on disk. Search is still a flat scan over every code; IVF is
-still not done.
+snapshot on disk.
+
+## Update: IVF
+
+`pq.IVFIndex` puts an inverted file in front of the codes: k-means splits
+the vectors into `nlist` lists by nearest coarse centroid, and a search
+scans only the `nprobe` lists closest to the query. Uniform random data
+has no cluster structure for IVF to use, so this was measured on 5,000
+vectors (dim 32, 8-byte codes) drawn from 40 overlapping Gaussian
+clusters, 30 held-out queries, `nlist` = 32, re-ranking the top 100
+(`TestIVFProbingFewListsKeepsRecall`):
+
+| nprobe | share of codes scanned | recall@10 |
+|---|---|---|
+| 1 | ~1/32 | 0.637 |
+| 4 | ~1/8 | 0.870 |
+| 8 | ~1/4 | 0.943 |
+| 32 | all | 0.993 |
+
+Codes encode the raw vector, not its residual from the list centroid.
+Residual encoding usually buys more recall per byte and is the obvious
+next step.
