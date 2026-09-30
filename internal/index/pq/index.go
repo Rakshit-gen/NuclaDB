@@ -123,6 +123,12 @@ func (idx *Index) SearchRerank(query []float32, topK, candidates int, vectorOf f
 	if err != nil {
 		return nil, err
 	}
+	return rerank(query, topK, approx, vectorOf), nil
+}
+
+// rerank scores approx by exact squared L2 against the full vectors from
+// vectorOf and keeps the topK closest. Ids vectorOf can't find are dropped.
+func rerank(query []float32, topK int, approx []SearchResult, vectorOf func(id uint64) ([]float32, bool)) []SearchResult {
 	out := make([]SearchResult, 0, len(approx))
 	for _, c := range approx {
 		v, ok := vectorOf(c.ID)
@@ -135,5 +141,5 @@ func (idx *Index) SearchRerank(query []float32, topK, candidates int, vectorOf f
 	if len(out) > topK {
 		out = out[:topK]
 	}
-	return out, nil
+	return out
 }
