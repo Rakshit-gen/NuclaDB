@@ -18,16 +18,24 @@ func Cosine() Metric { return cosineMetric{} }
 func (cosineMetric) Name() string { return "cosine" }
 
 func (cosineMetric) Distance(a, b []float32) float32 {
-	var dot, normA, normB float64
-	for i := range a {
-		dot += float64(a[i]) * float64(b[i])
-		normA += float64(a[i]) * float64(a[i])
-		normB += float64(b[i]) * float64(b[i])
+	var dot, normA, normB float32
+	i := 0
+	for ; i+4 <= len(a); i += 4 {
+		a0, a1, a2, a3 := a[i], a[i+1], a[i+2], a[i+3]
+		b0, b1, b2, b3 := b[i], b[i+1], b[i+2], b[i+3]
+		dot += a0*b0 + a1*b1 + a2*b2 + a3*b3
+		normA += a0*a0 + a1*a1 + a2*a2 + a3*a3
+		normB += b0*b0 + b1*b1 + b2*b2 + b3*b3
+	}
+	for ; i < len(a); i++ {
+		dot += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
 	}
 	if normA == 0 || normB == 0 {
 		return 1
 	}
-	sim := dot / (math.Sqrt(normA) * math.Sqrt(normB))
+	sim := float64(dot) / (math.Sqrt(float64(normA)) * math.Sqrt(float64(normB)))
 	return float32(1 - sim)
 }
 
@@ -40,13 +48,29 @@ func L2() Metric { return l2Metric{} }
 
 func (l2Metric) Name() string { return "l2" }
 
+// Distance is the hot loop of both build and search. Four independent
+// float32 accumulators let the CPU keep several multiply-adds in flight
+// instead of waiting on one running sum; Go has no stable SIMD, so this is
+// the portable version of what hnswlib does with intrinsics.
 func (l2Metric) Distance(a, b []float32) float32 {
-	var sum float64
-	for i := range a {
-		d := float64(a[i]) - float64(b[i])
-		sum += d * d
+	b = b[:len(a)] // one bounds check here instead of one per element
+	var s0, s1, s2, s3 float32
+	i := 0
+	for ; i+4 <= len(a); i += 4 {
+		d0 := a[i] - b[i]
+		d1 := a[i+1] - b[i+1]
+		d2 := a[i+2] - b[i+2]
+		d3 := a[i+3] - b[i+3]
+		s0 += d0 * d0
+		s1 += d1 * d1
+		s2 += d2 * d2
+		s3 += d3 * d3
 	}
-	return float32(sum)
+	for ; i < len(a); i++ {
+		d := a[i] - b[i]
+		s0 += d * d
+	}
+	return (s0 + s1) + (s2 + s3)
 }
 
 type dotMetric struct{}
@@ -58,9 +82,17 @@ func Dot() Metric { return dotMetric{} }
 func (dotMetric) Name() string { return "dot" }
 
 func (dotMetric) Distance(a, b []float32) float32 {
-	var dot float64
-	for i := range a {
-		dot += float64(a[i]) * float64(b[i])
+	b = b[:len(a)]
+	var s0, s1, s2, s3 float32
+	i := 0
+	for ; i+4 <= len(a); i += 4 {
+		s0 += a[i] * b[i]
+		s1 += a[i+1] * b[i+1]
+		s2 += a[i+2] * b[i+2]
+		s3 += a[i+3] * b[i+3]
 	}
-	return float32(-dot)
+	for ; i < len(a); i++ {
+		s0 += a[i] * b[i]
+	}
+	return -((s0 + s1) + (s2 + s3))
 }
