@@ -5,7 +5,6 @@
 package hnsw
 
 import (
-	"container/heap"
 	"errors"
 	"math"
 	"math/rand"
@@ -253,10 +252,10 @@ func (g *Graph) connect(nbrID, newID uint64, newVec []float32, l, mMax int) {
 		if id != newID {
 			v = g.nodes[id].vector
 		}
-		heap.Push(h, candidate{id: id, dist: g.cfg.Metric.Distance(nbr.vector, v)})
+		h.push(candidate{id: id, dist: g.cfg.Metric.Distance(nbr.vector, v)})
 	}
 	for h.Len() > mMax {
-		heap.Pop(h)
+		h.pop()
 	}
 	pruned := make([]uint64, 0, mMax)
 	for _, c := range *h {
@@ -306,15 +305,15 @@ func (g *Graph) searchLayer(query []float32, entry uint64, ef, l int) []candidat
 	entryDist := g.cfg.Metric.Distance(query, g.nodes[entry].vector)
 
 	frontier := newMinHeap()
-	heap.Push(frontier, candidate{id: entry, dist: entryDist})
+	frontier.push(candidate{id: entry, dist: entryDist})
 
 	results := newMaxHeap()
 	if !g.nodes[entry].deleted {
-		heap.Push(results, candidate{id: entry, dist: entryDist})
+		results.push(candidate{id: entry, dist: entryDist})
 	}
 
 	for frontier.Len() > 0 {
-		c := heap.Pop(frontier).(candidate)
+		c := frontier.pop()
 		if results.Len() >= ef && c.dist > (*results)[0].dist {
 			break
 		}
@@ -332,11 +331,11 @@ func (g *Graph) searchLayer(query []float32, entry uint64, ef, l int) []candidat
 			d := g.cfg.Metric.Distance(query, nbr.vector)
 
 			if results.Len() < ef || d < (*results)[0].dist {
-				heap.Push(frontier, candidate{id: nbrID, dist: d})
+				frontier.push(candidate{id: nbrID, dist: d})
 				if !nbr.deleted {
-					heap.Push(results, candidate{id: nbrID, dist: d})
+					results.push(candidate{id: nbrID, dist: d})
 					if results.Len() > ef {
-						heap.Pop(results)
+						results.pop()
 					}
 				}
 			}
@@ -345,7 +344,7 @@ func (g *Graph) searchLayer(query []float32, entry uint64, ef, l int) []candidat
 
 	out := make([]candidate, results.Len())
 	for i := len(out) - 1; i >= 0; i-- {
-		out[i] = heap.Pop(results).(candidate)
+		out[i] = results.pop()
 	}
 	return out
 }
@@ -503,15 +502,15 @@ func (g *Graph) ExactSearch(query []float32, ids []uint64, topK int) ([]SearchRe
 		}
 		d := g.cfg.Metric.Distance(query, nd.vector)
 		if h.Len() < topK {
-			heap.Push(h, candidate{id: id, dist: d})
+			h.push(candidate{id: id, dist: d})
 		} else if d < (*h)[0].dist {
-			heap.Pop(h)
-			heap.Push(h, candidate{id: id, dist: d})
+			h.pop()
+			h.push(candidate{id: id, dist: d})
 		}
 	}
 	out := make([]SearchResult, h.Len())
 	for i := len(out) - 1; i >= 0; i-- {
-		c := heap.Pop(h).(candidate)
+		c := h.pop()
 		out[i] = SearchResult{ID: c.id, Distance: c.dist}
 	}
 	return out, nil

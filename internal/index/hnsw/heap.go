@@ -1,7 +1,5 @@
 package hnsw
 
-import "container/heap"
-
 // candidate is a node reachable during graph traversal, paired with its
 // distance to the current query vector.
 type candidate struct {
@@ -10,44 +8,63 @@ type candidate struct {
 }
 
 // minHeap pops the closest candidate first; used for the traversal frontier.
-type minHeap []candidate
+// maxHeap pops the farthest first; used to keep a bounded best-so-far set,
+// evicting the worst entry as better ones arrive.
+//
+// These are typed binary heaps rather than container/heap: its Push and Pop
+// take interface{}, which boxed every candidate into its own allocation on
+// the search hot path.
+type (
+	minHeap []candidate
+	maxHeap []candidate
+)
 
-func (h minHeap) Len() int            { return len(h) }
-func (h minHeap) Less(i, j int) bool  { return h[i].dist < h[j].dist }
-func (h minHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
-func (h *minHeap) Push(x interface{}) { *h = append(*h, x.(candidate)) }
-func (h *minHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	item := old[n-1]
-	*h = old[:n-1]
-	return item
+func newMinHeap() *minHeap { return &minHeap{} }
+func newMaxHeap() *maxHeap { return &maxHeap{} }
+
+func (h minHeap) Len() int { return len(h) }
+func (h maxHeap) Len() int { return len(h) }
+
+func (h *minHeap) push(c candidate) { *h = append(*h, c); up(*h, len(*h)-1, closer) }
+func (h *maxHeap) push(c candidate) { *h = append(*h, c); up(*h, len(*h)-1, farther) }
+func (h *minHeap) pop() candidate   { return pop((*[]candidate)(h), closer) }
+func (h *maxHeap) pop() candidate   { return pop((*[]candidate)(h), farther) }
+
+func closer(a, b candidate) bool  { return a.dist < b.dist }
+func farther(a, b candidate) bool { return a.dist > b.dist }
+
+func up(h []candidate, i int, before func(a, b candidate) bool) {
+	for i > 0 {
+		p := (i - 1) / 2
+		if !before(h[i], h[p]) {
+			return
+		}
+		h[i], h[p] = h[p], h[i]
+		i = p
+	}
 }
 
-// maxHeap pops the farthest candidate first; used to keep a bounded
-// best-so-far result set, evicting the worst entry as better ones arrive.
-type maxHeap []candidate
-
-func (h maxHeap) Len() int            { return len(h) }
-func (h maxHeap) Less(i, j int) bool  { return h[i].dist > h[j].dist }
-func (h maxHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
-func (h *maxHeap) Push(x interface{}) { *h = append(*h, x.(candidate)) }
-func (h *maxHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	item := old[n-1]
-	*h = old[:n-1]
-	return item
-}
-
-func newMinHeap() *minHeap {
-	h := &minHeap{}
-	heap.Init(h)
-	return h
-}
-
-func newMaxHeap() *maxHeap {
-	h := &maxHeap{}
-	heap.Init(h)
-	return h
+func pop(hp *[]candidate, before func(a, b candidate) bool) candidate {
+	h := *hp
+	top := h[0]
+	n := len(h) - 1
+	h[0] = h[n]
+	h = h[:n]
+	i := 0
+	for {
+		l, best := 2*i+1, i
+		if l < n && before(h[l], h[best]) {
+			best = l
+		}
+		if r := l + 1; r < n && before(h[r], h[best]) {
+			best = r
+		}
+		if best == i {
+			break
+		}
+		h[i], h[best] = h[best], h[i]
+		i = best
+	}
+	*hp = h
+	return top
 }
