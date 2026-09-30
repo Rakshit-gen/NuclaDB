@@ -181,6 +181,59 @@ PQ alone, 99.3% when the top 100 codes are re-ranked against full vectors
 scans only the lists nearest the query instead of every code. See
 [`docs/writeups/03-product-quantization-cost.md`](docs/writeups/03-product-quantization-cost.md).
 
+## API
+
+The same operations are on gRPC (`proto/nucladb.proto`) and REST:
+
+| REST | What it does |
+|---|---|
+| `POST /v1/tenants` | create a tenant, optionally with its own `dim`, `metric` (`cosine`, `l2`, `dot`) and quota |
+| `GET /v1/tenants` | list tenants with their usage |
+| `DELETE /v1/tenants/{id}` | drop a tenant and its files |
+| `PUT /v1/tenants/{id}/quota` | change `max_vectors` / `max_qps` |
+| `POST /v1/vectors`, `POST /v1/vectors:batch` | upsert one or many vectors |
+| `GET`, `PATCH`, `DELETE /v1/vectors/{id}` | read, replace metadata, delete |
+| `GET /v1/vectors?page_size=&page_token=` | page through ids |
+| `GET /v1/vectors:count` | vector count |
+| `POST /v1/search` | top-k search with optional metadata filters |
+
+Search filters go in `where`, a list of `{key, op, value | values}`
+clauses that all have to match. Ops: `eq`, `ne`, `in`, `not_in`, `gt`,
+`gte`, `lt`, `lte` (compared as numbers) and `exists`:
+
+```sh
+curl -s localhost:8080/v1/search -d '{"query":[1,0,0,0],"top_k":5,
+  "where":[{"key":"team","op":"in","values":["search","ads"]},
+           {"key":"year","op":"gte","value":"2024"}]}'
+```
+
+A filter that matches only a few vectors (under `-exact-filter-limit`,
+4096 by default) is answered by scoring every match exactly, so a
+selective filter still returns a full top-k instead of whatever the graph
+walk happened to pass.
+
+**Auth and TLS.** Start `nucladbd` with `-api-keys=keys.json` to require a
+key on every request:
+
+```json
+[{"key": "at-least-16-characters", "tenants": ["acme"]},
+ {"key": "an-admin-key-for-ops", "tenants": ["*"], "admin": true}]
+```
+
+A key only reaches the tenants it lists (`*` for all); creating, listing,
+deleting and re-quota'ing tenants needs an admin key. Send it as
+`Authorization: Bearer <key>` or `X-API-Key: <key>`. The CLI reads
+`NUCLADB_API_KEY`, the Python client takes `api_key=`. Add
+`-tls-cert`/`-tls-key` to serve both gRPC and REST over TLS
+(`NUCLADB_TLS=1` for the CLI, `tls=True` in Python). Without
+`-api-keys`, every request is allowed, which is what the local quickstart
+uses.
+
+Other server limits worth knowing: `-max-message-bytes` (64 MiB) caps a
+gRPC message or REST body, `top_k` is capped at 1000, `ef_search` at
+10000, and `-tenant-idle-timeout` (30m) closes tenants nobody has used so
+thousands of them don't all hold files open.
+
 ## Design writeups
 
 - [Why WAL-then-snapshot, and what it actually costs](docs/writeups/01-wal-then-snapshot.md)
@@ -231,18 +284,23 @@ apply across restarts of the demo itself.
 ## Status
 
 Single node, done and running in `nucladbd`: HNSW, WAL, snapshots,
-multi-tenancy, the gRPC/REST API and the CLI. Docker packaging is in
-`Dockerfile` and `docker-compose.yml`, and crash tests are in `test/chaos`.
+multi-tenancy with per-tenant dimension and metric, the gRPC/REST API with
+filters, API keys and TLS, and the CLI. Docker packaging is in
+`Dockerfile` and `docker-compose.yml`, crash tests are in `test/chaos`, and
+CI runs gofmt, vet and the race-enabled test suite on every push.
 
 Built and tested as packages, but not yet run by the server:
 
 - product quantization (flat and IVF)
 - the distributed layer: Raft control plane, consistent-hash sharding,
-  WAL-stream replication, scatter-gather router, health checks and
-  failover
+  WAL-stream replication (with divergence detection and streamed
+  snapshot bootstrap), a scatter-gather router that retries and returns
+  partial results, parallel health checks, and failover that promotes
+  the most caught-up replica
 - Jepsen-style linearizability tests in `test/jepsen`, which run a real
   in-process 2-node cluster through `porcupine`
 
-Not done: a `nucladbd` cluster mode and PQ index option, CI, and the
-remaining replication gaps (divergence detection, rebalance moving data).
-Test suite: `go test ./... -race`.
+Not done: a `nucladbd` cluster mode and PQ index option. Until the server
+runs the cluster, nothing starts replication streams per shard or
+repoints them after a failover, and a rebalance changes shard ownership
+without copying the data across. Test suite: `go test ./... -race`.
