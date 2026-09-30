@@ -160,6 +160,8 @@
       <a href="#commands-insert" class="sub">insert</a>
       <a href="#commands-batch-upsert" class="sub">batch-upsert</a>
       <a href="#commands-search" class="sub">search</a>
+      <a href="#commands-read" class="sub">get, list, count</a>
+      <a href="#commands-tenants" class="sub">tenant admin</a>
       <a href="#commands-delete" class="sub">delete</a>
       <a href="#errors">Errors you'll hit</a>
       <a href="#rest">REST equivalent</a>
@@ -267,6 +269,18 @@
         if you'd rather not export anything, useful when you're scripting
         against several servers in the same shell.
       </p>
+      <p>
+        A server started with <code>-api-keys</code> wants a key on every
+        call, and one started with <code>-tls-cert</code>/<code>-tls-key</code>
+        serves TLS. Both CLIs read the same two variables for that:
+      </p>
+      <pre><code><span class="kw">export</span> NUCLADB_API_KEY=your-key
+<span class="kw">export</span> NUCLADB_TLS=1</code></pre>
+      <p>
+        A key lists the tenants it may touch (or <code>*</code> for all).
+        Creating, listing, deleting and re-quota'ing tenants needs an admin
+        key.
+      </p>
     </section>
 
     <section id="multi-tenancy">
@@ -320,6 +334,8 @@ ok</span></code></pre>
         <tr><td><code>id</code></td><td>yes</td><td>Tenant id</td></tr>
         <tr><td><code>max-vectors</code></td><td>no</td><td>Storage quota (default: unlimited)</td></tr>
         <tr><td><code>max-qps</code></td><td>no</td><td>Request-rate limit (default: unlimited)</td></tr>
+        <tr><td><code>dim</code></td><td>no</td><td>Vector dimension (default: the server's <code>-dim</code>). Go CLI flag; <code>dim=</code> in the Python library</td></tr>
+        <tr><td><code>metric</code></td><td>no</td><td><code>cosine</code>, <code>l2</code> or <code>dot</code> (default: the server's <code>-metric</code>). Go CLI flag; <code>metric=</code> in the Python library</td></tr>
       </table>
       <pre><code><span class="ex-go">$ nucladb-cli create-tenant -id=acme -max-vectors=1000000
 created tenant "acme"</span>
@@ -365,10 +381,10 @@ upserted 2 vectors</span></code></pre>
       <h3 id="commands-search"><code>search</code></h3>
       <p>
         Find the nearest neighbors of a query vector. Lower <code>score</code>
-        is closer, matching whatever distance metric the server was started
-        with: a given <code>nucladbd</code> instance has one fixed metric,
-        because HNSW bakes the metric into which neighbors get linked at
-        insert time. You can't mix metrics per query.
+        is closer, under the tenant's distance metric. Each tenant picks its
+        metric when it's created and keeps it, because HNSW bakes the metric
+        into which neighbors get linked at insert time. You can't mix
+        metrics per query.
       </p>
       <table>
         <tr><th>Flag</th><th>Required</th><th>Description</th></tr>
@@ -376,17 +392,64 @@ upserted 2 vectors</span></code></pre>
         <tr><td><code>top-k</code></td><td>no</td><td>Number of results (default: 10)</td></tr>
         <tr><td><code>ef</code></td><td>no</td><td>Candidate beam width: higher means better recall, slower search (default: top-k)</td></tr>
         <tr><td><code>filter</code></td><td>no</td><td><code>key=value</code> metadata match; repeat for AND</td></tr>
+        <tr><td><code>where</code></td><td>no</td><td>Go CLI: <code>key:op</code> or <code>key:op:value</code>, op one of <code>eq ne in not_in gt gte lt lte exists</code>, comma-separated values for <code>in</code>/<code>not_in</code>; repeatable. Python library: <code>where=[("year", "gte", 2024)]</code></td></tr>
         <tr><td><code>tenant</code></td><td>no</td><td>Tenant id (default: <code>default</code>)</td></tr>
       </table>
       <pre><code><span class="ex-go">$ nucladb-cli search -vector=1,0,0,0 -top-k=3 -filter=team=infra
 2	score=2.000000	map[team:infra]</span>
 <span class="ex-py">$ nucladb search --vector 1,0,0,0 --top-k 3 --filter team=infra
 2	score=2.000000	{'team': 'infra'}</span></code></pre>
+      <pre><code>$ nucladb-cli search -vector=1,0,0,0 -where=year:gte:2024 -where=team:in:search,infra
+2	score=2.000000	map[team:infra year:2025]</code></pre>
+      <p>
+        <code>gt</code>, <code>gte</code>, <code>lt</code> and <code>lte</code>
+        compare as numbers, and a stored value that isn't a number never
+        matches them.
+      </p>
       <p>
         Filtering checks a key/value index first. A filter matching at most
-        4096 vectors is answered exactly by scoring only those vectors; a
-        broader filter post-filters a widened graph search.
+        4096 vectors (the server's <code>-exact-filter-limit</code>) is
+        answered exactly by scoring only those vectors; a broader filter
+        post-filters a widened graph search.
       </p>
+
+      <h3 id="commands-read"><code>get</code>, <code>update-metadata</code>, <code>list</code>, <code>count</code></h3>
+      <p>
+        Go CLI commands; from Python, use the library's <code>get</code>,
+        <code>update_metadata</code>, <code>list</code> and <code>count</code>
+        methods. All four take a tenant.
+        <code>update-metadata</code> replaces every metadata key and leaves
+        the vector alone.
+      </p>
+      <pre><code>$ nucladb-cli get -id=2
+2	[0 1 0 0]	map[team:ads year:2025]
+
+$ nucladb-cli update-metadata -id=2 -meta=team=infra -meta=year=2025
+updated id=2
+
+$ nucladb-cli list
+1
+2
+
+$ nucladb-cli count
+2</code></pre>
+
+      <h3 id="commands-tenants"><code>tenants</code>, <code>set-quota</code>, <code>delete-tenant</code></h3>
+      <p>
+        Go CLI commands; from Python, use <code>list_tenants</code>,
+        <code>set_quota</code> and <code>delete_tenant</code>. Deleting a
+        tenant removes its files; the <code>default</code> tenant can't be
+        deleted.
+      </p>
+      <pre><code>$ nucladb-cli tenants
+default	vectors=2	dim=4	metric=l2	max_vectors=0	max_qps=0
+t2	vectors=0	dim=2	metric=cosine	max_vectors=5	max_qps=0
+
+$ nucladb-cli set-quota -id=t2 -max-vectors=5
+set quota for "t2"
+
+$ nucladb-cli delete-tenant -id=t2
+deleted tenant "t2"</code></pre>
 
       <h3 id="commands-delete"><code>delete</code></h3>
       <p>
@@ -421,7 +484,10 @@ $ nucladb-cli insert -id=5 -tenant=doesnotexist -vector=1,1,1,1
 nucladb-cli: rpc error: code = NotFound desc = engine: tenant not found</code></pre>
       <p>
         Exceeding <code>max-qps</code> returns the same <code>ResourceExhausted</code>
-        code with a "rate limit exceeded" message instead.
+        code with a "rate limit exceeded" message instead. On a server with
+        <code>-api-keys</code>, a missing or unknown key gets
+        <code>Unauthenticated</code> and a key that doesn't cover the tenant
+        gets <code>PermissionDenied</code>.
       </p>
     </section>
 
@@ -432,11 +498,22 @@ nucladb-cli: rpc error: code = NotFound desc = engine: tenant not found</code></
         on its HTTP port (<code>:8080</code> by default), handy if you'd
         rather <code>curl</code> it than install anything:
       </p>
-      <pre><code>POST   /v1/tenants        (CreateTenant)
-POST   /v1/vectors        (Insert)
-POST   /v1/vectors:batch  (BatchUpsert)
-DELETE /v1/vectors/{id}   (Delete)
-POST   /v1/search         (Search)</code></pre>
+      <pre><code>POST   /v1/tenants               (CreateTenant)
+GET    /v1/tenants               (ListTenants)
+DELETE /v1/tenants/{id}          (DeleteTenant)
+PUT    /v1/tenants/{id}/quota    (SetQuota)
+POST   /v1/vectors               (Insert)
+POST   /v1/vectors:batch         (BatchUpsert)
+GET    /v1/vectors/{id}          (Get)
+PATCH  /v1/vectors/{id}          (UpdateMetadata)
+DELETE /v1/vectors/{id}          (Delete)
+GET    /v1/vectors               (List)
+GET    /v1/vectors:count         (Count)
+POST   /v1/search                (Search, filters in "where")</code></pre>
+      <p>
+        Send an API key as <code>Authorization: Bearer &lt;key&gt;</code> or
+        <code>X-API-Key: &lt;key&gt;</code>.
+      </p>
       <pre><code>$ curl -s -X POST localhost:8080/v1/search -d '{"query":[1,0,0,0],"top_k":2}'
 {"matches":[{"id":"3","score":2},{"id":"2","score":2,"metadata":{"team":"infra"}}]}</code></pre>
     </section>
@@ -453,7 +530,15 @@ POST   /v1/search         (Search)</code></pre>
 <span class="kw">with</span> Client(<span style="color:#8fd3a0">"localhost:9090"</span>) <span class="kw">as</span> db:
     db.insert(<span style="color:#8fd3a0">"1"</span>, [1.0, 0.0, 0.0, 0.0], metadata={<span style="color:#8fd3a0">"team"</span>: <span style="color:#8fd3a0">"search"</span>})
     <span class="kw">for</span> match <span class="kw">in</span> db.search([1.0, 0.0, 0.0, 0.0], top_k=3, metric=DistanceMetric.L2):
-        print(match.id, match.score, match.metadata)</code></pre>
+        print(match.id, match.score, match.metadata)
+    db.search([1.0, 0.0, 0.0, 0.0], where=[(<span style="color:#8fd3a0">"year"</span>, <span style="color:#8fd3a0">"gte"</span>, 2024)])
+    db.get(<span style="color:#8fd3a0">"1"</span>)
+    db.update_metadata(<span style="color:#8fd3a0">"1"</span>, {<span style="color:#8fd3a0">"team"</span>: <span style="color:#8fd3a0">"infra"</span>})
+    db.count()</code></pre>
+      <p>
+        Pass <code>api_key=</code> and <code>tls=True</code> to
+        <code>Client</code> for a server that uses keys and TLS.
+      </p>
       <p>Full API and protobuf-regeneration notes live in <code>clients/python/README.md</code>.</p>
     </section>
 
