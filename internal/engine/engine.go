@@ -409,6 +409,15 @@ func (e *Engine) LastSeq() uint64 {
 	return e.seq
 }
 
+// RecordSum returns the WAL checksum of the record numbered seq, if it is
+// still in this Engine's WAL. Replication compares it between leader and
+// follower to catch two logs that agree on length but not on content.
+// ponytail: scans the WAL from the start, fine at connect time; keep a
+// seq -> offset index if reconnects over large WALs get slow.
+func (e *Engine) RecordSum(seq uint64) (sum uint32, found bool, err error) {
+	return wal.SumAt(e.WALPath(), seq)
+}
+
 // SnapshotSeq returns the sequence number the current on-disk snapshot
 // reflects. A replication leader uses this to decide whether a follower
 // requesting a given sequence can be served from the live WAL alone, or

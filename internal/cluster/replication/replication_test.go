@@ -168,3 +168,57 @@ func TestFollowSurvivesLeaderSnapshotMidStream(t *testing.T) {
 
 	awaitLen(t, follower, 2, 2*time.Second)
 }
+
+// TestFollowResyncsDivergedReplica covers a failover leftover: a replica
+// whose log disagrees with the new leader's, either at the same length or
+// running ahead of it, must end up with the leader's data, not keep its own.
+func TestFollowResyncsDivergedReplica(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		ownWrite int // records the replica wrote on its own
+	}{
+		{"same length, different records", 3},
+		{"replica ahead of the leader", 6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			leader, err := engine.Open(t.TempDir(), testConfig())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer leader.Close()
+			for id := uint64(1); id <= 3; id++ {
+				if err := leader.Insert(id, []float32{float32(id), 0, 0, 0}, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			replica, err := engine.Open(t.TempDir(), testConfig())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer replica.Close()
+			for i := 0; i < tc.ownWrite; i++ {
+				if err := replica.Insert(uint64(100+i), []float32{0, float32(i), 0, 0}, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go func() { _ = Follow(ctx, startServer(t, ctx, leader), replica) }()
+
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				_, _, stale := replica.Get(100)
+				_, _, have := replica.Get(3)
+				if have && !stale && replica.Len() == 3 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("replica never resynced: Len=%d, has leader id 3=%v, still has own id 100=%v", replica.Len(), have, stale)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	}
+}

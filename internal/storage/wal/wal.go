@@ -563,3 +563,50 @@ func sleepOrDone(ctx context.Context, d time.Duration) error {
 		return nil
 	}
 }
+
+// SumAt returns the frame checksum (the CRC32 of the encoded payload,
+// which covers seq, op, id, vector and extra) of the record numbered seq in
+// the log at path. found is false when no complete record has that
+// number, for example because a snapshot already rotated it out. The log
+// may be appended to while this runs; a partial frame at the end simply
+// ends the scan.
+func SumAt(path string, seq uint64) (sum uint32, found bool, err error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	defer f.Close()
+
+	r := bufio.NewReader(f)
+	header := make([]byte, 8)
+	for {
+		if _, err := io.ReadFull(r, header); err != nil {
+			return 0, false, nil
+		}
+		length := binary.LittleEndian.Uint32(header[0:4])
+		if length < 4 || length > maxRecordLen {
+			return 0, false, nil
+		}
+		payload := make([]byte, length-4)
+		if _, err := io.ReadFull(r, payload); err != nil {
+			return 0, false, nil
+		}
+		crc := binary.LittleEndian.Uint32(header[4:8])
+		if crc32.ChecksumIEEE(payload) != crc {
+			return 0, false, nil
+		}
+		rec, err := decodePayload(payload)
+		if err != nil {
+			return 0, false, nil
+		}
+		if rec.Seq == seq {
+			return crc, true, nil
+		}
+		if rec.Seq > seq {
+			return 0, false, nil
+		}
+	}
+}

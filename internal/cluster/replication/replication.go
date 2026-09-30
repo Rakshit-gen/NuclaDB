@@ -7,12 +7,19 @@
 // Wire protocol, deliberately minimal:
 //
 //  1. The follower connects and sends its current sequence number (8
-//     bytes, big-endian) — 0 for a brand-new replica.
-//  2. The leader replies with one marker byte: 'S' if the follower is too
-//     far behind for WAL streaming alone (its sequence predates the
-//     oldest record still on disk — see wal.Follow's doc comment on that
-//     boundary) and a snapshot transfer follows, or 'N' if the follower
-//     can be served directly from the live WAL.
+//     bytes, big-endian; 0 for a brand-new replica), then one byte that is
+//     1 if it still has that record in its WAL, then that record's WAL
+//     checksum (4 bytes, big-endian; zero when the flag is 0).
+//  2. The leader replies with one marker byte: 'S' if a snapshot transfer
+//     follows, or 'N' if the follower can be served directly from the
+//     live WAL. It sends a snapshot when the follower is too far behind
+//     for WAL streaming alone (its sequence predates the oldest record
+//     still on disk, see wal.Follow's doc comment on that boundary), and
+//     also when the follower may have diverged: it is ahead of the leader
+//     (an old leader's writes that never replicated), or its record at
+//     that sequence has a different checksum, or either side no longer
+//     has the record to compare. Resyncing from a snapshot throws the
+//     follower's divergent tail away.
 //  3. If 'S': an 8-byte sequence number the snapshot reflects, then the
 //     snapshot and metadata blobs, each a 4-byte big-endian length
 //     followed by that many bytes.
@@ -37,6 +44,9 @@ import (
 )
 
 const pollInterval = 20 * time.Millisecond
+
+// headerLen is the follower's opening message: seq, has-sum flag, sum.
+const headerLen = 8 + 1 + 4
 
 const (
 	markerSnapshotFollows byte = 'S'
@@ -70,13 +80,15 @@ func Serve(ctx context.Context, ln net.Listener, e *engine.Engine) error {
 func serveConn(ctx context.Context, conn net.Conn, e *engine.Engine) error {
 	defer func() { _ = conn.Close() }()
 
-	header := make([]byte, 8)
+	header := make([]byte, headerLen)
 	if _, err := io.ReadFull(conn, header); err != nil {
 		return fmt.Errorf("replication: read from-seq: %w", err)
 	}
-	fromSeq := binary.BigEndian.Uint64(header)
+	fromSeq := binary.BigEndian.Uint64(header[0:8])
+	hasSum := header[8] == 1
+	sum := binary.BigEndian.Uint32(header[9:13])
 
-	fromSeq, err := sendSnapshotIfNeeded(conn, e, fromSeq)
+	fromSeq, err := sendSnapshotIfNeeded(conn, e, fromSeq, hasSum, sum)
 	if err != nil {
 		return err
 	}
@@ -93,12 +105,12 @@ func serveConn(ctx context.Context, conn net.Conn, e *engine.Engine) error {
 // sendSnapshotIfNeeded implements steps 2-3 of the protocol, returning the
 // sequence number the caller should now wal.Follow from — either fromSeq
 // unchanged, or the snapshot's sequence if one was sent.
-func sendSnapshotIfNeeded(conn net.Conn, e *engine.Engine, fromSeq uint64) (uint64, error) {
-	if fromSeq >= e.SnapshotSeq() {
-		// The live WAL alone covers everything from fromSeq forward — no
-		// snapshot needed. (SnapshotSeq only ever advances, and equals 0
-		// for a brand-new Engine with fromSeq 0 too, so a fresh follower
-		// joining a fresh leader correctly takes this branch.)
+func sendSnapshotIfNeeded(conn net.Conn, e *engine.Engine, fromSeq uint64, hasSum bool, sum uint32) (uint64, error) {
+	resync, err := needsSnapshot(e, fromSeq, hasSum, sum)
+	if err != nil {
+		return 0, err
+	}
+	if !resync {
 		if _, err := conn.Write([]byte{markerNoSnapshot}); err != nil {
 			return 0, fmt.Errorf("replication: send no-snapshot marker: %w", err)
 		}
@@ -125,6 +137,28 @@ func sendSnapshotIfNeeded(conn net.Conn, e *engine.Engine, fromSeq uint64) (uint
 		return 0, fmt.Errorf("replication: send metadata blob: %w", err)
 	}
 	return seq, nil
+}
+
+// needsSnapshot reports whether the follower at fromSeq has to be rebuilt
+// from a snapshot rather than streamed the WAL after fromSeq.
+func needsSnapshot(e *engine.Engine, fromSeq uint64, hasSum bool, sum uint32) (bool, error) {
+	// SnapshotSeq only ever advances, and is 0 for a brand-new Engine, so a
+	// fresh follower joining a fresh leader streams without a snapshot.
+	if fromSeq < e.SnapshotSeq() || fromSeq > e.LastSeq() {
+		return true, nil
+	}
+	if fromSeq == 0 {
+		return false, nil
+	}
+	leaderSum, found, err := e.RecordSum(fromSeq)
+	if err != nil {
+		return false, fmt.Errorf("replication: read record %d: %w", fromSeq, err)
+	}
+	// ponytail: a record either side can't compare (rotated out by a
+	// snapshot) counts as diverged, so a follower reconnecting right after
+	// a snapshot pays a full resync. Carry the snapshot's last checksum if
+	// that gets expensive.
+	return !found || !hasSum || leaderSum != sum, nil
 }
 
 func writeBlob(w io.Writer, data []byte) error {
@@ -176,8 +210,18 @@ func Follow(ctx context.Context, addr string, e *engine.Engine) error {
 	}()
 
 	fromSeq := e.LastSeq()
-	header := make([]byte, 8)
-	binary.BigEndian.PutUint64(header, fromSeq)
+	header := make([]byte, headerLen)
+	binary.BigEndian.PutUint64(header[0:8], fromSeq)
+	if fromSeq > 0 {
+		sum, found, err := e.RecordSum(fromSeq)
+		if err != nil {
+			return fmt.Errorf("replication: read own record %d: %w", fromSeq, err)
+		}
+		if found {
+			header[8] = 1
+			binary.BigEndian.PutUint32(header[9:13], sum)
+		}
+	}
 	if _, err := conn.Write(header); err != nil {
 		return fmt.Errorf("replication: send from-seq: %w", err)
 	}
