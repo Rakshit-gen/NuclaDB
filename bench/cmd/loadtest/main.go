@@ -355,7 +355,7 @@ func writeMarkdown(nVec, dim, ef, topK int, recall float64, rss uint64, window t
 
 	if mixed != nil {
 		p("\n## Mixed read/write at conns=%d (%.0f%% Insert)\n\n", topConns, writeMix*100)
-		p("Every write takes the HNSW graph's single write lock, which blocks concurrent searches for its duration — this is the cost of that design (see `internal/index/hnsw` doc comment).\n\n")
+		p("Inserts run one at a time. Each one finds its neighbors without the graph write lock and takes it only to link the new node in, so searches wait for that step alone (see the `hnsw.Graph` doc comment).\n\n")
 		p("| op | req/s | p50 | p99 |\n|---|---|---|---|\n")
 		p("| search | %.0f | %s | %s |\n", mixed.readRPS, d(mixed.readP50), d(mixed.readP99))
 		p("| insert | %.0f | %s | %s |\n", mixed.writeRPS, d(mixed.writeP50), d(mixed.writeP99))

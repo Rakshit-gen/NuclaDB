@@ -20,7 +20,7 @@ Saturated concurrent throughput and tail latency over the real gRPC API — the 
 
 ## Mixed read/write at conns=128 (10% Insert)
 
-Every write takes the HNSW graph's single write lock, which blocks concurrent searches for its duration — this is the cost of that design (see `internal/index/hnsw` doc comment).
+These mixed numbers were measured when every insert held the HNSW graph's write lock for its whole neighbor search, blocking searches the entire time. Inserts now take that lock only to link the new node in, and single Inserts share fsyncs under concurrency, so this section needs a rerun of `cmd/loadtest`.
 
 | op | req/s | p50 | p99 |
 |---|---|---|---|

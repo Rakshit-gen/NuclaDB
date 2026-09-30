@@ -142,15 +142,17 @@ server, and mock:
 
 Throughput levels off around **~21,000 searches/s** (peak 23,300); past
 ~32 connections, added concurrency buys latency, not throughput.
-Searches hold the HNSW graph's read lock for the whole traversal, and
-that single `RWMutex` is still the ceiling. A 60-second sustained run at
+Searches hold the HNSW graph's read lock for the whole traversal; an
+insert now takes the write lock only to link a node in, after finding
+its neighbors without it. A 60-second sustained run at
 128 connections held ~22,100 searches/s with **0 errored requests**.
 Full numbers, including a mixed read/write run, are in
 [`bench/results-loadtest.md`](bench/results-loadtest.md).
 
 Product quantization: 57.7% recall@10 at a 16x memory reduction with flat
 PQ alone, 99.3% when the top 100 codes are re-ranked against full vectors
-(`pq.Index.SearchRerank`), see
+(`pq.Index.SearchRerank`). `pq.IVFIndex` adds an inverted file so a search
+scans only the lists nearest the query instead of every code. See
 [`docs/writeups/03-product-quantization-cost.md`](docs/writeups/03-product-quantization-cost.md).
 
 ## Design writeups

@@ -142,7 +142,7 @@ func writeMarkdown(a, b *bench.Report, topK int) error {
 	ew.printf("Discovered by noticing suspiciously perfect 1.0 recall at every ef on the first run; see the writeup.\n")
 	ew.printf("- **Build time is still the standout gap.** %s loads through BatchUpsert in batches of 500, and each batch shares one WAL fsync; ", a.Backend)
 	ew.printf("before group commit every vector paid its own fsync and this build took 43.9s. What remains is single-threaded HNSW construction ")
-	ew.printf("(ef_construct=200) under one graph lock; %s builds its index differently.\n", b.Backend)
+	ew.printf("(ef_construct=200), one insert at a time; %s builds its index differently.\n", b.Backend)
 	ew.printf("- At only %d vectors, recall for both engines converges close to 1.0 by moderate ef. A clearer recall/QPS separation ", a.NumVectors)
 	ew.printf("would show at larger scale (SIFT1M), which has not been run.\n")
 

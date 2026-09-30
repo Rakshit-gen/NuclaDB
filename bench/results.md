@@ -24,5 +24,5 @@ Real measurements from running both systems over their own network APIs on the s
 ## Notes
 
 - **Qdrant's `full_scan_threshold` is set explicitly to 10 (its API-enforced minimum) here.** Its default (10,000 KB) is comfortably above this dataset's raw size (~5120 KB), which means an out-of-the-box comparison at this scale would silently have been exact-search-vs-HNSW, not HNSW-vs-HNSW. Discovered by noticing suspiciously perfect 1.0 recall at every ef on the first run; see the writeup.
-- **Build time is still the standout gap.** NuclaDB loads through BatchUpsert in batches of 500, and each batch shares one WAL fsync; before group commit every vector paid its own fsync and this build took 43.9s. What remains is single-threaded HNSW construction (ef_construct=200) under one graph lock; Qdrant builds its index differently.
+- **Build time is still the standout gap.** NuclaDB loads through BatchUpsert in batches of 500, and each batch shares one WAL fsync; before group commit every vector paid its own fsync and this build took 43.9s. What remains is single-threaded HNSW construction (ef_construct=200), one insert at a time; Qdrant builds its index differently.
 - At only 10000 vectors, recall for both engines converges close to 1.0 by moderate ef. A clearer recall/QPS separation would show at larger scale (SIFT1M), which has not been run.
