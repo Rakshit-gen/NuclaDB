@@ -44,7 +44,10 @@ import (
 	"github.com/Rakshit-gen/nucladb/internal/storage/wal"
 )
 
-const pollInterval = 20 * time.Millisecond
+// pollInterval is a fallback: the stream wakes on e.WALChanged as soon as
+// a write lands, and only re-checks the file this often if it somehow
+// misses one.
+const pollInterval = time.Second
 
 // headerLen is the follower's opening message: seq, has-sum flag, sum.
 const headerLen = 8 + 1 + 4
@@ -95,7 +98,7 @@ func serveConn(ctx context.Context, conn net.Conn, e *engine.Engine) error {
 	}
 
 	w := bufio.NewWriter(conn)
-	return wal.Follow(ctx, e.WALPath(), fromSeq, pollInterval, func(rec wal.Record) error {
+	return wal.Follow(ctx, e.WALPath(), fromSeq, pollInterval, e.WALChanged, func(rec wal.Record) error {
 		if _, err := w.Write(wal.EncodeRecord(rec)); err != nil {
 			return err
 		}

@@ -33,7 +33,7 @@ func TestFollowStreamsRecordsLive(t *testing.T) {
 	var got []Record
 	done := make(chan error, 1)
 	go func() {
-		done <- Follow(ctx, path, 0, 5*time.Millisecond, func(rec Record) error {
+		done <- Follow(ctx, path, 0, 5*time.Millisecond, nil, func(rec Record) error {
 			mu.Lock()
 			got = append(got, rec)
 			mu.Unlock()
@@ -110,7 +110,7 @@ func TestFollowSurvivesRotation(t *testing.T) {
 	var got []Record
 	done := make(chan error, 1)
 	go func() {
-		done <- Follow(ctx, path, 0, 5*time.Millisecond, func(rec Record) error {
+		done <- Follow(ctx, path, 0, 5*time.Millisecond, nil, func(rec Record) error {
 			mu.Lock()
 			got = append(got, rec)
 			mu.Unlock()

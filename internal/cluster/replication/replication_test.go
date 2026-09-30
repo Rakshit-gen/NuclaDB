@@ -222,3 +222,35 @@ func TestFollowResyncsDivergedReplica(t *testing.T) {
 		})
 	}
 }
+
+// TestFollowWakesOnWrite checks a write reaches the follower from the
+// leader's WAL notification, well before the fallback poll would find it.
+func TestFollowWakesOnWrite(t *testing.T) {
+	leader, err := engine.Open(t.TempDir(), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leader.Close()
+	follower, err := engine.Open(t.TempDir(), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer follower.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = Follow(ctx, startServer(t, ctx, leader), follower) }()
+
+	// Let the stream settle into waiting, then time a handful of writes.
+	time.Sleep(100 * time.Millisecond)
+	for id := uint64(1); id <= 5; id++ {
+		start := time.Now()
+		if err := leader.Insert(id, []float32{float32(id), 0, 0, 0}, nil); err != nil {
+			t.Fatal(err)
+		}
+		awaitLen(t, follower, int(id), 2*time.Second)
+		if took := time.Since(start); took > pollInterval/4 {
+			t.Fatalf("write %d took %s to replicate, want well under the %s poll", id, took, pollInterval)
+		}
+	}
+}

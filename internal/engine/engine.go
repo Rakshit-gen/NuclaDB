@@ -69,6 +69,11 @@ type Engine struct {
 	postings map[string]map[uint64]struct{}
 
 	exactFilterLimit atomic.Int64
+
+	// walChanged is closed and replaced every time the WAL gains records
+	// or is rotated, so a replication stream can wait for it instead of
+	// polling the file.
+	walChanged atomic.Pointer[chan struct{}]
 }
 
 // Open loads dir's snapshot (if any), replays any WAL records written
@@ -163,6 +168,8 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 	}
 	e.exactFilterLimit.Store(DefaultExactFilterLimit)
 	e.graph.Store(g)
+	ch := make(chan struct{})
+	e.walChanged.Store(&ch)
 	return e, nil
 }
 
@@ -319,6 +326,7 @@ func (e *Engine) commitLocked(records []wal.Record, metas []map[string]string) e
 	if err != nil {
 		return err
 	}
+	e.notifyWAL()
 
 	g := e.graph.Load()
 	var ids []uint64
@@ -429,6 +437,18 @@ func (e *Engine) SnapshotSeq() uint64 {
 	return e.snapshotSeq
 }
 
+// WALChanged returns a channel that is closed the next time the WAL gains
+// records or is rotated. Take it before reading the WAL, then wait on it
+// if the read found nothing new.
+func (e *Engine) WALChanged() <-chan struct{} {
+	return *e.walChanged.Load()
+}
+
+func (e *Engine) notifyWAL() {
+	ch := make(chan struct{})
+	close(*e.walChanged.Swap(&ch))
+}
+
 // WALPath returns the path to this Engine's current WAL file, for a
 // replication leader to stream via wal.Follow. The path itself is stable
 // for the Engine's lifetime even though Snapshot rotates the file it
@@ -451,6 +471,7 @@ func (e *Engine) ApplyReplicated(rec wal.Record) error {
 	if err := e.w.AppendRecord(rec); err != nil {
 		return err
 	}
+	e.notifyWAL()
 
 	switch rec.Op {
 	case wal.OpInsert:
@@ -577,6 +598,7 @@ func (e *Engine) LoadSnapshot(snapshotR, metadataR io.Reader, seq uint64) error 
 	e.metadata = metadata
 	e.postings = buildPostings(metadata)
 	e.metaMu.Unlock()
+	e.notifyWAL()
 	return nil
 }
 
@@ -924,6 +946,7 @@ func (e *Engine) rotateWALLocked(seq uint64, from int64) error {
 	_ = e.w.Close()
 	e.w = w
 	e.snapshotSeq = seq
+	e.notifyWAL()
 	return nil
 }
 

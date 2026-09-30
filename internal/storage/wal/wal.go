@@ -477,7 +477,11 @@ func readFrame(r *bufio.Reader) (Record, int64, error) {
 // getting them requires transferring that snapshot first (see
 // replication.Bootstrap), not something Follow can serve from a WAL file
 // alone.
-func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.Duration, fn func(Record) error) error {
+//
+// changed, if not nil, returns a channel that closes when the log next
+// changes (see engine.Engine.WALChanged). Follow then wakes on writes right
+// away and pollInterval is only a fallback.
+func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.Duration, changed func() <-chan struct{}, fn func(Record) error) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -490,6 +494,10 @@ func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.
 	var offset int64
 	header := make([]byte, 8)
 	for {
+		var wake <-chan struct{}
+		if changed != nil {
+			wake = changed()
+		}
 		if pathInfo, statErr := os.Stat(path); statErr == nil {
 			if fdInfo, fdErr := f.Stat(); fdErr == nil && !os.SameFile(fdInfo, pathInfo) {
 				if next, openErr := os.Open(path); openErr == nil {
@@ -505,7 +513,7 @@ func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.
 			return err
 		}
 		if n < len(header) {
-			if err := sleepOrDone(ctx, pollInterval); err != nil {
+			if err := waitOrDone(ctx, pollInterval, wake); err != nil {
 				return err
 			}
 			continue
@@ -519,7 +527,7 @@ func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.
 			// so this is rare) — treated as "not written yet", same as a
 			// short header read, rather than fatal: Follow always assumes
 			// more may still be coming.
-			if err := sleepOrDone(ctx, pollInterval); err != nil {
+			if err := waitOrDone(ctx, pollInterval, wake); err != nil {
 				return err
 			}
 			continue
@@ -531,7 +539,7 @@ func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.
 			return err
 		}
 		if pn < len(payload) || crc32.ChecksumIEEE(payload) != wantCRC {
-			if err := sleepOrDone(ctx, pollInterval); err != nil {
+			if err := waitOrDone(ctx, pollInterval, wake); err != nil {
 				return err
 			}
 			continue
@@ -539,7 +547,7 @@ func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.
 
 		rec, err := decodePayload(payload)
 		if err != nil {
-			if err := sleepOrDone(ctx, pollInterval); err != nil {
+			if err := waitOrDone(ctx, pollInterval, wake); err != nil {
 				return err
 			}
 			continue
@@ -555,13 +563,17 @@ func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.
 	}
 }
 
-func sleepOrDone(ctx context.Context, d time.Duration) error {
+// waitOrDone waits for d, for wake to close, or for ctx to end.
+func waitOrDone(ctx context.Context, d time.Duration, wake <-chan struct{}) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(d):
-		return nil
+	case <-wake:
+	case <-t.C:
 	}
+	return nil
 }
 
 // SumAt returns the frame checksum (the CRC32 of the encoded payload,
