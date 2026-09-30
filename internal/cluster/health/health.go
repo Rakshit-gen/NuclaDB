@@ -83,16 +83,32 @@ func (c *Checker) tick(ctx context.Context) {
 	if !c.cluster.IsLeader() {
 		return
 	}
-	for id, addr := range c.cluster.Nodes() {
+
+	// Probe every node at once, so one slow or dead node costs a tick one
+	// probe timeout, not one per node. Acting on the results stays serial.
+	type result struct {
+		id  string
+		err error
+	}
+	nodes := c.cluster.Nodes()
+	results := make(chan result, len(nodes))
+	probed := 0
+	for id, addr := range nodes {
 		if id == c.selfID {
 			continue
 		}
+		probed++
+		go func(id, addr string) {
+			probeCtx, cancel := context.WithTimeout(ctx, c.probeTimeout)
+			defer cancel()
+			results <- result{id, c.prober.Probe(probeCtx, addr)}
+		}(id, addr)
+	}
 
-		probeCtx, cancel := context.WithTimeout(ctx, c.probeTimeout)
-		err := c.prober.Probe(probeCtx, addr)
-		cancel()
-
-		if err == nil {
+	for ; probed > 0; probed-- {
+		r := <-results
+		id := r.id
+		if r.err == nil {
 			delete(c.failures, id)
 			delete(c.failedOver, id)
 			continue

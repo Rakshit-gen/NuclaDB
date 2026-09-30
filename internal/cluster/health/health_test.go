@@ -230,3 +230,44 @@ func TestCheckerFailsOverThenEvictsDeadNode(t *testing.T) {
 		}
 	}
 }
+
+// slowProber fails every probe after a fixed delay, like a dead host that
+// only gives up at the timeout.
+type slowProber struct{ delay time.Duration }
+
+func (p slowProber) Probe(ctx context.Context, _ string) error {
+	select {
+	case <-time.After(p.delay):
+	case <-ctx.Done():
+	}
+	return context.DeadlineExceeded
+}
+
+func TestCheckerProbesNodesInParallel(t *testing.T) {
+	node, addr := newTCPNode(t, "node-1")
+	if err := node.Bootstrap([]hraft.Server{{ID: "node-1", Address: hraft.ServerAddress(addr)}}); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	awaitLeader(t, node, 5*time.Second)
+
+	c := cluster.New(node, 4, 16, 1)
+	for _, id := range []string{"a", "b", "c", "d", "e"} {
+		if err := node.AddNode(id, "127.0.0.1:1"); err != nil {
+			t.Fatalf("AddNode(%s): %v", id, err)
+		}
+	}
+	c.Refresh()
+
+	const delay = 200 * time.Millisecond
+	checker := New(c, slowProber{delay}, "node-1", time.Hour, time.Second, 100, 1000)
+	start := time.Now()
+	checker.tick(context.Background())
+	took := time.Since(start)
+
+	if took > 3*delay {
+		t.Fatalf("tick took %s for 5 slow nodes, want about one probe delay (%s)", took, delay)
+	}
+	if len(checker.failures) != 5 {
+		t.Fatalf("failures = %v, want all 5 nodes counted", checker.failures)
+	}
+}
