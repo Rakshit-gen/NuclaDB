@@ -84,11 +84,11 @@ func TestApplyReplicatedRejectsGap(t *testing.T) {
 	}
 }
 
-// TestSnapshotBytesLoadSnapshotRoundTrip verifies the bootstrap path a
+// TestOpenSnapshotLoadSnapshotRoundTrip verifies the bootstrap path a
 // late-joining replica uses when it's too far behind for WAL streaming
 // alone: pull a fresh snapshot from the leader, load it, and continue
 // applying replicated writes from that point.
-func TestSnapshotBytesLoadSnapshotRoundTrip(t *testing.T) {
+func TestOpenSnapshotLoadSnapshotRoundTrip(t *testing.T) {
 	leader, err := Open(t.TempDir(), testConfig())
 	if err != nil {
 		t.Fatal(err)
@@ -102,12 +102,14 @@ func TestSnapshotBytesLoadSnapshotRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	snapshotBytes, metadataBytes, seq, err := leader.SnapshotBytes()
+	snapshotFile, metadataFile, seq, err := leader.OpenSnapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer snapshotFile.Close()
+	defer metadataFile.Close()
 	if seq != leader.LastSeq() {
-		t.Fatalf("SnapshotBytes seq=%d, leader.LastSeq()=%d", seq, leader.LastSeq())
+		t.Fatalf("OpenSnapshot seq=%d, leader.LastSeq()=%d", seq, leader.LastSeq())
 	}
 
 	follower, err := Open(t.TempDir(), testConfig())
@@ -116,7 +118,7 @@ func TestSnapshotBytesLoadSnapshotRoundTrip(t *testing.T) {
 	}
 	defer follower.Close()
 
-	if err := follower.LoadSnapshot(snapshotBytes, metadataBytes, seq); err != nil {
+	if err := follower.LoadSnapshot(snapshotFile, metadataFile, seq); err != nil {
 		t.Fatal(err)
 	}
 	if follower.LastSeq() != seq || follower.SnapshotSeq() != seq {

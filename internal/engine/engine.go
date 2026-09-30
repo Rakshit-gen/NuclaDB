@@ -477,54 +477,69 @@ func (e *Engine) ApplyReplicated(rec wal.Record) error {
 	return nil
 }
 
-// SnapshotBytes forces a fresh Snapshot and returns the resulting
-// snapshot.bin and metadata.json contents verbatim, plus the sequence
-// number they reflect. Used by internal/cluster/replication to bootstrap
-// a new follower that's too far behind for WAL streaming alone to catch
-// up (see wal.Follow's doc comment on that boundary) — the same role a
-// base backup plays before streaming replication in a system like
-// Postgres.
-func (e *Engine) SnapshotBytes() (snapshot, metadata []byte, seq uint64, err error) {
+// OpenSnapshot forces a fresh Snapshot and opens the resulting
+// snapshot.bin and metadata.json for reading, plus the sequence number
+// they reflect. The caller streams and closes both. Used by
+// internal/cluster/replication to bootstrap a follower that's too far
+// behind for WAL streaming alone (see wal.Follow's doc comment on that
+// boundary), the same role a base backup plays before streaming
+// replication in Postgres. The open files stay readable even if a later
+// snapshot replaces them on disk, since that is a rename over the path.
+func (e *Engine) OpenSnapshot() (snapshot, metadata *os.File, seq uint64, err error) {
 	// Holding snapMu keeps another snapshot from replacing the files
-	// between the two reads.
+	// between the two opens.
 	e.snapMu.Lock()
 	defer e.snapMu.Unlock()
 	if err := e.snapshotLocked(); err != nil {
 		return nil, nil, 0, err
 	}
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	snapshot, err = os.ReadFile(filepath.Join(e.dir, snapshotFile))
+	snapshot, err = os.Open(filepath.Join(e.dir, snapshotFile))
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	metadata, err = os.ReadFile(filepath.Join(e.dir, metadataFile))
+	metadata, err = os.Open(filepath.Join(e.dir, metadataFile))
 	if err != nil {
+		snapshot.Close()
 		return nil, nil, 0, err
 	}
-	return snapshot, metadata, e.snapshotSeq, nil
+	return snapshot, metadata, e.SnapshotSeq(), nil
 }
 
-// LoadSnapshot replaces this Engine's entire state — graph, metadata, and
-// WAL — with the given snapshot, atomically from the caller's perspective
-// (the whole operation runs under e.mu). It's the follower side of
-// SnapshotBytes: once loaded, WAL replication can resume live from seq,
-// the same as if this Engine had just restarted from a local snapshot at
-// that point.
-func (e *Engine) LoadSnapshot(snapshotBytes, metadataBytes []byte, seq uint64) error {
+// LoadSnapshot replaces this Engine's entire state (graph, metadata and
+// WAL) with the snapshot read from snapshotR and then metadataR, in that
+// order. It's the follower side of OpenSnapshot: once loaded, WAL
+// replication can resume live from seq, the same as if this Engine had
+// just restarted from a local snapshot at that point. Both readers are
+// copied to disk first without holding e.mu, so searches keep running
+// during a large transfer; only the swap itself blocks them.
+func (e *Engine) LoadSnapshot(snapshotR, metadataR io.Reader, seq uint64) error {
 	e.snapMu.Lock()
 	defer e.snapMu.Unlock()
+
+	snapshotPath := filepath.Join(e.dir, snapshotFile)
+	metadataPath := filepath.Join(e.dir, metadataFile)
+	snapshotIn, metadataIn := snapshotPath+".incoming", metadataPath+".incoming"
+	defer os.Remove(snapshotIn)
+	defer os.Remove(metadataIn)
+	if err := writeFileFrom(snapshotIn, snapshotR); err != nil {
+		return err
+	}
+	if err := writeFileFrom(metadataIn, metadataR); err != nil {
+		return err
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	// Metadata before the graph snapshot, for the same reason as Snapshot.
-	metadataPath := filepath.Join(e.dir, metadataFile)
-	if err := writeFileAtomic(metadataPath, metadataBytes); err != nil {
+	if err := os.Rename(metadataIn, metadataPath); err != nil {
 		return err
 	}
-	snapshotPath := filepath.Join(e.dir, snapshotFile)
-	if err := writeFileAtomic(snapshotPath, snapshotBytes); err != nil {
+	if err := os.Rename(snapshotIn, snapshotPath); err != nil {
+		return err
+	}
+	if err := syncDir(e.dir); err != nil {
 		return err
 	}
 
@@ -569,6 +584,23 @@ func (e *Engine) LoadSnapshot(snapshotBytes, metadataBytes []byte, seq uint64) e
 // holds either the old contents or the new, never a torn or empty mix: the
 // temp file is fsynced before the rename, and the directory after it so the
 // rename itself is durable.
+// writeFileFrom copies r into a new file at path and fsyncs it.
+func writeFileFrom(path string, r io.Reader) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(f, r); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
 func writeFileAtomic(path string, data []byte) error {
 	tmp := path + ".tmp"
 	f, err := os.Create(tmp)

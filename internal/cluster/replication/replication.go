@@ -21,8 +21,9 @@
 //     has the record to compare. Resyncing from a snapshot throws the
 //     follower's divergent tail away.
 //  3. If 'S': an 8-byte sequence number the snapshot reflects, then the
-//     snapshot and metadata blobs, each a 4-byte big-endian length
-//     followed by that many bytes.
+//     snapshot and metadata blobs, each an 8-byte big-endian length
+//     followed by that many bytes. Both are streamed from and to disk,
+//     never held whole in memory.
 //  4. Either way, the connection then carries a live stream of raw WAL
 //     record frames (internal/storage/wal's own on-disk frame format) for
 //     every record after the sequence point established above, continuing
@@ -31,12 +32,12 @@ package replication
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"time"
 
 	"github.com/Rakshit-gen/nucladb/internal/engine"
@@ -117,10 +118,12 @@ func sendSnapshotIfNeeded(conn net.Conn, e *engine.Engine, fromSeq uint64, hasSu
 		return fromSeq, nil
 	}
 
-	snapshot, metadata, seq, err := e.SnapshotBytes()
+	snapshot, metadata, seq, err := e.OpenSnapshot()
 	if err != nil {
 		return 0, fmt.Errorf("replication: snapshot for bootstrap: %w", err)
 	}
+	defer snapshot.Close()
+	defer metadata.Close()
 
 	if _, err := conn.Write([]byte{markerSnapshotFollows}); err != nil {
 		return 0, fmt.Errorf("replication: send snapshot marker: %w", err)
@@ -161,31 +164,55 @@ func needsSnapshot(e *engine.Engine, fromSeq uint64, hasSum bool, sum uint32) (b
 	return !found || !hasSum || leaderSum != sum, nil
 }
 
-func writeBlob(w io.Writer, data []byte) error {
-	lenBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(lenBuf, uint32(len(data)))
+// writeBlob sends f's length and then its contents.
+func writeBlob(w io.Writer, f *os.File) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	lenBuf := make([]byte, 8)
+	binary.BigEndian.PutUint64(lenBuf, uint64(info.Size()))
 	if _, err := w.Write(lenBuf); err != nil {
 		return err
 	}
-	_, err := w.Write(data)
+	_, err = io.CopyN(w, f, info.Size())
 	return err
 }
 
-func readBlob(r io.Reader) ([]byte, error) {
-	lenBuf := make([]byte, 4)
-	if _, err := io.ReadFull(r, lenBuf); err != nil {
-		return nil, err
+// blobReader reads one length-prefixed blob. The length is read on the
+// first Read, so two blobs sent back to back can be handed to one consumer
+// that reads them in order. It fails with io.ErrUnexpectedEOF if the
+// stream ends early, so a dropped connection can't load as a short,
+// valid-looking snapshot.
+type blobReader struct {
+	r       io.Reader
+	n       uint64
+	started bool
+}
+
+func (b *blobReader) Read(p []byte) (int, error) {
+	if !b.started {
+		lenBuf := make([]byte, 8)
+		if _, err := io.ReadFull(b.r, lenBuf); err != nil {
+			if err == io.EOF {
+				err = io.ErrUnexpectedEOF
+			}
+			return 0, err
+		}
+		b.n, b.started = binary.BigEndian.Uint64(lenBuf), true
 	}
-	// Grow with the bytes that actually arrive rather than pre-allocating the
-	// peer-declared length: a bogus 4 GiB prefix must not cost 4 GiB.
-	n := int64(binary.BigEndian.Uint32(lenBuf))
-	var buf bytes.Buffer
-	if got, err := io.Copy(&buf, io.LimitReader(r, n)); err != nil {
-		return nil, err
-	} else if got < n {
-		return nil, io.ErrUnexpectedEOF
+	if b.n == 0 {
+		return 0, io.EOF
 	}
-	return buf.Bytes(), nil
+	if uint64(len(p)) > b.n {
+		p = p[:b.n]
+	}
+	n, err := b.r.Read(p)
+	b.n -= uint64(n)
+	if err == io.EOF && b.n > 0 {
+		err = io.ErrUnexpectedEOF
+	}
+	return n, err
 }
 
 // Follow connects to a leader's replication listener at addr and applies
@@ -237,15 +264,7 @@ func Follow(ctx context.Context, addr string, e *engine.Engine) error {
 			return fmt.Errorf("replication: read snapshot seq: %w", err)
 		}
 		seq := binary.BigEndian.Uint64(seqBuf)
-		snapshot, err := readBlob(r)
-		if err != nil {
-			return fmt.Errorf("replication: read snapshot blob: %w", err)
-		}
-		metadata, err := readBlob(r)
-		if err != nil {
-			return fmt.Errorf("replication: read metadata blob: %w", err)
-		}
-		if err := e.LoadSnapshot(snapshot, metadata, seq); err != nil {
+		if err := e.LoadSnapshot(&blobReader{r: r}, &blobReader{r: r}, seq); err != nil {
 			return fmt.Errorf("replication: load snapshot: %w", err)
 		}
 	}
