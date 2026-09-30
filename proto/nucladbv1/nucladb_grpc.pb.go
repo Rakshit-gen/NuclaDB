@@ -19,11 +19,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NuclaDB_CreateTenant_FullMethodName = "/nucladb.v1.NuclaDB/CreateTenant"
-	NuclaDB_Insert_FullMethodName       = "/nucladb.v1.NuclaDB/Insert"
-	NuclaDB_BatchUpsert_FullMethodName  = "/nucladb.v1.NuclaDB/BatchUpsert"
-	NuclaDB_Delete_FullMethodName       = "/nucladb.v1.NuclaDB/Delete"
-	NuclaDB_Search_FullMethodName       = "/nucladb.v1.NuclaDB/Search"
+	NuclaDB_CreateTenant_FullMethodName   = "/nucladb.v1.NuclaDB/CreateTenant"
+	NuclaDB_Insert_FullMethodName         = "/nucladb.v1.NuclaDB/Insert"
+	NuclaDB_BatchUpsert_FullMethodName    = "/nucladb.v1.NuclaDB/BatchUpsert"
+	NuclaDB_Delete_FullMethodName         = "/nucladb.v1.NuclaDB/Delete"
+	NuclaDB_Search_FullMethodName         = "/nucladb.v1.NuclaDB/Search"
+	NuclaDB_Get_FullMethodName            = "/nucladb.v1.NuclaDB/Get"
+	NuclaDB_List_FullMethodName           = "/nucladb.v1.NuclaDB/List"
+	NuclaDB_Count_FullMethodName          = "/nucladb.v1.NuclaDB/Count"
+	NuclaDB_UpdateMetadata_FullMethodName = "/nucladb.v1.NuclaDB/UpdateMetadata"
+	NuclaDB_DeleteTenant_FullMethodName   = "/nucladb.v1.NuclaDB/DeleteTenant"
+	NuclaDB_SetQuota_FullMethodName       = "/nucladb.v1.NuclaDB/SetQuota"
+	NuclaDB_ListTenants_FullMethodName    = "/nucladb.v1.NuclaDB/ListTenants"
 )
 
 // NuclaDBClient is the client API for NuclaDB service.
@@ -42,13 +49,20 @@ const (
 //
 // REST is exposed separately via a hand-written gateway in
 // internal/api/gateway rather than google.api.http annotations, to avoid
-// vendoring the full googleapis proto tree for five routes.
+// vendoring the full googleapis proto tree.
 type NuclaDBClient interface {
 	CreateTenant(ctx context.Context, in *CreateTenantRequest, opts ...grpc.CallOption) (*CreateTenantResponse, error)
 	Insert(ctx context.Context, in *InsertRequest, opts ...grpc.CallOption) (*InsertResponse, error)
 	BatchUpsert(ctx context.Context, in *BatchUpsertRequest, opts ...grpc.CallOption) (*BatchUpsertResponse, error)
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error)
+	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
+	List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (*ListResponse, error)
+	Count(ctx context.Context, in *CountRequest, opts ...grpc.CallOption) (*CountResponse, error)
+	UpdateMetadata(ctx context.Context, in *UpdateMetadataRequest, opts ...grpc.CallOption) (*UpdateMetadataResponse, error)
+	DeleteTenant(ctx context.Context, in *DeleteTenantRequest, opts ...grpc.CallOption) (*DeleteTenantResponse, error)
+	SetQuota(ctx context.Context, in *SetQuotaRequest, opts ...grpc.CallOption) (*SetQuotaResponse, error)
+	ListTenants(ctx context.Context, in *ListTenantsRequest, opts ...grpc.CallOption) (*ListTenantsResponse, error)
 }
 
 type nuclaDBClient struct {
@@ -109,6 +123,76 @@ func (c *nuclaDBClient) Search(ctx context.Context, in *SearchRequest, opts ...g
 	return out, nil
 }
 
+func (c *nuclaDBClient) Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetResponse)
+	err := c.cc.Invoke(ctx, NuclaDB_Get_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nuclaDBClient) List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (*ListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListResponse)
+	err := c.cc.Invoke(ctx, NuclaDB_List_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nuclaDBClient) Count(ctx context.Context, in *CountRequest, opts ...grpc.CallOption) (*CountResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CountResponse)
+	err := c.cc.Invoke(ctx, NuclaDB_Count_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nuclaDBClient) UpdateMetadata(ctx context.Context, in *UpdateMetadataRequest, opts ...grpc.CallOption) (*UpdateMetadataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateMetadataResponse)
+	err := c.cc.Invoke(ctx, NuclaDB_UpdateMetadata_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nuclaDBClient) DeleteTenant(ctx context.Context, in *DeleteTenantRequest, opts ...grpc.CallOption) (*DeleteTenantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteTenantResponse)
+	err := c.cc.Invoke(ctx, NuclaDB_DeleteTenant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nuclaDBClient) SetQuota(ctx context.Context, in *SetQuotaRequest, opts ...grpc.CallOption) (*SetQuotaResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetQuotaResponse)
+	err := c.cc.Invoke(ctx, NuclaDB_SetQuota_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nuclaDBClient) ListTenants(ctx context.Context, in *ListTenantsRequest, opts ...grpc.CallOption) (*ListTenantsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListTenantsResponse)
+	err := c.cc.Invoke(ctx, NuclaDB_ListTenants_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NuclaDBServer is the server API for NuclaDB service.
 // All implementations must embed UnimplementedNuclaDBServer
 // for forward compatibility.
@@ -125,13 +209,20 @@ func (c *nuclaDBClient) Search(ctx context.Context, in *SearchRequest, opts ...g
 //
 // REST is exposed separately via a hand-written gateway in
 // internal/api/gateway rather than google.api.http annotations, to avoid
-// vendoring the full googleapis proto tree for five routes.
+// vendoring the full googleapis proto tree.
 type NuclaDBServer interface {
 	CreateTenant(context.Context, *CreateTenantRequest) (*CreateTenantResponse, error)
 	Insert(context.Context, *InsertRequest) (*InsertResponse, error)
 	BatchUpsert(context.Context, *BatchUpsertRequest) (*BatchUpsertResponse, error)
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	Search(context.Context, *SearchRequest) (*SearchResponse, error)
+	Get(context.Context, *GetRequest) (*GetResponse, error)
+	List(context.Context, *ListRequest) (*ListResponse, error)
+	Count(context.Context, *CountRequest) (*CountResponse, error)
+	UpdateMetadata(context.Context, *UpdateMetadataRequest) (*UpdateMetadataResponse, error)
+	DeleteTenant(context.Context, *DeleteTenantRequest) (*DeleteTenantResponse, error)
+	SetQuota(context.Context, *SetQuotaRequest) (*SetQuotaResponse, error)
+	ListTenants(context.Context, *ListTenantsRequest) (*ListTenantsResponse, error)
 	mustEmbedUnimplementedNuclaDBServer()
 }
 
@@ -156,6 +247,27 @@ func (UnimplementedNuclaDBServer) Delete(context.Context, *DeleteRequest) (*Dele
 }
 func (UnimplementedNuclaDBServer) Search(context.Context, *SearchRequest) (*SearchResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Search not implemented")
+}
+func (UnimplementedNuclaDBServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedNuclaDBServer) List(context.Context, *ListRequest) (*ListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method List not implemented")
+}
+func (UnimplementedNuclaDBServer) Count(context.Context, *CountRequest) (*CountResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Count not implemented")
+}
+func (UnimplementedNuclaDBServer) UpdateMetadata(context.Context, *UpdateMetadataRequest) (*UpdateMetadataResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateMetadata not implemented")
+}
+func (UnimplementedNuclaDBServer) DeleteTenant(context.Context, *DeleteTenantRequest) (*DeleteTenantResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteTenant not implemented")
+}
+func (UnimplementedNuclaDBServer) SetQuota(context.Context, *SetQuotaRequest) (*SetQuotaResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetQuota not implemented")
+}
+func (UnimplementedNuclaDBServer) ListTenants(context.Context, *ListTenantsRequest) (*ListTenantsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListTenants not implemented")
 }
 func (UnimplementedNuclaDBServer) mustEmbedUnimplementedNuclaDBServer() {}
 func (UnimplementedNuclaDBServer) testEmbeddedByValue()                 {}
@@ -268,6 +380,132 @@ func _NuclaDB_Search_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NuclaDB_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NuclaDBServer).Get(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NuclaDB_Get_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NuclaDBServer).Get(ctx, req.(*GetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NuclaDB_List_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NuclaDBServer).List(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NuclaDB_List_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NuclaDBServer).List(ctx, req.(*ListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NuclaDB_Count_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NuclaDBServer).Count(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NuclaDB_Count_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NuclaDBServer).Count(ctx, req.(*CountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NuclaDB_UpdateMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateMetadataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NuclaDBServer).UpdateMetadata(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NuclaDB_UpdateMetadata_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NuclaDBServer).UpdateMetadata(ctx, req.(*UpdateMetadataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NuclaDB_DeleteTenant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteTenantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NuclaDBServer).DeleteTenant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NuclaDB_DeleteTenant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NuclaDBServer).DeleteTenant(ctx, req.(*DeleteTenantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NuclaDB_SetQuota_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetQuotaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NuclaDBServer).SetQuota(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NuclaDB_SetQuota_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NuclaDBServer).SetQuota(ctx, req.(*SetQuotaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NuclaDB_ListTenants_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListTenantsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NuclaDBServer).ListTenants(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NuclaDB_ListTenants_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NuclaDBServer).ListTenants(ctx, req.(*ListTenantsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NuclaDB_ServiceDesc is the grpc.ServiceDesc for NuclaDB service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -294,6 +532,34 @@ var NuclaDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Search",
 			Handler:    _NuclaDB_Search_Handler,
+		},
+		{
+			MethodName: "Get",
+			Handler:    _NuclaDB_Get_Handler,
+		},
+		{
+			MethodName: "List",
+			Handler:    _NuclaDB_List_Handler,
+		},
+		{
+			MethodName: "Count",
+			Handler:    _NuclaDB_Count_Handler,
+		},
+		{
+			MethodName: "UpdateMetadata",
+			Handler:    _NuclaDB_UpdateMetadata_Handler,
+		},
+		{
+			MethodName: "DeleteTenant",
+			Handler:    _NuclaDB_DeleteTenant_Handler,
+		},
+		{
+			MethodName: "SetQuota",
+			Handler:    _NuclaDB_SetQuota_Handler,
+		},
+		{
+			MethodName: "ListTenants",
+			Handler:    _NuclaDB_ListTenants_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -1,12 +1,12 @@
 [project]
 name = "nucladb"
 version = "0.1.0"
-description = "Python client for NuclaDB, a distributed vector search engine"
+description = "Python client for NuclaDB, a vector search engine"
 requires-python = ">=3.9"
 dependencies = [
-    "grpcio>=1.60",
+    "grpcio>=1.84",
     "grpcio-health-checking>=1.60",
-    "protobuf>=4.25",
+    "protobuf>=7.35.1",
 ]
 
 [project.scripts]

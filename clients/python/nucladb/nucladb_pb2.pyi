@@ -141,3 +141,110 @@ class SearchResponse(_message.Message):
     MATCHES_FIELD_NUMBER: _ClassVar[int]
     matches: _containers.RepeatedCompositeFieldContainer[ScoredVector]
     def __init__(self, matches: _Optional[_Iterable[_Union[ScoredVector, _Mapping]]] = ...) -> None: ...
+
+class GetRequest(_message.Message):
+    __slots__ = ("id", "tenant_id")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    tenant_id: str
+    def __init__(self, id: _Optional[str] = ..., tenant_id: _Optional[str] = ...) -> None: ...
+
+class GetResponse(_message.Message):
+    __slots__ = ("vector",)
+    VECTOR_FIELD_NUMBER: _ClassVar[int]
+    vector: Vector
+    def __init__(self, vector: _Optional[_Union[Vector, _Mapping]] = ...) -> None: ...
+
+class ListRequest(_message.Message):
+    __slots__ = ("tenant_id", "page_token", "page_size")
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    PAGE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    tenant_id: str
+    page_token: str
+    page_size: int
+    def __init__(self, tenant_id: _Optional[str] = ..., page_token: _Optional[str] = ..., page_size: _Optional[int] = ...) -> None: ...
+
+class ListResponse(_message.Message):
+    __slots__ = ("ids", "next_page_token")
+    IDS_FIELD_NUMBER: _ClassVar[int]
+    NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    ids: _containers.RepeatedScalarFieldContainer[str]
+    next_page_token: str
+    def __init__(self, ids: _Optional[_Iterable[str]] = ..., next_page_token: _Optional[str] = ...) -> None: ...
+
+class CountRequest(_message.Message):
+    __slots__ = ("tenant_id",)
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    tenant_id: str
+    def __init__(self, tenant_id: _Optional[str] = ...) -> None: ...
+
+class CountResponse(_message.Message):
+    __slots__ = ("count",)
+    COUNT_FIELD_NUMBER: _ClassVar[int]
+    count: int
+    def __init__(self, count: _Optional[int] = ...) -> None: ...
+
+class UpdateMetadataRequest(_message.Message):
+    __slots__ = ("id", "metadata", "tenant_id")
+    class MetadataEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    ID_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    metadata: _containers.ScalarMap[str, str]
+    tenant_id: str
+    def __init__(self, id: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., tenant_id: _Optional[str] = ...) -> None: ...
+
+class UpdateMetadataResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class DeleteTenantRequest(_message.Message):
+    __slots__ = ("tenant_id",)
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    tenant_id: str
+    def __init__(self, tenant_id: _Optional[str] = ...) -> None: ...
+
+class DeleteTenantResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class SetQuotaRequest(_message.Message):
+    __slots__ = ("tenant_id", "quota")
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    QUOTA_FIELD_NUMBER: _ClassVar[int]
+    tenant_id: str
+    quota: TenantQuota
+    def __init__(self, tenant_id: _Optional[str] = ..., quota: _Optional[_Union[TenantQuota, _Mapping]] = ...) -> None: ...
+
+class SetQuotaResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ListTenantsRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class TenantInfo(_message.Message):
+    __slots__ = ("tenant_id", "vector_count", "quota")
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    VECTOR_COUNT_FIELD_NUMBER: _ClassVar[int]
+    QUOTA_FIELD_NUMBER: _ClassVar[int]
+    tenant_id: str
+    vector_count: int
+    quota: TenantQuota
+    def __init__(self, tenant_id: _Optional[str] = ..., vector_count: _Optional[int] = ..., quota: _Optional[_Union[TenantQuota, _Mapping]] = ...) -> None: ...
+
+class ListTenantsResponse(_message.Message):
+    __slots__ = ("tenants",)
+    TENANTS_FIELD_NUMBER: _ClassVar[int]
+    tenants: _containers.RepeatedCompositeFieldContainer[TenantInfo]
+    def __init__(self, tenants: _Optional[_Iterable[_Union[TenantInfo, _Mapping]]] = ...) -> None: ...

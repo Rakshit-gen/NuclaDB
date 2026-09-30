@@ -8,6 +8,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 
 	"google.golang.org/grpc/codes"
@@ -168,6 +169,105 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 	return &pb.SearchResponse{Matches: matches}, nil
 }
 
+func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+	id, err := parseID(req.GetId())
+	if err != nil {
+		return nil, err
+	}
+	v, md, err := s.store.Get(req.GetTenantId(), id)
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &pb.GetResponse{Vector: &pb.Vector{
+		Id: req.GetId(), Values: v, Metadata: md, TenantId: req.GetTenantId(),
+	}}, nil
+}
+
+// MaxPageSize caps List's page_size.
+const MaxPageSize = 1000
+
+func (s *Server) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
+	size := int(req.GetPageSize())
+	if size < 0 || size > MaxPageSize {
+		return nil, status.Errorf(codes.InvalidArgument, "page_size must be between 0 (default 100) and %d", MaxPageSize)
+	}
+	if size == 0 {
+		size = 100
+	}
+	var start uint64
+	if tok := req.GetPageToken(); tok != "" {
+		var err error
+		if start, err = strconv.ParseUint(tok, 10, 64); err != nil {
+			return nil, status.Error(codes.InvalidArgument, "bad page_token")
+		}
+	}
+	ids, more, err := s.store.List(req.GetTenantId(), start, size)
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	resp := &pb.ListResponse{Ids: make([]string, len(ids))}
+	for i, id := range ids {
+		resp.Ids[i] = strconv.FormatUint(id, 10)
+	}
+	if more {
+		resp.NextPageToken = strconv.FormatUint(ids[len(ids)-1]+1, 10)
+	}
+	return resp, nil
+}
+
+func (s *Server) Count(ctx context.Context, req *pb.CountRequest) (*pb.CountResponse, error) {
+	st, err := s.store.Stats(req.GetTenantId())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &pb.CountResponse{Count: int64(st.VectorCount)}, nil
+}
+
+func (s *Server) UpdateMetadata(ctx context.Context, req *pb.UpdateMetadataRequest) (*pb.UpdateMetadataResponse, error) {
+	id, err := parseID(req.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.UpdateMetadata(req.GetTenantId(), id, req.GetMetadata()); err != nil {
+		return nil, toStatus(err)
+	}
+	return &pb.UpdateMetadataResponse{}, nil
+}
+
+func (s *Server) DeleteTenant(ctx context.Context, req *pb.DeleteTenantRequest) (*pb.DeleteTenantResponse, error) {
+	if err := s.store.DeleteTenant(req.GetTenantId()); err != nil {
+		return nil, toStatus(err)
+	}
+	return &pb.DeleteTenantResponse{}, nil
+}
+
+func (s *Server) SetQuota(ctx context.Context, req *pb.SetQuotaRequest) (*pb.SetQuotaResponse, error) {
+	q := req.GetQuota()
+	if err := s.store.SetQuota(req.GetTenantId(), engine.Quota{MaxVectors: q.GetMaxVectors(), MaxQPS: q.GetMaxQps()}); err != nil {
+		return nil, toStatus(err)
+	}
+	return &pb.SetQuotaResponse{}, nil
+}
+
+func (s *Server) ListTenants(ctx context.Context, req *pb.ListTenantsRequest) (*pb.ListTenantsResponse, error) {
+	all := s.store.AllStats()
+	ids := make([]string, 0, len(all))
+	for id := range all {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	resp := &pb.ListTenantsResponse{}
+	for _, id := range ids {
+		st := all[id]
+		resp.Tenants = append(resp.Tenants, &pb.TenantInfo{
+			TenantId:    id,
+			VectorCount: int64(st.VectorCount),
+			Quota:       &pb.TenantQuota{MaxVectors: st.Quota.MaxVectors, MaxQps: st.Quota.MaxQPS},
+		})
+	}
+	return resp, nil
+}
+
 // toStatus maps engine and store sentinel errors (wrapped or not) to gRPC
 // codes. Anything unrecognized is an internal error.
 func toStatus(err error) error {
@@ -182,7 +282,8 @@ func toStatus(err error) error {
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, engine.ErrTenantExists):
 		return status.Error(codes.AlreadyExists, err.Error())
-	case errors.Is(err, engine.ErrInvalidTenantID), errors.Is(err, hnsw.ErrDimensionMismatch):
+	case errors.Is(err, engine.ErrInvalidTenantID), errors.Is(err, hnsw.ErrDimensionMismatch),
+		errors.Is(err, engine.ErrDefaultTenant):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, engine.ErrQuotaExceeded), errors.Is(err, engine.ErrRateLimited):
 		return status.Error(codes.ResourceExhausted, err.Error())

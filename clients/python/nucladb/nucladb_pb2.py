@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rnucladb.proto\x12\nnucladb.v1\"3\n\x0bTenantQuota\x12\x13\n\x0bmax_vectors\x18\x01 \x01(\x03\x12\x0f\n\x07max_qps\x18\x02 \x01(\x01\"P\n\x13\x43reateTenantRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12&\n\x05quota\x18\x02 \x01(\x0b\x32\x17.nucladb.v1.TenantQuota\"\x16\n\x14\x43reateTenantResponse\"\x9c\x01\n\x06Vector\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06values\x18\x02 \x03(\x02\x12\x32\n\x08metadata\x18\x03 \x03(\x0b\x32 .nucladb.v1.Vector.MetadataEntry\x12\x11\n\ttenant_id\x18\x04 \x01(\t\x1a/\n\rMetadataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"3\n\rInsertRequest\x12\"\n\x06vector\x18\x01 \x01(\x0b\x32\x12.nucladb.v1.Vector\"\x1c\n\x0eInsertResponse\x12\n\n\x02id\x18\x01 \x01(\t\"9\n\x12\x42\x61tchUpsertRequest\x12#\n\x07vectors\x18\x01 \x03(\x0b\x32\x12.nucladb.v1.Vector\"\'\n\x13\x42\x61tchUpsertResponse\x12\x10\n\x08upserted\x18\x01 \x01(\x03\".\n\rDeleteRequest\x12\n\n\x02id\x18\x01 \x01(\t\x12\x11\n\ttenant_id\x18\x02 \x01(\t\"!\n\x0e\x44\x65leteResponse\x12\x0f\n\x07\x64\x65leted\x18\x01 \x01(\x08\",\n\x0eMetadataFilter\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\"\xac\x01\n\rSearchRequest\x12\r\n\x05query\x18\x01 \x03(\x02\x12\r\n\x05top_k\x18\x02 \x01(\x05\x12*\n\x06metric\x18\x03 \x01(\x0e\x32\x1a.nucladb.v1.DistanceMetric\x12\x11\n\tef_search\x18\x04 \x01(\x05\x12+\n\x07\x66ilters\x18\x05 \x03(\x0b\x32\x1a.nucladb.v1.MetadataFilter\x12\x11\n\ttenant_id\x18\x06 \x01(\t\"\x94\x01\n\x0cScoredVector\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05score\x18\x02 \x01(\x02\x12\x38\n\x08metadata\x18\x03 \x03(\x0b\x32&.nucladb.v1.ScoredVector.MetadataEntry\x1a/\n\rMetadataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\";\n\x0eSearchResponse\x12)\n\x07matches\x18\x01 \x03(\x0b\x32\x18.nucladb.v1.ScoredVector*~\n\x0e\x44istanceMetric\x12\x1f\n\x1b\x44ISTANCE_METRIC_UNSPECIFIED\x10\x00\x12\x1a\n\x16\x44ISTANCE_METRIC_COSINE\x10\x01\x12\x16\n\x12\x44ISTANCE_METRIC_L2\x10\x02\x12\x17\n\x13\x44ISTANCE_METRIC_DOT\x10\x03\x32\xef\x02\n\x07NuclaDB\x12Q\n\x0c\x43reateTenant\x12\x1f.nucladb.v1.CreateTenantRequest\x1a .nucladb.v1.CreateTenantResponse\x12?\n\x06Insert\x12\x19.nucladb.v1.InsertRequest\x1a\x1a.nucladb.v1.InsertResponse\x12N\n\x0b\x42\x61tchUpsert\x12\x1e.nucladb.v1.BatchUpsertRequest\x1a\x1f.nucladb.v1.BatchUpsertResponse\x12?\n\x06\x44\x65lete\x12\x19.nucladb.v1.DeleteRequest\x1a\x1a.nucladb.v1.DeleteResponse\x12?\n\x06Search\x12\x19.nucladb.v1.SearchRequest\x1a\x1a.nucladb.v1.SearchResponseB0Z.github.com/Rakshit-gen/nucladb/proto/nucladbv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rnucladb.proto\x12\nnucladb.v1\"3\n\x0bTenantQuota\x12\x13\n\x0bmax_vectors\x18\x01 \x01(\x03\x12\x0f\n\x07max_qps\x18\x02 \x01(\x01\"P\n\x13\x43reateTenantRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12&\n\x05quota\x18\x02 \x01(\x0b\x32\x17.nucladb.v1.TenantQuota\"\x16\n\x14\x43reateTenantResponse\"\x9c\x01\n\x06Vector\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06values\x18\x02 \x03(\x02\x12\x32\n\x08metadata\x18\x03 \x03(\x0b\x32 .nucladb.v1.Vector.MetadataEntry\x12\x11\n\ttenant_id\x18\x04 \x01(\t\x1a/\n\rMetadataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"3\n\rInsertRequest\x12\"\n\x06vector\x18\x01 \x01(\x0b\x32\x12.nucladb.v1.Vector\"\x1c\n\x0eInsertResponse\x12\n\n\x02id\x18\x01 \x01(\t\"9\n\x12\x42\x61tchUpsertRequest\x12#\n\x07vectors\x18\x01 \x03(\x0b\x32\x12.nucladb.v1.Vector\"\'\n\x13\x42\x61tchUpsertResponse\x12\x10\n\x08upserted\x18\x01 \x01(\x03\".\n\rDeleteRequest\x12\n\n\x02id\x18\x01 \x01(\t\x12\x11\n\ttenant_id\x18\x02 \x01(\t\"!\n\x0e\x44\x65leteResponse\x12\x0f\n\x07\x64\x65leted\x18\x01 \x01(\x08\",\n\x0eMetadataFilter\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\"\xac\x01\n\rSearchRequest\x12\r\n\x05query\x18\x01 \x03(\x02\x12\r\n\x05top_k\x18\x02 \x01(\x05\x12*\n\x06metric\x18\x03 \x01(\x0e\x32\x1a.nucladb.v1.DistanceMetric\x12\x11\n\tef_search\x18\x04 \x01(\x05\x12+\n\x07\x66ilters\x18\x05 \x03(\x0b\x32\x1a.nucladb.v1.MetadataFilter\x12\x11\n\ttenant_id\x18\x06 \x01(\t\"\x94\x01\n\x0cScoredVector\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05score\x18\x02 \x01(\x02\x12\x38\n\x08metadata\x18\x03 \x03(\x0b\x32&.nucladb.v1.ScoredVector.MetadataEntry\x1a/\n\rMetadataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\";\n\x0eSearchResponse\x12)\n\x07matches\x18\x01 \x03(\x0b\x32\x18.nucladb.v1.ScoredVector\"+\n\nGetRequest\x12\n\n\x02id\x18\x01 \x01(\t\x12\x11\n\ttenant_id\x18\x02 \x01(\t\"1\n\x0bGetResponse\x12\"\n\x06vector\x18\x01 \x01(\x0b\x32\x12.nucladb.v1.Vector\"G\n\x0bListRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12\x12\n\npage_token\x18\x02 \x01(\t\x12\x11\n\tpage_size\x18\x03 \x01(\x05\"4\n\x0cListResponse\x12\x0b\n\x03ids\x18\x01 \x03(\t\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\t\"!\n\x0c\x43ountRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\"\x1e\n\rCountResponse\x12\r\n\x05\x63ount\x18\x01 \x01(\x03\"\xaa\x01\n\x15UpdateMetadataRequest\x12\n\n\x02id\x18\x01 \x01(\t\x12\x41\n\x08metadata\x18\x02 \x03(\x0b\x32/.nucladb.v1.UpdateMetadataRequest.MetadataEntry\x12\x11\n\ttenant_id\x18\x03 \x01(\t\x1a/\n\rMetadataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x18\n\x16UpdateMetadataResponse\"(\n\x13\x44\x65leteTenantRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\"\x16\n\x14\x44\x65leteTenantResponse\"L\n\x0fSetQuotaRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12&\n\x05quota\x18\x02 \x01(\x0b\x32\x17.nucladb.v1.TenantQuota\"\x12\n\x10SetQuotaResponse\"\x14\n\x12ListTenantsRequest\"]\n\nTenantInfo\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12\x14\n\x0cvector_count\x18\x02 \x01(\x03\x12&\n\x05quota\x18\x03 \x01(\x0b\x32\x17.nucladb.v1.TenantQuota\">\n\x13ListTenantsResponse\x12\'\n\x07tenants\x18\x01 \x03(\x0b\x32\x16.nucladb.v1.TenantInfo*~\n\x0e\x44istanceMetric\x12\x1f\n\x1b\x44ISTANCE_METRIC_UNSPECIFIED\x10\x00\x12\x1a\n\x16\x44ISTANCE_METRIC_COSINE\x10\x01\x12\x16\n\x12\x44ISTANCE_METRIC_L2\x10\x02\x12\x17\n\x13\x44ISTANCE_METRIC_DOT\x10\x03\x32\xe3\x06\n\x07NuclaDB\x12Q\n\x0c\x43reateTenant\x12\x1f.nucladb.v1.CreateTenantRequest\x1a .nucladb.v1.CreateTenantResponse\x12?\n\x06Insert\x12\x19.nucladb.v1.InsertRequest\x1a\x1a.nucladb.v1.InsertResponse\x12N\n\x0b\x42\x61tchUpsert\x12\x1e.nucladb.v1.BatchUpsertRequest\x1a\x1f.nucladb.v1.BatchUpsertResponse\x12?\n\x06\x44\x65lete\x12\x19.nucladb.v1.DeleteRequest\x1a\x1a.nucladb.v1.DeleteResponse\x12?\n\x06Search\x12\x19.nucladb.v1.SearchRequest\x1a\x1a.nucladb.v1.SearchResponse\x12\x36\n\x03Get\x12\x16.nucladb.v1.GetRequest\x1a\x17.nucladb.v1.GetResponse\x12\x39\n\x04List\x12\x17.nucladb.v1.ListRequest\x1a\x18.nucladb.v1.ListResponse\x12<\n\x05\x43ount\x12\x18.nucladb.v1.CountRequest\x1a\x19.nucladb.v1.CountResponse\x12W\n\x0eUpdateMetadata\x12!.nucladb.v1.UpdateMetadataRequest\x1a\".nucladb.v1.UpdateMetadataResponse\x12Q\n\x0c\x44\x65leteTenant\x12\x1f.nucladb.v1.DeleteTenantRequest\x1a .nucladb.v1.DeleteTenantResponse\x12\x45\n\x08SetQuota\x12\x1b.nucladb.v1.SetQuotaRequest\x1a\x1c.nucladb.v1.SetQuotaResponse\x12N\n\x0bListTenants\x12\x1e.nucladb.v1.ListTenantsRequest\x1a\x1f.nucladb.v1.ListTenantsResponseB0Z.github.com/Rakshit-gen/nucladb/proto/nucladbv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -36,8 +36,10 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_VECTOR_METADATAENTRY']._serialized_options = b'8\001'
   _globals['_SCOREDVECTOR_METADATAENTRY']._loaded_options = None
   _globals['_SCOREDVECTOR_METADATAENTRY']._serialized_options = b'8\001'
-  _globals['_DISTANCEMETRIC']._serialized_start=1046
-  _globals['_DISTANCEMETRIC']._serialized_end=1172
+  _globals['_UPDATEMETADATAREQUEST_METADATAENTRY']._loaded_options = None
+  _globals['_UPDATEMETADATAREQUEST_METADATAENTRY']._serialized_options = b'8\001'
+  _globals['_DISTANCEMETRIC']._serialized_start=1880
+  _globals['_DISTANCEMETRIC']._serialized_end=2006
   _globals['_TENANTQUOTA']._serialized_start=29
   _globals['_TENANTQUOTA']._serialized_end=80
   _globals['_CREATETENANTREQUEST']._serialized_start=82
@@ -70,6 +72,38 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_SCOREDVECTOR_METADATAENTRY']._serialized_end=345
   _globals['_SEARCHRESPONSE']._serialized_start=985
   _globals['_SEARCHRESPONSE']._serialized_end=1044
-  _globals['_NUCLADB']._serialized_start=1175
-  _globals['_NUCLADB']._serialized_end=1542
+  _globals['_GETREQUEST']._serialized_start=1046
+  _globals['_GETREQUEST']._serialized_end=1089
+  _globals['_GETRESPONSE']._serialized_start=1091
+  _globals['_GETRESPONSE']._serialized_end=1140
+  _globals['_LISTREQUEST']._serialized_start=1142
+  _globals['_LISTREQUEST']._serialized_end=1213
+  _globals['_LISTRESPONSE']._serialized_start=1215
+  _globals['_LISTRESPONSE']._serialized_end=1267
+  _globals['_COUNTREQUEST']._serialized_start=1269
+  _globals['_COUNTREQUEST']._serialized_end=1302
+  _globals['_COUNTRESPONSE']._serialized_start=1304
+  _globals['_COUNTRESPONSE']._serialized_end=1334
+  _globals['_UPDATEMETADATAREQUEST']._serialized_start=1337
+  _globals['_UPDATEMETADATAREQUEST']._serialized_end=1507
+  _globals['_UPDATEMETADATAREQUEST_METADATAENTRY']._serialized_start=298
+  _globals['_UPDATEMETADATAREQUEST_METADATAENTRY']._serialized_end=345
+  _globals['_UPDATEMETADATARESPONSE']._serialized_start=1509
+  _globals['_UPDATEMETADATARESPONSE']._serialized_end=1533
+  _globals['_DELETETENANTREQUEST']._serialized_start=1535
+  _globals['_DELETETENANTREQUEST']._serialized_end=1575
+  _globals['_DELETETENANTRESPONSE']._serialized_start=1577
+  _globals['_DELETETENANTRESPONSE']._serialized_end=1599
+  _globals['_SETQUOTAREQUEST']._serialized_start=1601
+  _globals['_SETQUOTAREQUEST']._serialized_end=1677
+  _globals['_SETQUOTARESPONSE']._serialized_start=1679
+  _globals['_SETQUOTARESPONSE']._serialized_end=1697
+  _globals['_LISTTENANTSREQUEST']._serialized_start=1699
+  _globals['_LISTTENANTSREQUEST']._serialized_end=1719
+  _globals['_TENANTINFO']._serialized_start=1721
+  _globals['_TENANTINFO']._serialized_end=1814
+  _globals['_LISTTENANTSRESPONSE']._serialized_start=1816
+  _globals['_LISTTENANTSRESPONSE']._serialized_end=1878
+  _globals['_NUCLADB']._serialized_start=2009
+  _globals['_NUCLADB']._serialized_end=2876
 # @@protoc_insertion_point(module_scope)

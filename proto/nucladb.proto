@@ -16,13 +16,20 @@ option go_package = "github.com/Rakshit-gen/nucladb/proto/nucladbv1";
 //
 // REST is exposed separately via a hand-written gateway in
 // internal/api/gateway rather than google.api.http annotations, to avoid
-// vendoring the full googleapis proto tree for five routes.
+// vendoring the full googleapis proto tree.
 service NuclaDB {
   rpc CreateTenant(CreateTenantRequest) returns (CreateTenantResponse);
   rpc Insert(InsertRequest) returns (InsertResponse);
   rpc BatchUpsert(BatchUpsertRequest) returns (BatchUpsertResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
   rpc Search(SearchRequest) returns (SearchResponse);
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc List(ListRequest) returns (ListResponse);
+  rpc Count(CountRequest) returns (CountResponse);
+  rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse);
+  rpc DeleteTenant(DeleteTenantRequest) returns (DeleteTenantResponse);
+  rpc SetQuota(SetQuotaRequest) returns (SetQuotaResponse);
+  rpc ListTenants(ListTenantsRequest) returns (ListTenantsResponse);
 }
 
 enum DistanceMetric {
@@ -100,4 +107,72 @@ message ScoredVector {
 
 message SearchResponse {
   repeated ScoredVector matches = 1;
+}
+
+message GetRequest {
+  string id = 1;
+  string tenant_id = 2;
+}
+
+// For cosine indexes the stored vector is scaled to unit length, so that
+// is what comes back.
+message GetResponse {
+  Vector vector = 1;
+}
+
+// List pages through a tenant's ids in ascending numeric order.
+message ListRequest {
+  string tenant_id = 1;
+  // next_page_token from the previous response; empty for the first page.
+  string page_token = 2;
+  // At most 1000; 0 means 100.
+  int32 page_size = 3;
+}
+
+message ListResponse {
+  repeated string ids = 1;
+  // Empty when there are no more pages.
+  string next_page_token = 2;
+}
+
+message CountRequest {
+  string tenant_id = 1;
+}
+
+message CountResponse {
+  int64 count = 1;
+}
+
+// Replaces the vector's whole metadata map; an empty map clears it.
+message UpdateMetadataRequest {
+  string id = 1;
+  map<string, string> metadata = 2;
+  string tenant_id = 3;
+}
+
+message UpdateMetadataResponse {}
+
+message DeleteTenantRequest {
+  string tenant_id = 1;
+}
+
+message DeleteTenantResponse {}
+
+message SetQuotaRequest {
+  string tenant_id = 1;
+  TenantQuota quota = 2;
+}
+
+message SetQuotaResponse {}
+
+message ListTenantsRequest {}
+
+message TenantInfo {
+  string tenant_id = 1;
+  int64 vector_count = 2;
+  TenantQuota quota = 3;
+}
+
+message ListTenantsResponse {
+  repeated TenantInfo tenants = 1;
 }

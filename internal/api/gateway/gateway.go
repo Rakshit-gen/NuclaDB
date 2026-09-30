@@ -6,9 +6,11 @@
 package gateway
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -32,10 +34,17 @@ type Handler struct {
 //	POST   /v1/vectors:batch  -> BatchUpsert
 //	DELETE /v1/vectors/{id}   -> Delete
 //	POST   /v1/search         -> Search
+//	GET    /v1/vectors/{id}   -> Get
+//	PATCH  /v1/vectors/{id}   -> UpdateMetadata
+//	GET    /v1/vectors        -> List (page_token, page_size query params)
+//	GET    /v1/vectors:count  -> Count
+//	GET    /v1/tenants        -> ListTenants
+//	DELETE /v1/tenants/{id}   -> DeleteTenant
+//	PUT    /v1/tenants/{id}/quota -> SetQuota
 //	GET    /docs              -> CLI documentation page (docs/site/index.html)
 //
 // Every route except tenant creation accepts an optional tenant_id (JSON
-// body field, or a query parameter for DELETE); omitting it uses the
+// body field, or a query parameter for GET and DELETE); omitting it uses the
 // reserved default tenant. Request bodies over maxBodyBytes are refused
 // with 413.
 func New(svc pb.NuclaDBServer, maxBodyBytes int64) *Handler {
@@ -45,6 +54,13 @@ func New(svc pb.NuclaDBServer, maxBodyBytes int64) *Handler {
 	h.mux.HandleFunc("POST /v1/vectors:batch", h.batchUpsert)
 	h.mux.HandleFunc("DELETE /v1/vectors/{id}", h.delete)
 	h.mux.HandleFunc("POST /v1/search", h.search)
+	h.mux.HandleFunc("GET /v1/vectors/{id}", h.get)
+	h.mux.HandleFunc("PATCH /v1/vectors/{id}", h.updateMetadata)
+	h.mux.HandleFunc("GET /v1/vectors", h.list)
+	h.mux.HandleFunc("GET /v1/vectors:count", h.count)
+	h.mux.HandleFunc("GET /v1/tenants", h.listTenants)
+	h.mux.HandleFunc("DELETE /v1/tenants/{id}", h.deleteTenant)
+	h.mux.HandleFunc("PUT /v1/tenants/{id}/quota", h.setQuota)
 	h.mux.HandleFunc("GET /docs", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(site.Index)
@@ -135,6 +151,67 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.svc.Search(r.Context(), &pb.SearchRequest{
 		Query: body.Query, TopK: body.TopK, EfSearch: body.EfSearch, Filters: filters, TenantId: body.TenantID,
+	})
+	writeResult(w, resp, err)
+}
+
+func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.svc.Get(r.Context(), &pb.GetRequest{
+		Id: r.PathValue("id"), TenantId: r.URL.Query().Get("tenant_id"),
+	})
+	writeResult(w, resp, err)
+}
+
+func (h *Handler) updateMetadata(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Metadata map[string]string `json:"metadata"`
+		TenantID string            `json:"tenant_id,omitempty"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	resp, err := h.svc.UpdateMetadata(r.Context(), &pb.UpdateMetadataRequest{
+		Id: r.PathValue("id"), Metadata: body.Metadata, TenantId: body.TenantID,
+	})
+	writeResult(w, resp, err)
+}
+
+func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	size, err := strconv.Atoi(cmp.Or(q.Get("page_size"), "0"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "page_size must be an integer")
+		return
+	}
+	resp, err := h.svc.List(r.Context(), &pb.ListRequest{
+		TenantId: q.Get("tenant_id"), PageToken: q.Get("page_token"), PageSize: int32(size),
+	})
+	writeResult(w, resp, err)
+}
+
+func (h *Handler) count(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.svc.Count(r.Context(), &pb.CountRequest{TenantId: r.URL.Query().Get("tenant_id")})
+	writeResult(w, resp, err)
+}
+
+func (h *Handler) listTenants(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.svc.ListTenants(r.Context(), &pb.ListTenantsRequest{})
+	writeResult(w, resp, err)
+}
+
+func (h *Handler) deleteTenant(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.svc.DeleteTenant(r.Context(), &pb.DeleteTenantRequest{TenantId: r.PathValue("id")})
+	writeResult(w, resp, err)
+}
+
+func (h *Handler) setQuota(w http.ResponseWriter, r *http.Request) {
+	var body tenantJSON
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	resp, err := h.svc.SetQuota(r.Context(), &pb.SetQuotaRequest{
+		TenantId: r.PathValue("id"),
+		Quota:    &pb.TenantQuota{MaxVectors: body.MaxVectors, MaxQps: body.MaxQPS},
 	})
 	writeResult(w, resp, err)
 }

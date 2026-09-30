@@ -110,3 +110,56 @@ func TestRESTRejectsOversizedBodyAndHugeTopK(t *testing.T) {
 		}
 	}
 }
+
+func TestRESTGetListCountUpdateAndTenantAdmin(t *testing.T) {
+	h := newTestHandler(t)
+	for i, v := range [][]float32{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}} {
+		id := string(rune('1' + i))
+		if code, resp := doJSON(t, h, "POST", "/v1/vectors", map[string]any{"id": id, "values": v}); code != 200 {
+			t.Fatalf("insert %s: %d %v", id, code, resp)
+		}
+	}
+
+	code, resp := doJSON(t, h, "PATCH", "/v1/vectors/2", map[string]any{"metadata": map[string]string{"k": "v"}})
+	if code != 200 {
+		t.Fatalf("patch: %d %v", code, resp)
+	}
+	code, resp = doJSON(t, h, "GET", "/v1/vectors/2", nil)
+	vec, _ := resp["vector"].(map[string]any)
+	if code != 200 || vec["metadata"].(map[string]any)["k"] != "v" {
+		t.Fatalf("get: %d %v", code, resp)
+	}
+	if code, _ := doJSON(t, h, "GET", "/v1/vectors/99", nil); code != 404 {
+		t.Fatalf("get missing: %d", code)
+	}
+
+	code, resp = doJSON(t, h, "GET", "/v1/vectors?page_size=2", nil)
+	if code != 200 || len(resp["ids"].([]any)) != 2 || resp["next_page_token"] != "3" {
+		t.Fatalf("list page 1: %d %v", code, resp)
+	}
+	code, resp = doJSON(t, h, "GET", "/v1/vectors?page_size=2&page_token=3", nil)
+	if code != 200 || len(resp["ids"].([]any)) != 1 || resp["next_page_token"] != nil {
+		t.Fatalf("list page 2: %d %v", code, resp)
+	}
+	if code, resp = doJSON(t, h, "GET", "/v1/vectors:count", nil); code != 200 || resp["count"] != float64(3) {
+		t.Fatalf("count: %d %v", code, resp)
+	}
+
+	if code, resp = doJSON(t, h, "POST", "/v1/tenants", map[string]any{"tenant_id": "t1"}); code != 200 {
+		t.Fatalf("create tenant: %d %v", code, resp)
+	}
+	if code, resp = doJSON(t, h, "PUT", "/v1/tenants/t1/quota", map[string]any{"max_vectors": 5}); code != 200 {
+		t.Fatalf("set quota: %d %v", code, resp)
+	}
+	code, resp = doJSON(t, h, "GET", "/v1/tenants", nil)
+	tenants, _ := resp["tenants"].([]any)
+	if code != 200 || len(tenants) != 2 {
+		t.Fatalf("list tenants: %d %v", code, resp)
+	}
+	if code, _ := doJSON(t, h, "DELETE", "/v1/tenants/t1", nil); code != 200 {
+		t.Fatalf("delete tenant: %d", code)
+	}
+	if code, _ := doJSON(t, h, "DELETE", "/v1/tenants/default", nil); code != 400 {
+		t.Fatalf("delete default tenant: %d, want 400", code)
+	}
+}

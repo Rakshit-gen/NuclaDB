@@ -795,6 +795,713 @@ func (x *SearchResponse) GetMatches() []*ScoredVector {
 	return nil
 }
 
+type GetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	TenantId      string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRequest) Reset() {
+	*x = GetRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRequest) ProtoMessage() {}
+
+func (x *GetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRequest.ProtoReflect.Descriptor instead.
+func (*GetRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GetRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *GetRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+// For cosine indexes the stored vector is scaled to unit length, so that
+// is what comes back.
+type GetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Vector        *Vector                `protobuf:"bytes,1,opt,name=vector,proto3" json:"vector,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetResponse) Reset() {
+	*x = GetResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetResponse) ProtoMessage() {}
+
+func (x *GetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetResponse.ProtoReflect.Descriptor instead.
+func (*GetResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *GetResponse) GetVector() *Vector {
+	if x != nil {
+		return x.Vector
+	}
+	return nil
+}
+
+// List pages through a tenant's ids in ascending numeric order.
+type ListRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	TenantId string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// next_page_token from the previous response; empty for the first page.
+	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// At most 1000; 0 means 100.
+	PageSize      int32 `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRequest) Reset() {
+	*x = ListRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRequest) ProtoMessage() {}
+
+func (x *ListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRequest.ProtoReflect.Descriptor instead.
+func (*ListRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *ListRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+type ListResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Ids   []string               `protobuf:"bytes,1,rep,name=ids,proto3" json:"ids,omitempty"`
+	// Empty when there are no more pages.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListResponse) Reset() {
+	*x = ListResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListResponse) ProtoMessage() {}
+
+func (x *ListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListResponse.ProtoReflect.Descriptor instead.
+func (*ListResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ListResponse) GetIds() []string {
+	if x != nil {
+		return x.Ids
+	}
+	return nil
+}
+
+func (x *ListResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type CountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CountRequest) Reset() {
+	*x = CountRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CountRequest) ProtoMessage() {}
+
+func (x *CountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CountRequest.ProtoReflect.Descriptor instead.
+func (*CountRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *CountRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+type CountResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Count         int64                  `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CountResponse) Reset() {
+	*x = CountResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CountResponse) ProtoMessage() {}
+
+func (x *CountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CountResponse.ProtoReflect.Descriptor instead.
+func (*CountResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *CountResponse) GetCount() int64 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+// Replaces the vector's whole metadata map; an empty map clears it.
+type UpdateMetadataRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Metadata      map[string]string      `protobuf:"bytes,2,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	TenantId      string                 `protobuf:"bytes,3,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateMetadataRequest) Reset() {
+	*x = UpdateMetadataRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateMetadataRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateMetadataRequest) ProtoMessage() {}
+
+func (x *UpdateMetadataRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateMetadataRequest.ProtoReflect.Descriptor instead.
+func (*UpdateMetadataRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *UpdateMetadataRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UpdateMetadataRequest) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+func (x *UpdateMetadataRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+type UpdateMetadataResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateMetadataResponse) Reset() {
+	*x = UpdateMetadataResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateMetadataResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateMetadataResponse) ProtoMessage() {}
+
+func (x *UpdateMetadataResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateMetadataResponse.ProtoReflect.Descriptor instead.
+func (*UpdateMetadataResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{21}
+}
+
+type DeleteTenantRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteTenantRequest) Reset() {
+	*x = DeleteTenantRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteTenantRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteTenantRequest) ProtoMessage() {}
+
+func (x *DeleteTenantRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteTenantRequest.ProtoReflect.Descriptor instead.
+func (*DeleteTenantRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *DeleteTenantRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+type DeleteTenantResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteTenantResponse) Reset() {
+	*x = DeleteTenantResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteTenantResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteTenantResponse) ProtoMessage() {}
+
+func (x *DeleteTenantResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteTenantResponse.ProtoReflect.Descriptor instead.
+func (*DeleteTenantResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{23}
+}
+
+type SetQuotaRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Quota         *TenantQuota           `protobuf:"bytes,2,opt,name=quota,proto3" json:"quota,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetQuotaRequest) Reset() {
+	*x = SetQuotaRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetQuotaRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetQuotaRequest) ProtoMessage() {}
+
+func (x *SetQuotaRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetQuotaRequest.ProtoReflect.Descriptor instead.
+func (*SetQuotaRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *SetQuotaRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *SetQuotaRequest) GetQuota() *TenantQuota {
+	if x != nil {
+		return x.Quota
+	}
+	return nil
+}
+
+type SetQuotaResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetQuotaResponse) Reset() {
+	*x = SetQuotaResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetQuotaResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetQuotaResponse) ProtoMessage() {}
+
+func (x *SetQuotaResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetQuotaResponse.ProtoReflect.Descriptor instead.
+func (*SetQuotaResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{25}
+}
+
+type ListTenantsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListTenantsRequest) Reset() {
+	*x = ListTenantsRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListTenantsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListTenantsRequest) ProtoMessage() {}
+
+func (x *ListTenantsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListTenantsRequest.ProtoReflect.Descriptor instead.
+func (*ListTenantsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{26}
+}
+
+type TenantInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	VectorCount   int64                  `protobuf:"varint,2,opt,name=vector_count,json=vectorCount,proto3" json:"vector_count,omitempty"`
+	Quota         *TenantQuota           `protobuf:"bytes,3,opt,name=quota,proto3" json:"quota,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TenantInfo) Reset() {
+	*x = TenantInfo{}
+	mi := &file_proto_nucladb_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TenantInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TenantInfo) ProtoMessage() {}
+
+func (x *TenantInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TenantInfo.ProtoReflect.Descriptor instead.
+func (*TenantInfo) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *TenantInfo) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *TenantInfo) GetVectorCount() int64 {
+	if x != nil {
+		return x.VectorCount
+	}
+	return 0
+}
+
+func (x *TenantInfo) GetQuota() *TenantQuota {
+	if x != nil {
+		return x.Quota
+	}
+	return nil
+}
+
+type ListTenantsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tenants       []*TenantInfo          `protobuf:"bytes,1,rep,name=tenants,proto3" json:"tenants,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListTenantsResponse) Reset() {
+	*x = ListTenantsResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListTenantsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListTenantsResponse) ProtoMessage() {}
+
+func (x *ListTenantsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListTenantsResponse.ProtoReflect.Descriptor instead.
+func (*ListTenantsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ListTenantsResponse) GetTenants() []*TenantInfo {
+	if x != nil {
+		return x.Tenants
+	}
+	return nil
+}
+
 var File_proto_nucladb_proto protoreflect.FileDescriptor
 
 const file_proto_nucladb_proto_rawDesc = "" +
@@ -848,18 +1555,66 @@ const file_proto_nucladb_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"D\n" +
 	"\x0eSearchResponse\x122\n" +
-	"\amatches\x18\x01 \x03(\v2\x18.nucladb.v1.ScoredVectorR\amatches*~\n" +
+	"\amatches\x18\x01 \x03(\v2\x18.nucladb.v1.ScoredVectorR\amatches\"9\n" +
+	"\n" +
+	"GetRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
+	"\ttenant_id\x18\x02 \x01(\tR\btenantId\"9\n" +
+	"\vGetResponse\x12*\n" +
+	"\x06vector\x18\x01 \x01(\v2\x12.nucladb.v1.VectorR\x06vector\"f\n" +
+	"\vListRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x12\x1b\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"H\n" +
+	"\fListResponse\x12\x10\n" +
+	"\x03ids\x18\x01 \x03(\tR\x03ids\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"+\n" +
+	"\fCountRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\"%\n" +
+	"\rCountResponse\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\x03R\x05count\"\xce\x01\n" +
+	"\x15UpdateMetadataRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12K\n" +
+	"\bmetadata\x18\x02 \x03(\v2/.nucladb.v1.UpdateMetadataRequest.MetadataEntryR\bmetadata\x12\x1b\n" +
+	"\ttenant_id\x18\x03 \x01(\tR\btenantId\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x18\n" +
+	"\x16UpdateMetadataResponse\"2\n" +
+	"\x13DeleteTenantRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\"\x16\n" +
+	"\x14DeleteTenantResponse\"]\n" +
+	"\x0fSetQuotaRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12-\n" +
+	"\x05quota\x18\x02 \x01(\v2\x17.nucladb.v1.TenantQuotaR\x05quota\"\x12\n" +
+	"\x10SetQuotaResponse\"\x14\n" +
+	"\x12ListTenantsRequest\"{\n" +
+	"\n" +
+	"TenantInfo\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12!\n" +
+	"\fvector_count\x18\x02 \x01(\x03R\vvectorCount\x12-\n" +
+	"\x05quota\x18\x03 \x01(\v2\x17.nucladb.v1.TenantQuotaR\x05quota\"G\n" +
+	"\x13ListTenantsResponse\x120\n" +
+	"\atenants\x18\x01 \x03(\v2\x16.nucladb.v1.TenantInfoR\atenants*~\n" +
 	"\x0eDistanceMetric\x12\x1f\n" +
 	"\x1bDISTANCE_METRIC_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16DISTANCE_METRIC_COSINE\x10\x01\x12\x16\n" +
 	"\x12DISTANCE_METRIC_L2\x10\x02\x12\x17\n" +
-	"\x13DISTANCE_METRIC_DOT\x10\x032\xef\x02\n" +
+	"\x13DISTANCE_METRIC_DOT\x10\x032\xe3\x06\n" +
 	"\aNuclaDB\x12Q\n" +
 	"\fCreateTenant\x12\x1f.nucladb.v1.CreateTenantRequest\x1a .nucladb.v1.CreateTenantResponse\x12?\n" +
 	"\x06Insert\x12\x19.nucladb.v1.InsertRequest\x1a\x1a.nucladb.v1.InsertResponse\x12N\n" +
 	"\vBatchUpsert\x12\x1e.nucladb.v1.BatchUpsertRequest\x1a\x1f.nucladb.v1.BatchUpsertResponse\x12?\n" +
 	"\x06Delete\x12\x19.nucladb.v1.DeleteRequest\x1a\x1a.nucladb.v1.DeleteResponse\x12?\n" +
-	"\x06Search\x12\x19.nucladb.v1.SearchRequest\x1a\x1a.nucladb.v1.SearchResponseB0Z.github.com/Rakshit-gen/nucladb/proto/nucladbv1b\x06proto3"
+	"\x06Search\x12\x19.nucladb.v1.SearchRequest\x1a\x1a.nucladb.v1.SearchResponse\x126\n" +
+	"\x03Get\x12\x16.nucladb.v1.GetRequest\x1a\x17.nucladb.v1.GetResponse\x129\n" +
+	"\x04List\x12\x17.nucladb.v1.ListRequest\x1a\x18.nucladb.v1.ListResponse\x12<\n" +
+	"\x05Count\x12\x18.nucladb.v1.CountRequest\x1a\x19.nucladb.v1.CountResponse\x12W\n" +
+	"\x0eUpdateMetadata\x12!.nucladb.v1.UpdateMetadataRequest\x1a\".nucladb.v1.UpdateMetadataResponse\x12Q\n" +
+	"\fDeleteTenant\x12\x1f.nucladb.v1.DeleteTenantRequest\x1a .nucladb.v1.DeleteTenantResponse\x12E\n" +
+	"\bSetQuota\x12\x1b.nucladb.v1.SetQuotaRequest\x1a\x1c.nucladb.v1.SetQuotaResponse\x12N\n" +
+	"\vListTenants\x12\x1e.nucladb.v1.ListTenantsRequest\x1a\x1f.nucladb.v1.ListTenantsResponseB0Z.github.com/Rakshit-gen/nucladb/proto/nucladbv1b\x06proto3"
 
 var (
 	file_proto_nucladb_proto_rawDescOnce sync.Once
@@ -874,50 +1629,85 @@ func file_proto_nucladb_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_nucladb_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_nucladb_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_proto_nucladb_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_proto_nucladb_proto_goTypes = []any{
-	(DistanceMetric)(0),          // 0: nucladb.v1.DistanceMetric
-	(*TenantQuota)(nil),          // 1: nucladb.v1.TenantQuota
-	(*CreateTenantRequest)(nil),  // 2: nucladb.v1.CreateTenantRequest
-	(*CreateTenantResponse)(nil), // 3: nucladb.v1.CreateTenantResponse
-	(*Vector)(nil),               // 4: nucladb.v1.Vector
-	(*InsertRequest)(nil),        // 5: nucladb.v1.InsertRequest
-	(*InsertResponse)(nil),       // 6: nucladb.v1.InsertResponse
-	(*BatchUpsertRequest)(nil),   // 7: nucladb.v1.BatchUpsertRequest
-	(*BatchUpsertResponse)(nil),  // 8: nucladb.v1.BatchUpsertResponse
-	(*DeleteRequest)(nil),        // 9: nucladb.v1.DeleteRequest
-	(*DeleteResponse)(nil),       // 10: nucladb.v1.DeleteResponse
-	(*MetadataFilter)(nil),       // 11: nucladb.v1.MetadataFilter
-	(*SearchRequest)(nil),        // 12: nucladb.v1.SearchRequest
-	(*ScoredVector)(nil),         // 13: nucladb.v1.ScoredVector
-	(*SearchResponse)(nil),       // 14: nucladb.v1.SearchResponse
-	nil,                          // 15: nucladb.v1.Vector.MetadataEntry
-	nil,                          // 16: nucladb.v1.ScoredVector.MetadataEntry
+	(DistanceMetric)(0),            // 0: nucladb.v1.DistanceMetric
+	(*TenantQuota)(nil),            // 1: nucladb.v1.TenantQuota
+	(*CreateTenantRequest)(nil),    // 2: nucladb.v1.CreateTenantRequest
+	(*CreateTenantResponse)(nil),   // 3: nucladb.v1.CreateTenantResponse
+	(*Vector)(nil),                 // 4: nucladb.v1.Vector
+	(*InsertRequest)(nil),          // 5: nucladb.v1.InsertRequest
+	(*InsertResponse)(nil),         // 6: nucladb.v1.InsertResponse
+	(*BatchUpsertRequest)(nil),     // 7: nucladb.v1.BatchUpsertRequest
+	(*BatchUpsertResponse)(nil),    // 8: nucladb.v1.BatchUpsertResponse
+	(*DeleteRequest)(nil),          // 9: nucladb.v1.DeleteRequest
+	(*DeleteResponse)(nil),         // 10: nucladb.v1.DeleteResponse
+	(*MetadataFilter)(nil),         // 11: nucladb.v1.MetadataFilter
+	(*SearchRequest)(nil),          // 12: nucladb.v1.SearchRequest
+	(*ScoredVector)(nil),           // 13: nucladb.v1.ScoredVector
+	(*SearchResponse)(nil),         // 14: nucladb.v1.SearchResponse
+	(*GetRequest)(nil),             // 15: nucladb.v1.GetRequest
+	(*GetResponse)(nil),            // 16: nucladb.v1.GetResponse
+	(*ListRequest)(nil),            // 17: nucladb.v1.ListRequest
+	(*ListResponse)(nil),           // 18: nucladb.v1.ListResponse
+	(*CountRequest)(nil),           // 19: nucladb.v1.CountRequest
+	(*CountResponse)(nil),          // 20: nucladb.v1.CountResponse
+	(*UpdateMetadataRequest)(nil),  // 21: nucladb.v1.UpdateMetadataRequest
+	(*UpdateMetadataResponse)(nil), // 22: nucladb.v1.UpdateMetadataResponse
+	(*DeleteTenantRequest)(nil),    // 23: nucladb.v1.DeleteTenantRequest
+	(*DeleteTenantResponse)(nil),   // 24: nucladb.v1.DeleteTenantResponse
+	(*SetQuotaRequest)(nil),        // 25: nucladb.v1.SetQuotaRequest
+	(*SetQuotaResponse)(nil),       // 26: nucladb.v1.SetQuotaResponse
+	(*ListTenantsRequest)(nil),     // 27: nucladb.v1.ListTenantsRequest
+	(*TenantInfo)(nil),             // 28: nucladb.v1.TenantInfo
+	(*ListTenantsResponse)(nil),    // 29: nucladb.v1.ListTenantsResponse
+	nil,                            // 30: nucladb.v1.Vector.MetadataEntry
+	nil,                            // 31: nucladb.v1.ScoredVector.MetadataEntry
+	nil,                            // 32: nucladb.v1.UpdateMetadataRequest.MetadataEntry
 }
 var file_proto_nucladb_proto_depIdxs = []int32{
 	1,  // 0: nucladb.v1.CreateTenantRequest.quota:type_name -> nucladb.v1.TenantQuota
-	15, // 1: nucladb.v1.Vector.metadata:type_name -> nucladb.v1.Vector.MetadataEntry
+	30, // 1: nucladb.v1.Vector.metadata:type_name -> nucladb.v1.Vector.MetadataEntry
 	4,  // 2: nucladb.v1.InsertRequest.vector:type_name -> nucladb.v1.Vector
 	4,  // 3: nucladb.v1.BatchUpsertRequest.vectors:type_name -> nucladb.v1.Vector
 	0,  // 4: nucladb.v1.SearchRequest.metric:type_name -> nucladb.v1.DistanceMetric
 	11, // 5: nucladb.v1.SearchRequest.filters:type_name -> nucladb.v1.MetadataFilter
-	16, // 6: nucladb.v1.ScoredVector.metadata:type_name -> nucladb.v1.ScoredVector.MetadataEntry
+	31, // 6: nucladb.v1.ScoredVector.metadata:type_name -> nucladb.v1.ScoredVector.MetadataEntry
 	13, // 7: nucladb.v1.SearchResponse.matches:type_name -> nucladb.v1.ScoredVector
-	2,  // 8: nucladb.v1.NuclaDB.CreateTenant:input_type -> nucladb.v1.CreateTenantRequest
-	5,  // 9: nucladb.v1.NuclaDB.Insert:input_type -> nucladb.v1.InsertRequest
-	7,  // 10: nucladb.v1.NuclaDB.BatchUpsert:input_type -> nucladb.v1.BatchUpsertRequest
-	9,  // 11: nucladb.v1.NuclaDB.Delete:input_type -> nucladb.v1.DeleteRequest
-	12, // 12: nucladb.v1.NuclaDB.Search:input_type -> nucladb.v1.SearchRequest
-	3,  // 13: nucladb.v1.NuclaDB.CreateTenant:output_type -> nucladb.v1.CreateTenantResponse
-	6,  // 14: nucladb.v1.NuclaDB.Insert:output_type -> nucladb.v1.InsertResponse
-	8,  // 15: nucladb.v1.NuclaDB.BatchUpsert:output_type -> nucladb.v1.BatchUpsertResponse
-	10, // 16: nucladb.v1.NuclaDB.Delete:output_type -> nucladb.v1.DeleteResponse
-	14, // 17: nucladb.v1.NuclaDB.Search:output_type -> nucladb.v1.SearchResponse
-	13, // [13:18] is the sub-list for method output_type
-	8,  // [8:13] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	4,  // 8: nucladb.v1.GetResponse.vector:type_name -> nucladb.v1.Vector
+	32, // 9: nucladb.v1.UpdateMetadataRequest.metadata:type_name -> nucladb.v1.UpdateMetadataRequest.MetadataEntry
+	1,  // 10: nucladb.v1.SetQuotaRequest.quota:type_name -> nucladb.v1.TenantQuota
+	1,  // 11: nucladb.v1.TenantInfo.quota:type_name -> nucladb.v1.TenantQuota
+	28, // 12: nucladb.v1.ListTenantsResponse.tenants:type_name -> nucladb.v1.TenantInfo
+	2,  // 13: nucladb.v1.NuclaDB.CreateTenant:input_type -> nucladb.v1.CreateTenantRequest
+	5,  // 14: nucladb.v1.NuclaDB.Insert:input_type -> nucladb.v1.InsertRequest
+	7,  // 15: nucladb.v1.NuclaDB.BatchUpsert:input_type -> nucladb.v1.BatchUpsertRequest
+	9,  // 16: nucladb.v1.NuclaDB.Delete:input_type -> nucladb.v1.DeleteRequest
+	12, // 17: nucladb.v1.NuclaDB.Search:input_type -> nucladb.v1.SearchRequest
+	15, // 18: nucladb.v1.NuclaDB.Get:input_type -> nucladb.v1.GetRequest
+	17, // 19: nucladb.v1.NuclaDB.List:input_type -> nucladb.v1.ListRequest
+	19, // 20: nucladb.v1.NuclaDB.Count:input_type -> nucladb.v1.CountRequest
+	21, // 21: nucladb.v1.NuclaDB.UpdateMetadata:input_type -> nucladb.v1.UpdateMetadataRequest
+	23, // 22: nucladb.v1.NuclaDB.DeleteTenant:input_type -> nucladb.v1.DeleteTenantRequest
+	25, // 23: nucladb.v1.NuclaDB.SetQuota:input_type -> nucladb.v1.SetQuotaRequest
+	27, // 24: nucladb.v1.NuclaDB.ListTenants:input_type -> nucladb.v1.ListTenantsRequest
+	3,  // 25: nucladb.v1.NuclaDB.CreateTenant:output_type -> nucladb.v1.CreateTenantResponse
+	6,  // 26: nucladb.v1.NuclaDB.Insert:output_type -> nucladb.v1.InsertResponse
+	8,  // 27: nucladb.v1.NuclaDB.BatchUpsert:output_type -> nucladb.v1.BatchUpsertResponse
+	10, // 28: nucladb.v1.NuclaDB.Delete:output_type -> nucladb.v1.DeleteResponse
+	14, // 29: nucladb.v1.NuclaDB.Search:output_type -> nucladb.v1.SearchResponse
+	16, // 30: nucladb.v1.NuclaDB.Get:output_type -> nucladb.v1.GetResponse
+	18, // 31: nucladb.v1.NuclaDB.List:output_type -> nucladb.v1.ListResponse
+	20, // 32: nucladb.v1.NuclaDB.Count:output_type -> nucladb.v1.CountResponse
+	22, // 33: nucladb.v1.NuclaDB.UpdateMetadata:output_type -> nucladb.v1.UpdateMetadataResponse
+	24, // 34: nucladb.v1.NuclaDB.DeleteTenant:output_type -> nucladb.v1.DeleteTenantResponse
+	26, // 35: nucladb.v1.NuclaDB.SetQuota:output_type -> nucladb.v1.SetQuotaResponse
+	29, // 36: nucladb.v1.NuclaDB.ListTenants:output_type -> nucladb.v1.ListTenantsResponse
+	25, // [25:37] is the sub-list for method output_type
+	13, // [13:25] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_proto_nucladb_proto_init() }
@@ -931,7 +1721,7 @@ func file_proto_nucladb_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_nucladb_proto_rawDesc), len(file_proto_nucladb_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   16,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
