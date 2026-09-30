@@ -34,7 +34,9 @@ deleted=true
 
 Run `nucladb <command> --help` for a command's full flag list. Every
 data command also accepts `--tenant` at the top level, same semantics
-as the Go CLI: omit it for the reserved `default` tenant.
+as the Go CLI: omit it for the reserved `default` tenant. For a server
+run with `-api-keys`, set `NUCLADB_API_KEY`; set `NUCLADB_TLS=1` if it
+serves TLS.
 
 ## Library
 
@@ -42,10 +44,28 @@ as the Go CLI: omit it for the reserved `default` tenant.
 from nucladb import Client, DistanceMetric
 
 with Client("localhost:9090") as db:
-    db.insert("1", [1.0, 0.0, 0.0, 0.0], metadata={"team": "search"})
+    db.insert("1", [1.0, 0.0, 0.0, 0.0], metadata={"team": "search", "year": "2025"})
     for match in db.search([1.0, 0.0, 0.0, 0.0], top_k=3, metric=DistanceMetric.L2):
         print(match.id, match.score, match.metadata)
+
+    # where clauses: (key, op) or (key, op, value); all must match
+    db.search([1.0, 0.0, 0.0, 0.0], where=[("year", "gte", 2024), ("team", "in", ["search", "ads"])])
+
+    db.get("1")                                 # (vector, metadata), or None
+    db.update_metadata("1", {"team": "infra"})  # replaces all metadata
+    ids = list(db.list())                       # pages through every id
+    db.count()
+
+    # tenant admin (needs an admin key when the server uses -api-keys)
+    db.create_tenant("acme", dim=384, metric=DistanceMetric.COSINE, max_vectors=1_000_000)
+    db.set_quota("acme", max_qps=50)
+    db.list_tenants()
+    db.delete_tenant("acme")
 ```
+
+`Client(address, tenant_id="", api_key="", tls=False)`: `tenant_id` scopes
+every data call, `api_key` is sent as a bearer token, `tls=True` connects
+with the system's root certificates.
 
 ## Regenerating the protobuf stubs
 
