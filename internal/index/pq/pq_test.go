@@ -179,6 +179,37 @@ func TestIndexRecallVsExact(t *testing.T) {
 		}
 	}
 
+	recall := func(search func(query []float32) ([]SearchResult, error)) float64 {
+		qrng := rand.New(rand.NewSource(33))
+		var total float64
+		for q := 0; q < nQueries; q++ {
+			query := randomVector(qrng, dim)
+			want := bruteForceExact(vectors, query, topK)
+			res, err := search(query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotSet := make(map[uint64]bool, len(res))
+			for _, r := range res {
+				gotSet[r.ID] = true
+			}
+			hit := 0
+			for _, id := range want {
+				if gotSet[id] {
+					hit++
+				}
+			}
+			total += float64(hit) / float64(len(want))
+		}
+		return total / nQueries
+	}
+	lookup := func(id uint64) ([]float32, bool) { v, ok := vectors[id]; return v, ok }
+	for _, c := range []int{50, 100, 200} {
+		r := recall(func(q []float32) ([]SearchResult, error) { return idx.SearchRerank(q, topK, c, lookup) })
+		t.Logf("PQ + re-rank of top %d: recall@%d %.3f", c, topK, r)
+	}
+	reranked := recall(func(q []float32) ([]SearchResult, error) { return idx.SearchRerank(q, topK, 100, lookup) })
+
 	var totalRecall float64
 	for q := 0; q < nQueries; q++ {
 		query := randomVector(rng, dim)
@@ -213,6 +244,10 @@ func TestIndexRecallVsExact(t *testing.T) {
 	const minRecall = 0.45
 	if avgRecall < minRecall {
 		t.Fatalf("recall@%d = %.3f, want >= %.3f", topK, avgRecall, minRecall)
+	}
+	// Measured 0.993 re-ranking the top 100 (see docs/writeups).
+	if reranked < 0.95 {
+		t.Fatalf("re-ranked recall@%d = %.3f, want >= 0.95", topK, reranked)
 	}
 }
 

@@ -2,6 +2,7 @@ package pq
 
 import (
 	"container/heap"
+	"sort"
 	"sync"
 )
 
@@ -104,6 +105,35 @@ func (idx *Index) Search(query []float32, topK int) ([]SearchResult, error) {
 	for i := len(out) - 1; i >= 0; i-- {
 		s := heap.Pop(h).(scored)
 		out[i] = SearchResult{ID: s.id, Distance: s.dist}
+	}
+	return out, nil
+}
+
+// SearchRerank is Search with a re-ranking stage: it takes the `candidates`
+// best codes by ADC distance, looks up each one's full vector through
+// vectorOf, and returns the topK closest by exact squared L2. The codes
+// still decide which vectors get looked at, so the memory saving holds as
+// long as vectorOf reads from somewhere cheaper than RAM (disk, a snapshot
+// mmap). Ids vectorOf can't find are dropped.
+func (idx *Index) SearchRerank(query []float32, topK, candidates int, vectorOf func(id uint64) ([]float32, bool)) ([]SearchResult, error) {
+	if candidates < topK {
+		candidates = topK
+	}
+	approx, err := idx.Search(query, candidates)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SearchResult, 0, len(approx))
+	for _, c := range approx {
+		v, ok := vectorOf(c.ID)
+		if !ok {
+			continue
+		}
+		out = append(out, SearchResult{ID: c.ID, Distance: sqDist(query, v)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Distance < out[j].Distance })
+	if len(out) > topK {
+		out = out[:topK]
 	}
 	return out, nil
 }

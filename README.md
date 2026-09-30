@@ -145,8 +145,9 @@ searches/s with **0 errored requests** (over 5M requests across the full
 sweep, 0 errors). Full numbers, including a mixed read/write run, are in
 [`bench/results-loadtest.md`](bench/results-loadtest.md).
 
-Product quantization: 57.7% recall@10 at a 16x memory reduction (flat PQ,
-no re-ranking), see
+Product quantization: 57.7% recall@10 at a 16x memory reduction with flat
+PQ alone, 99.3% when the top 100 codes are re-ranked against full vectors
+(`pq.Index.SearchRerank`), see
 [`docs/writeups/03-product-quantization-cost.md`](docs/writeups/03-product-quantization-cost.md).
 
 ## Design writeups

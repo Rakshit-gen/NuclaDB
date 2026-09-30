@@ -52,3 +52,22 @@ float32 precision) — the recall loss is entirely attributable to
 quantization error, not a bug in how it's scored. Closing the gap without
 touching the underlying compression ratio means adding re-ranking or IVF,
 both documented as follow-up work rather than claimed as done.
+
+## Update: re-ranking
+
+`pq.Index.SearchRerank` adds the first of those two follow-ups. It takes
+the best `candidates` codes by ADC distance, fetches each one's full
+vector, and re-orders them by exact distance. Same test, same data, same
+16x codes:
+
+| stage | recall@10 |
+|---|---|
+| flat PQ | 0.577 |
+| PQ + re-rank top 50 | 0.960 |
+| PQ + re-rank top 100 | 0.993 |
+| PQ + re-rank top 200 | 1.000 |
+
+The codes still pick which vectors get looked at, so the memory saving
+holds when the full vectors live somewhere cheaper than RAM, like a
+snapshot on disk. Search is still a flat scan over every code; IVF is
+still not done.
