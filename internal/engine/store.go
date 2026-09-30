@@ -38,7 +38,7 @@ type Quota struct {
 
 type tenant struct {
 	engine *Engine
-	cfg    hnsw.Config // this tenant's dimension, metric and HNSW settings
+	cfg    hnsw.Config            // this tenant's dimension, metric and HNSW settings
 	limits atomic.Pointer[limits] // swapped whole by SetQuota
 	// reserved counts new vectors whose inserts passed the quota check but
 	// haven't finished yet, so concurrent inserts can't all squeeze past
