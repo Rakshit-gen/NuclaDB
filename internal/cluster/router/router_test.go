@@ -2,8 +2,10 @@ package router
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -192,5 +194,76 @@ func TestInsertBatchSpreadsAcrossShards(t *testing.T) {
 		if len(got) != 1 || got[0].ID != want || got[0].Metadata["i"] != fmt.Sprint(want) {
 			t.Fatalf("search for %d got %+v", want, got)
 		}
+	}
+}
+
+// deadAddr is a localhost port nothing listens on.
+func deadAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	return addr
+}
+
+func TestSearchReturnsPartialResultsWhenAShardIsDown(t *testing.T) {
+	live := startShardServer(t)
+	r := New(&fakeResolver{addrs: []string{live, deadAddr(t)}}, "")
+	t.Cleanup(func() { _ = r.Close() })
+	ctx := context.Background()
+
+	var want int
+	for id := uint64(0); id < 20; id++ {
+		if ShardFor(id, 2) != 0 {
+			continue
+		}
+		if err := r.Insert(ctx, id, []float32{float32(id), 0, 0, 0}, nil); err != nil {
+			t.Fatalf("Insert(%d): %v", id, err)
+		}
+		want++
+	}
+
+	res, err := r.Search(ctx, []float32{0, 0, 0, 0}, 20, 50, nil)
+	var partial *PartialError
+	if !errors.As(err, &partial) {
+		t.Fatalf("Search err = %v, want *PartialError", err)
+	}
+	if _, ok := partial.Failed[1]; !ok || len(partial.Failed) != 1 {
+		t.Fatalf("Failed = %v, want only shard 1", partial.Failed)
+	}
+	if len(res) != want {
+		t.Fatalf("got %d matches from the live shard, want %d", len(res), want)
+	}
+}
+
+// flakyResolver hands out a dead address for shard 0 on the first lookup
+// and the live one afterwards, like a failover landing between tries.
+type flakyResolver struct {
+	dead, live string
+	calls      atomic.Int32
+}
+
+func (f *flakyResolver) NumShards() int { return 1 }
+
+func (f *flakyResolver) ShardOwner(int) (string, string, error) {
+	if f.calls.Add(1) == 1 {
+		return "old", f.dead, nil
+	}
+	return "new", f.live, nil
+}
+
+func TestSearchRetriesAgainstTheNewOwner(t *testing.T) {
+	res := &flakyResolver{dead: deadAddr(t), live: startShardServer(t)}
+	r := New(res, "")
+	t.Cleanup(func() { _ = r.Close() })
+
+	if _, err := r.Search(context.Background(), []float32{0, 0, 0, 0}, 5, 10, nil); err != nil {
+		t.Fatalf("Search after failover: %v", err)
+	}
+	if res.calls.Load() != 2 {
+		t.Fatalf("resolved the owner %d times, want 2", res.calls.Load())
 	}
 }

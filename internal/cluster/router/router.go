@@ -11,6 +11,7 @@ import (
 	"hash/fnv"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"google.golang.org/grpc"
@@ -176,18 +177,63 @@ type Match struct {
 	Metadata map[string]string
 }
 
+// PartialError reports shards that still failed after a retry. Search
+// returns it together with the merged results of the shards that did
+// answer, so a caller that can live with partial results checks for it
+// with errors.As and keeps the matches; one that can't just sees an error.
+type PartialError struct {
+	Failed map[int]error // shard -> last error
+}
+
+func (e *PartialError) Error() string {
+	shards := make([]int, 0, len(e.Failed))
+	for s := range e.Failed {
+		shards = append(shards, s)
+	}
+	sort.Ints(shards)
+	msgs := make([]string, len(shards))
+	for i, s := range shards {
+		msgs[i] = e.Failed[s].Error()
+	}
+	return fmt.Sprintf("router: %d shard(s) failed: %s", len(shards), strings.Join(msgs, "; "))
+}
+
+func (e *PartialError) Unwrap() []error {
+	errs := make([]error, 0, len(e.Failed))
+	for _, err := range e.Failed {
+		errs = append(errs, err)
+	}
+	return errs
+}
+
+// searchAttempts is how many times one shard is tried. The owner is
+// resolved again before each try, so a retry after a failover reaches the
+// newly promoted replica.
+const searchAttempts = 2
+
 // Search fans query out to every shard's current owner concurrently,
 // waits for all of them, and merges each shard's own top-K results into
-// one globally-ranked top-K. This is correct — not just an approximation
-// — because Insert/Delete route by ShardFor, so shards partition the id
+// one globally-ranked top-K. This is correct, not an approximation,
+// because Insert/Delete route by ShardFor, so shards partition the id
 // space disjointly: no result can appear on two shards needing
 // deduplication, only re-ranking across shards' already-sorted lists.
+//
+// A shard that fails is retried once. If some shards still fail, Search
+// returns the other shards' merged results with a *PartialError; if every
+// shard fails, it returns no results.
 func (r *Router) Search(ctx context.Context, query []float32, topK, efSearch int, filters map[string]string) ([]Match, error) {
 	numShards := r.resolver.NumShards()
 
 	var pbFilters []*pb.MetadataFilter
 	for k, v := range filters {
 		pbFilters = append(pbFilters, &pb.MetadataFilter{Key: k, Value: v})
+	}
+	req := &pb.SearchRequest{
+		Query:    query,
+		TopK:     int32(topK),
+		EfSearch: int32(efSearch),
+		Filters:  pbFilters,
+		TenantId: r.tenantID,
 	}
 
 	type shardResult struct {
@@ -201,31 +247,32 @@ func (r *Router) Search(ctx context.Context, query []float32, topK, efSearch int
 		wg.Add(1)
 		go func(shard int) {
 			defer wg.Done()
-			client, err := r.ownerClient(shard)
-			if err != nil {
-				results[shard] = shardResult{err: err}
-				return
+			var err error
+			for attempt := 0; attempt < searchAttempts && ctx.Err() == nil; attempt++ {
+				var client pb.NuclaDBClient
+				if client, err = r.ownerClient(shard); err != nil {
+					continue
+				}
+				var resp *pb.SearchResponse
+				if resp, err = client.Search(ctx, req); err == nil {
+					results[shard] = shardResult{matches: resp.GetMatches()}
+					return
+				}
 			}
-			resp, err := client.Search(ctx, &pb.SearchRequest{
-				Query:    query,
-				TopK:     int32(topK),
-				EfSearch: int32(efSearch),
-				Filters:  pbFilters,
-				TenantId: r.tenantID,
-			})
-			if err != nil {
-				results[shard] = shardResult{err: fmt.Errorf("shard %d: %w", shard, err)}
-				return
+			if err == nil {
+				err = ctx.Err()
 			}
-			results[shard] = shardResult{matches: resp.GetMatches()}
+			results[shard] = shardResult{err: fmt.Errorf("shard %d: %w", shard, err)}
 		}(shard)
 	}
 	wg.Wait()
 
 	var merged []Match
+	failed := map[int]error{}
 	for shard, res := range results {
 		if res.err != nil {
-			return nil, res.err
+			failed[shard] = res.err
+			continue
 		}
 		for _, m := range res.matches {
 			id, err := strconv.ParseUint(m.GetId(), 10, 64)
@@ -239,6 +286,12 @@ func (r *Router) Search(ctx context.Context, query []float32, topK, efSearch int
 	sort.Slice(merged, func(i, j int) bool { return merged[i].Score < merged[j].Score })
 	if len(merged) > topK {
 		merged = merged[:topK]
+	}
+	if len(failed) == numShards {
+		return nil, &PartialError{Failed: failed}
+	}
+	if len(failed) > 0 {
+		return merged, &PartialError{Failed: failed}
 	}
 	return merged, nil
 }
