@@ -51,6 +51,22 @@ func BenchmarkBuildSIFT(b *testing.B) {
 	}
 }
 
+// BenchmarkBuildSIFTBatch is BenchmarkBuildSIFT through InsertBatch.
+func BenchmarkBuildSIFTBatch(b *testing.B) {
+	vecs := loadFvecs(b, "../../../bench/data/siftsmall/siftsmall_base.fvecs")
+	ids := make([]uint64, len(vecs))
+	for i := range ids {
+		ids[i] = uint64(i)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		g := New(Config{Dim: len(vecs[0]), M: 16, EfConstruction: 200, Metric: L2(), Seed: 1})
+		if err := g.InsertBatch(ids, vecs); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func loadFvecs(tb testing.TB, path string) [][]float32 {
 	tb.Helper()
 	raw, err := os.ReadFile(path)

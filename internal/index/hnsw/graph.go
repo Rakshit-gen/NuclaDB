@@ -125,7 +125,13 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 
 	g.wmu.Lock()
 	defer g.wmu.Unlock()
+	g.insertLocked(id, vec)
+	return nil
+}
 
+// insertLocked is Insert after validation. vec is owned by the graph from
+// here on. Caller holds wmu.
+func (g *Graph) insertLocked(id uint64, vec []float32) {
 	level := g.randomLevel()
 	nd := &node{
 		id:        id,
@@ -155,7 +161,7 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 		g.hasEntry = true
 		g.maxLevel = level
 		g.mu.Unlock()
-		return nil
+		return
 	}
 
 	entry := g.entryPoint
@@ -230,7 +236,6 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 		// live.
 		g.entryPoint = slot
 	}
-	return nil
 }
 
 // place stores nd at slot: a new slot is appended, a reinsert replaces the
@@ -584,11 +589,4 @@ func (g *Graph) ExactSearch(query []float32, ids []uint64, topK int) ([]SearchRe
 		out[i] = SearchResult{ID: g.nodes[c.id].id, Distance: c.dist}
 	}
 	return out, nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
