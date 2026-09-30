@@ -26,6 +26,29 @@ class DistanceMetric(IntEnum):
     DOT = pb.DISTANCE_METRIC_DOT
 
 
+_FILTER_OPS = {
+    "eq": pb.FILTER_OP_EQ,
+    "ne": pb.FILTER_OP_NE,
+    "in": pb.FILTER_OP_IN,
+    "not_in": pb.FILTER_OP_NOT_IN,
+    "gt": pb.FILTER_OP_GT,
+    "gte": pb.FILTER_OP_GTE,
+    "lt": pb.FILTER_OP_LT,
+    "lte": pb.FILTER_OP_LTE,
+    "exists": pb.FILTER_OP_EXISTS,
+}
+
+
+@dataclass
+class Tenant:
+    id: str
+    vector_count: int
+    max_vectors: int
+    max_qps: float
+    dim: int
+    metric: DistanceMetric
+
+
 @dataclass
 class ScoredVector:
     id: str
@@ -75,10 +98,43 @@ class Client:
         self.channel.close()
 
     def create_tenant(
-        self, tenant_id: str, max_vectors: int = 0, max_qps: float = 0
+        self,
+        tenant_id: str,
+        max_vectors: int = 0,
+        max_qps: float = 0,
+        dim: int = 0,
+        metric: DistanceMetric = DistanceMetric.UNSPECIFIED,
     ) -> None:
+        """dim and metric default to the server's -dim and -metric."""
         self._stub.CreateTenant(
             pb.CreateTenantRequest(
+                tenant_id=tenant_id,
+                quota=pb.TenantQuota(max_vectors=max_vectors, max_qps=max_qps),
+                dim=dim,
+                metric=int(metric),
+            )
+        )
+
+    def list_tenants(self) -> list[Tenant]:
+        resp = self._stub.ListTenants(pb.ListTenantsRequest())
+        return [
+            Tenant(
+                id=t.tenant_id,
+                vector_count=t.vector_count,
+                max_vectors=t.quota.max_vectors,
+                max_qps=t.quota.max_qps,
+                dim=t.dim,
+                metric=DistanceMetric(t.metric),
+            )
+            for t in resp.tenants
+        ]
+
+    def delete_tenant(self, tenant_id: str) -> None:
+        self._stub.DeleteTenant(pb.DeleteTenantRequest(tenant_id=tenant_id))
+
+    def set_quota(self, tenant_id: str, max_vectors: int = 0, max_qps: float = 0) -> None:
+        self._stub.SetQuota(
+            pb.SetQuotaRequest(
                 tenant_id=tenant_id,
                 quota=pb.TenantQuota(max_vectors=max_vectors, max_qps=max_qps),
             )
@@ -112,6 +168,37 @@ class Client:
         )
         return resp.deleted
 
+    def get(self, id: str) -> tuple[list[float], dict[str, str]] | None:
+        """Returns (vector, metadata), or None if id isn't stored."""
+        try:
+            resp = self._stub.Get(pb.GetRequest(id=id, tenant_id=self.tenant_id))
+        except grpc.RpcError as e:
+            if e.code() == grpc.StatusCode.NOT_FOUND:
+                return None
+            raise
+        return list(resp.vector.values), dict(resp.vector.metadata)
+
+    def update_metadata(self, id: str, metadata: dict[str, str]) -> None:
+        """Replaces id's metadata without touching its vector."""
+        self._stub.UpdateMetadata(
+            pb.UpdateMetadataRequest(id=id, metadata=metadata, tenant_id=self.tenant_id)
+        )
+
+    def list(self, page_size: int = 0) -> Iterable[str]:
+        """Yields every stored id, fetching a page at a time."""
+        token = ""
+        while True:
+            resp = self._stub.List(
+                pb.ListRequest(tenant_id=self.tenant_id, page_token=token, page_size=page_size)
+            )
+            yield from resp.ids
+            token = resp.next_page_token
+            if not token:
+                return
+
+    def count(self) -> int:
+        return self._stub.Count(pb.CountRequest(tenant_id=self.tenant_id)).count
+
     def search(
         self,
         query: list[float],
@@ -119,17 +206,30 @@ class Client:
         metric: DistanceMetric = DistanceMetric.UNSPECIFIED,
         ef_search: int = 0,
         filters: dict[str, str] | None = None,
+        where: Iterable[tuple] = (),
     ) -> list[ScoredVector]:
+        """filters are key=value matches. where takes (key, op) or
+        (key, op, value) tuples, op one of eq, ne, in, not_in, gt, gte, lt,
+        lte, exists; value is a list for in and not_in. Every filter has
+        to match."""
+        clauses = [pb.MetadataFilter(key=k, value=v) for k, v in (filters or {}).items()]
+        for key, op, *rest in where:
+            if op not in _FILTER_OPS:
+                raise ValueError(f"unknown filter op {op!r}")
+            value = rest[0] if rest else None
+            clause = pb.MetadataFilter(key=key, op=_FILTER_OPS[op])
+            if isinstance(value, (list, tuple)):
+                clause.values.extend(str(v) for v in value)
+            elif value is not None:
+                clause.value = str(value)
+            clauses.append(clause)
         resp = self._stub.Search(
             pb.SearchRequest(
                 query=query,
                 top_k=top_k,
                 metric=int(metric),
                 ef_search=ef_search,
-                filters=[
-                    pb.MetadataFilter(key=k, value=v)
-                    for k, v in (filters or {}).items()
-                ],
+                filters=clauses,
                 tenant_id=self.tenant_id,
             )
         )

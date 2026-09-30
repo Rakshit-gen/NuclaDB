@@ -128,12 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    with Client(
-        args.addr,
-        tenant_id=args.tenant,
-        api_key=os.environ.get("NUCLADB_API_KEY", ""),
-        tls=os.environ.get("NUCLADB_TLS") == "1",
-    ) as client:
+    with Client(args.addr, tenant_id=args.tenant) as client:
         try:
             args.func(client, args)
         except grpc.RpcError as e:

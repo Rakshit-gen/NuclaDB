@@ -74,6 +74,25 @@ def main() -> None:
                 filtered = db.search([0, 0, 0, 0], top_k=10, filters={"color": "red"})
                 assert [r.id for r in filtered] == ["2"], filtered
 
+                where = db.search([0, 0, 0, 0], top_k=10, where=[("color", "in", ["red", "blue"])])
+                assert sorted(r.id for r in where) == ["2", "4"], where
+                assert [r.id for r in db.search([0, 0, 0, 0], top_k=10, where=[("color", "exists")])] != []
+
+                vec, meta = db.get("2")
+                assert vec == [0, 1, 0, 0] and meta == {"color": "red"}, (vec, meta)
+                assert db.get("99") is None
+                db.update_metadata("2", {"color": "green"})
+                assert db.get("2")[1] == {"color": "green"}
+                assert sorted(db.list(page_size=2)) == ["1", "2", "3", "4"]
+                assert db.count() == 4
+
+                db.create_tenant("small", dim=2, metric=DistanceMetric.COSINE)
+                db.set_quota("small", max_vectors=10)
+                small = {t.id: t for t in db.list_tenants()}["small"]
+                assert (small.dim, small.metric, small.max_vectors) == (2, DistanceMetric.COSINE, 10), small
+                db.delete_tenant("small")
+                assert "small" not in {t.id for t in db.list_tenants()}
+
                 # deletes are idempotent by design (internal/engine's own
                 # doc comment) — a second delete of the same id still
                 # reports success, not failure.
@@ -83,8 +102,9 @@ def main() -> None:
                 after_delete = db.search([1, 0, 0, 0], top_k=10)
                 assert "1" not in [r.id for r in after_delete], after_delete
 
-            print("OK: insert, batch_upsert, search, metadata filter, and "
-                  "delete all verified against a real nucladbd subprocess")
+            print("OK: insert, batch_upsert, search, filters, get, update_metadata, "
+                  "list, count, tenant admin and delete all verified against a "
+                  "real nucladbd subprocess")
         finally:
             proc.terminate()
             proc.wait(timeout=5)
