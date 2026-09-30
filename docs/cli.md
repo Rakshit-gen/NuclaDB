@@ -187,11 +187,9 @@ $ curl -s -X POST localhost:8080/v1/search -d '{"query":[1,0,0,0],"top_k":2}'
 {"matches":[{"id":"3","score":2},{"id":"2","score":2,"metadata":{"team":"infra"}}]}
 ```
 
-## Known limitation: quota is not yet persisted
+## Quotas across restarts
 
-A tenant's quota (`-max-vectors` / `-max-qps`) lives in server process
-memory, set at `create-tenant` time. It is not written to disk, so a
-`nucladbd` restart brings every tenant back with quota reset to unlimited.
-Vectors and metadata are fully durable across restart (WAL + snapshot,
-same as any other tenant data); only the quota policy is not. Re-applying
-quotas on startup is a documented follow-up, not a silent gap.
+A tenant's quota (`-max-vectors` / `-max-qps`) is saved to `quota.json` in
+the tenant's data directory when it is created, and read back when
+`nucladbd` starts, so a restart keeps every tenant's limits. Tenants
+created by older versions have no `quota.json` and come back unlimited.

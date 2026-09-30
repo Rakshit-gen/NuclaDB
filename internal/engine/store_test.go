@@ -283,14 +283,8 @@ func TestStoreReopenRediscoversTenants(t *testing.T) {
 	if stats.VectorCount != 1 {
 		t.Fatalf("VectorCount after reopen = %d, want 1", stats.VectorCount)
 	}
-	// Quota is process-local config (not yet persisted to disk), so a
-	// reopened tenant comes back with a zero/unlimited quota rather than
-	// the one it was created with — documented behavior, not a bug: quota
-	// policy is expected to be re-applied by whatever's provisioning the
-	// server, the same way dim/metric/M are passed on every OpenStore
-	// call rather than persisted per tenant.
-	if stats.Quota.MaxVectors != 0 {
-		t.Fatalf("expected quota to reset to unlimited on reopen (documented behavior), got %+v", stats.Quota)
+	if stats.Quota.MaxVectors != 100 {
+		t.Fatalf("quota after reopen = %+v, want MaxVectors 100", stats.Quota)
 	}
 }
 

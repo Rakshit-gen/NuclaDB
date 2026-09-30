@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -71,7 +72,11 @@ func OpenStore(rootDir string, cfg hnsw.Config) (*Store, error) {
 		if !e.IsDir() {
 			continue
 		}
-		s.tenants[e.Name()] = &tenant{quota: Quota{}}
+		quota, err := loadQuota(filepath.Join(rootDir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		s.tenants[e.Name()] = newTenant(quota)
 		if e.Name() == DefaultTenant {
 			foundDefault = true
 		}
@@ -109,15 +114,49 @@ func (s *Store) CreateTenant(tenantID string, quota Quota) error {
 // provisioning many tenants up front doesn't hold many open WAL file
 // handles for ones that see no traffic.
 func (s *Store) createTenantLocked(tenantID string, quota Quota) error {
-	if err := os.MkdirAll(filepath.Join(s.rootDir, tenantID), 0o755); err != nil {
+	dir := filepath.Join(s.rootDir, tenantID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	if err := saveQuota(dir, quota); err != nil {
+		return err
+	}
+	s.tenants[tenantID] = newTenant(quota)
+	return nil
+}
+
+func newTenant(quota Quota) *tenant {
 	t := &tenant{quota: quota}
 	if quota.MaxQPS > 0 {
 		t.limiter = rate.NewLimiter(rate.Limit(quota.MaxQPS), burstFor(quota.MaxQPS))
 	}
-	s.tenants[tenantID] = t
-	return nil
+	return t
+}
+
+// quota.json sits next to the tenant's WAL and snapshot so a restart brings
+// the tenant back with the limits it was created with. A missing file (a
+// tenant created before quotas were saved) means unlimited.
+const quotaFile = "quota.json"
+
+func loadQuota(dir string) (Quota, error) {
+	var q Quota
+	b, err := os.ReadFile(filepath.Join(dir, quotaFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return q, nil
+	}
+	if err != nil {
+		return q, err
+	}
+	err = json.Unmarshal(b, &q)
+	return q, err
+}
+
+func saveQuota(dir string, q Quota) error {
+	b, err := json.Marshal(q)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(filepath.Join(dir, quotaFile), b)
 }
 
 func burstFor(qps float64) int {

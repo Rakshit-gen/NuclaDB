@@ -461,15 +461,11 @@ POST   /v1/search         (Search)</code></pre>
     <section id="limitations">
       <h2>Known limitations</h2>
       <p>
-        Worth knowing rather than discovering the hard way: a tenant's quota
-        (<code>max-vectors</code> / <code>max-qps</code>) lives in server
-        process memory, set at <code>create-tenant</code> time. It isn't
-        written to disk, so restarting <code>nucladbd</code> brings every
-        tenant back with quota reset to unlimited. Vector and metadata data
-        itself is fully durable across restarts (WAL + snapshot, same as
-        anything else); only the quota policy resets. Re-applying quotas
-        on startup is a documented follow-up, not a silent gap we're hoping
-        no one notices.
+        A tenant's quota (<code>max-vectors</code> / <code>max-qps</code>)
+        is saved to <code>quota.json</code> in the tenant's data directory
+        and read back on startup, so restarting <code>nucladbd</code> keeps
+        every tenant's limits. Tenants created by older versions have no
+        <code>quota.json</code> and come back unlimited.
       </p>
     </section>
 
