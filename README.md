@@ -100,17 +100,22 @@ Real, reproducible measurements from `bench/`, comparing NuclaDB against a
 real Qdrant instance over their own network APIs on the same machine, same
 10,000-vector SIFT dataset, same recall@10 target:
 
-| ef | NuclaDB recall@10 | Qdrant recall@10 | NuclaDB QPS | Qdrant QPS |
-|---|---|---|---|---|
-| 10 | 0.932 | 0.964 | 10545 | 5552 |
-| 50 | 0.998 | 0.999 | 7762 | 5214 |
-| 100 | 1.000 | 0.999 | 7190 | 1956 |
-| 200 | 1.000 | 1.000 | 4973 | 4730 |
+Each ef gets one warm-up pass, then 5 measured passes over the 100
+queries. QPS is the median pass (min-max in brackets); p50/p95 latency is
+over all 500 measured queries.
+
+| ef | NuclaDB recall@10 | Qdrant recall@10 | NuclaDB QPS | Qdrant QPS | NuclaDB p50 / p95 | Qdrant p50 / p95 |
+|---|---|---|---|---|---|---|
+| 10 | 0.932 | 0.959 | 13914 (12289-18904) | 7624 (6193-7691) | 0.07 / 0.09 ms | 0.13 / 0.17 ms |
+| 20 | 0.981 | 0.989 | 13966 (13137-14075) | 7451 (7436-7797) | 0.07 / 0.09 ms | 0.13 / 0.15 ms |
+| 50 | 0.996 | 0.998 | 10653 (10070-10719) | 7051 (7033-7237) | 0.09 / 0.11 ms | 0.14 / 0.16 ms |
+| 100 | 0.998 | 1.000 | 7542 (7453-8083) | 6465 (6438-6686) | 0.13 / 0.16 ms | 0.15 / 0.17 ms |
+| 200 | 1.000 | 1.000 | 5822 (5486-5864) | 5512 (5167-5567) | 0.17 / 0.21 ms | 0.18 / 0.22 ms |
 
 | Backend | Build time (10K vectors) | RSS after build |
 |---|---|---|
-| NuclaDB | 415ms | 44.7 MB |
-| Qdrant | 551ms | 114.8 MB |
+| NuclaDB | 416ms | 45.7 MB |
+| Qdrant | 557ms | 115.4 MB |
 
 NuclaDB now builds this index faster than Qdrant. Earlier
 versions of this table showed Qdrant at ~120ms and NuclaDB ~27x slower,
@@ -123,8 +128,10 @@ distance kernels, a slice-based graph layout, and a parallel batch build
 (`hnsw.Graph.InsertBatch`). Neighbors are picked with the HNSW paper's
 diversity heuristic, which raised ef=10 recall from 0.84-0.91 (it moved
 with the random level seed) to about 0.93; Qdrant is still a little higher
-at ef=10 and ef=20, and both reach 1.000 by ef=100-200. Qdrant's ef=100
-QPS in this run is an outlier; its other rows sit around 5,000-5,900. See
+at ef=10 and ef=20, and both reach 1.000 by ef=200. Earlier versions of
+this table used a single pass per ef, and Qdrant's QPS jumped around
+(5,214, then 1,956, then 4,730 for ef 50/100/200); with a warm-up pass and
+the median of 5, both engines slow down steadily as ef grows. See
 [`docs/writeups/01-wal-then-snapshot.md`](docs/writeups/01-wal-then-snapshot.md)
 for the durability side. Full table and methodology, including the two
 Qdrant config settings that would each have made this an unfair

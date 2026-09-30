@@ -23,6 +23,7 @@ func main() {
 		nucladbdBin = flag.String("nucladbd", "../bin/nucladbd", "path to the nucladbd binary (default assumes running from bench/)")
 		dataDir     = flag.String("data", "./data/siftsmall", "path to the extracted siftsmall dataset")
 		topK        = flag.Int("top-k", 10, "k for recall@k")
+		iterations  = flag.Int("iterations", 5, "measured passes over the query set per ef; QPS is the median pass")
 		numShards   = flag.Int("shards", 4, "number of shards in the cluster run")
 		basePort    = flag.Int("base-port", 19300, "first gRPC port the cluster's shards bind, one port per shard")
 	)
@@ -48,7 +49,7 @@ func main() {
 	must(err)
 
 	log.Println("compare-cluster: benchmarking single-node NuclaDB...")
-	singleReport, err := bench.Run(singleBackend, base, queries, groundtruth, efValues, *topK)
+	singleReport, err := bench.Run(singleBackend, base, queries, groundtruth, efValues, *topK, *iterations)
 	must(err)
 	must(singleBackend.Close())
 
@@ -61,7 +62,7 @@ func main() {
 	must(err)
 
 	log.Println("compare-cluster: benchmarking NuclaDB cluster...")
-	clusterReport, err := bench.Run(clusterBackend, base, queries, groundtruth, efValues, *topK)
+	clusterReport, err := bench.Run(clusterBackend, base, queries, groundtruth, efValues, *topK, *iterations)
 	must(err)
 	must(clusterBackend.Close())
 
@@ -75,9 +76,9 @@ func printReport(r *bench.Report, topK int) {
 	fmt.Printf("\n=== %s ===\n", r.Backend)
 	fmt.Printf("build: %d vectors, dim=%d, %s, RSS after build: %.1f MB\n",
 		r.NumVectors, r.Dim, r.BuildDuration, float64(r.BuildRSSBytes)/1e6)
-	fmt.Printf("%-6s %-12s %-12s %-10s\n", "ef", fmt.Sprintf("recall@%d", topK), "QPS", "RSS (MB)")
+	fmt.Printf("%-6s %-12s %-24s %-22s %-10s\n", "ef", fmt.Sprintf("recall@%d", topK), "QPS median (min-max)", "p50 / p95", "RSS (MB)")
 	for _, p := range r.Points {
-		fmt.Printf("%-6d %-12.4f %-12.1f %-10.1f\n", p.EF, p.Recall, p.QPS, float64(p.RSSBytes)/1e6)
+		fmt.Printf("%-6d %-12.4f %-24s %-22s %-10.1f\n", p.EF, p.Recall, p.QPSCell(), p.LatencyCell(), float64(p.RSSBytes)/1e6)
 	}
 }
 
@@ -86,7 +87,7 @@ func printComparison(a, b *bench.Report, topK int) {
 	fmt.Printf("%-6s %-12s %-12s %-12s %-12s\n", "ef", a.Backend+" recall", b.Backend+" recall", a.Backend+" QPS", b.Backend+" QPS")
 	for i := range a.Points {
 		pa, pb := a.Points[i], b.Points[i]
-		fmt.Printf("%-6d %-12.4f %-12.4f %-12.1f %-12.1f\n", pa.EF, pa.Recall, pb.Recall, pa.QPS, pb.QPS)
+		fmt.Printf("%-6d %-12.4f %-12.4f %-12.0f %-12.0f\n", pa.EF, pa.Recall, pb.Recall, pa.QPS, pb.QPS)
 	}
 }
 
@@ -117,13 +118,13 @@ func writeMarkdown(single, cluster *bench.Report, numShards, topK int) error {
 	w("| %s | %s | %.1f MB |\n\n", cluster.Backend, cluster.BuildDuration, float64(cluster.BuildRSSBytes)/1e6)
 
 	w("## Recall / QPS / memory vs ef\n\n")
-	w("| ef | %s recall@%d | %s recall@%d | %s QPS | %s QPS | %s RSS | %s RSS |\n",
-		single.Backend, topK, cluster.Backend, topK, single.Backend, cluster.Backend, single.Backend, cluster.Backend)
-	w("|---|---|---|---|---|---|---|\n")
+	w("| ef | %s recall@%d | %s recall@%d | %s QPS | %s QPS | %s p50 / p95 | %s p50 / p95 | %s RSS | %s RSS |\n",
+		single.Backend, topK, cluster.Backend, topK, single.Backend, cluster.Backend, single.Backend, cluster.Backend, single.Backend, cluster.Backend)
+	w("|---|---|---|---|---|---|---|---|---|\n")
 	for i := range single.Points {
 		ps, pc := single.Points[i], cluster.Points[i]
-		w("| %d | %.4f | %.4f | %.1f | %.1f | %.1f MB | %.1f MB |\n",
-			ps.EF, ps.Recall, pc.Recall, ps.QPS, pc.QPS, float64(ps.RSSBytes)/1e6, float64(pc.RSSBytes)/1e6)
+		w("| %d | %.4f | %.4f | %s | %s | %s | %s | %.1f MB | %.1f MB |\n",
+			ps.EF, ps.Recall, pc.Recall, ps.QPSCell(), pc.QPSCell(), ps.LatencyCell(), pc.LatencyCell(), float64(ps.RSSBytes)/1e6, float64(pc.RSSBytes)/1e6)
 	}
 
 	w("\n## Notes\n\n")

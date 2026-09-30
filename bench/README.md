@@ -73,6 +73,10 @@ Both are fetched by `download.sh` and are `.gitignore`d.
   (10,000 KB by default), so earlier runs timed point ingest against
   NuclaDB's full HNSW build, and Qdrant's searches were still brute force.
   The harness now polls until `indexed_vectors_count` covers every vector.
+- **Each ef runs one warm-up pass and then `-iterations` measured passes
+  (default 5).** QPS is the median pass, with min-max shown; p50/p95
+  latency is over every measured query. A single pass was too noisy:
+  Qdrant once read 5,214 / 1,956 / 4,730 QPS at ef 50 / 100 / 200.
 - **`cmd/compare`'s QPS is single-connection and sequential** — it
   measures latency-bound throughput. For saturated concurrent throughput
   and tail latency, `cmd/loadtest` runs a closed-loop load generator (a

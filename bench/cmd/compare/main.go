@@ -24,6 +24,7 @@ func main() {
 		qdrantBin   = flag.String("qdrant", "./.qdrant-bin/qdrant", "path to the qdrant binary")
 		dataDir     = flag.String("data", "./data/siftsmall", "path to the extracted siftsmall dataset")
 		topK        = flag.Int("top-k", 10, "k for recall@k")
+		iterations  = flag.Int("iterations", 5, "measured passes over the query set per ef; QPS is the median pass")
 		m           = flag.Int("m", 16, "HNSW M (bidirectional links per node)")
 		efConstruct = flag.Int("ef-construct", 200, "HNSW build-time candidate list size")
 	)
@@ -49,7 +50,7 @@ func main() {
 	must(err)
 
 	log.Println("compare: benchmarking NuclaDB...")
-	nuclaReport, err := bench.Run(nuclaBackend, base, queries, groundtruth, efValues, *topK)
+	nuclaReport, err := bench.Run(nuclaBackend, base, queries, groundtruth, efValues, *topK, *iterations)
 	must(err)
 	must(nuclaBackend.Close())
 
@@ -62,7 +63,7 @@ func main() {
 	must(err)
 
 	log.Println("compare: benchmarking Qdrant...")
-	qdrantReport, err := bench.Run(qdrantBackend, base, queries, groundtruth, efValues, *topK)
+	qdrantReport, err := bench.Run(qdrantBackend, base, queries, groundtruth, efValues, *topK, *iterations)
 	must(err)
 	must(qdrantBackend.Close())
 
@@ -76,9 +77,9 @@ func printReport(r *bench.Report, topK int) {
 	fmt.Printf("\n=== %s ===\n", r.Backend)
 	fmt.Printf("build: %d vectors, dim=%d, %s, RSS after build: %.1f MB\n",
 		r.NumVectors, r.Dim, r.BuildDuration, float64(r.BuildRSSBytes)/1e6)
-	fmt.Printf("%-6s %-12s %-12s %-10s\n", "ef", fmt.Sprintf("recall@%d", topK), "QPS", "RSS (MB)")
+	fmt.Printf("%-6s %-12s %-24s %-22s %-10s\n", "ef", fmt.Sprintf("recall@%d", topK), "QPS median (min-max)", "p50 / p95", "RSS (MB)")
 	for _, p := range r.Points {
-		fmt.Printf("%-6d %-12.4f %-12.1f %-10.1f\n", p.EF, p.Recall, p.QPS, float64(p.RSSBytes)/1e6)
+		fmt.Printf("%-6d %-12.4f %-24s %-22s %-10.1f\n", p.EF, p.Recall, p.QPSCell(), p.LatencyCell(), float64(p.RSSBytes)/1e6)
 	}
 }
 
@@ -87,7 +88,7 @@ func printComparison(a, b *bench.Report, topK int) {
 	fmt.Printf("%-6s %-12s %-12s %-12s %-12s\n", "ef", a.Backend+" recall", b.Backend+" recall", a.Backend+" QPS", b.Backend+" QPS")
 	for i := range a.Points {
 		pa, pb := a.Points[i], b.Points[i]
-		fmt.Printf("%-6d %-12.4f %-12.4f %-12.1f %-12.1f\n", pa.EF, pa.Recall, pb.Recall, pa.QPS, pb.QPS)
+		fmt.Printf("%-6d %-12.4f %-12.4f %-12.0f %-12.0f\n", pa.EF, pa.Recall, pb.Recall, pa.QPS, pb.QPS)
 	}
 }
 
@@ -126,13 +127,13 @@ func writeMarkdown(a, b *bench.Report, topK int) error {
 	ew.printf("| %s | %s | %.1f MB |\n\n", b.Backend, b.BuildDuration, float64(b.BuildRSSBytes)/1e6)
 
 	ew.printf("## Recall / QPS / memory vs ef\n\n")
-	ew.printf("| ef | %s recall@%d | %s recall@%d | %s QPS | %s QPS | %s RSS | %s RSS |\n",
-		a.Backend, topK, b.Backend, topK, a.Backend, b.Backend, a.Backend, b.Backend)
-	ew.printf("|---|---|---|---|---|---|---|\n")
+	ew.printf("| ef | %s recall@%d | %s recall@%d | %s QPS | %s QPS | %s p50 / p95 | %s p50 / p95 | %s RSS | %s RSS |\n",
+		a.Backend, topK, b.Backend, topK, a.Backend, b.Backend, a.Backend, b.Backend, a.Backend, b.Backend)
+	ew.printf("|---|---|---|---|---|---|---|---|---|\n")
 	for i := range a.Points {
 		pa, pb := a.Points[i], b.Points[i]
-		ew.printf("| %d | %.4f | %.4f | %.1f | %.1f | %.1f MB | %.1f MB |\n",
-			pa.EF, pa.Recall, pb.Recall, pa.QPS, pb.QPS, float64(pa.RSSBytes)/1e6, float64(pb.RSSBytes)/1e6)
+		ew.printf("| %d | %.4f | %.4f | %s | %s | %s | %s | %.1f MB | %.1f MB |\n",
+			pa.EF, pa.Recall, pb.Recall, pa.QPSCell(), pb.QPSCell(), pa.LatencyCell(), pb.LatencyCell(), float64(pa.RSSBytes)/1e6, float64(pb.RSSBytes)/1e6)
 	}
 
 	ew.printf("\n## Notes\n\n")
