@@ -58,6 +58,14 @@ type Record struct {
 // a crash. Replay treats it as end-of-log rather than a fatal error.
 var errCorruptTail = errors.New("wal: corrupt or partial tail record")
 
+// ErrCorruptMidLog is returned by Recover (and so by OpenWriter and Replay)
+// when a bad record is followed by a valid one. A crash can only tear the
+// last write, so a good record after a bad one means the damage is in the
+// middle of the log. Treating it as a torn tail would cut off every later
+// write, all of which were acknowledged; failing loudly leaves the file
+// untouched for an operator to inspect.
+var ErrCorruptMidLog = errors.New("wal: corrupt record in the middle of the log")
+
 // maxRecordLen bounds the on-disk length prefix. A torn or corrupt tail can
 // leave arbitrary bytes there; without a cap, replay would try to allocate up
 // to 4 GiB before the CRC check could reject the record.
@@ -337,7 +345,13 @@ func Recover(path string, fn func(Record) error) (validBytes int64, lastSeq uint
 	for {
 		rec, size, err := readFrame(r)
 		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, errCorruptTail) {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, errCorruptTail) {
+				if off, found := validFrameAfter(f, validBytes+1, lastSeq); found {
+					return validBytes, lastSeq, fmt.Errorf("%w: bad record at byte %d, valid record at byte %d", ErrCorruptMidLog, validBytes, off)
+				}
 				break
 			}
 			return validBytes, lastSeq, err
@@ -349,6 +363,35 @@ func Recover(path string, fn func(Record) error) (validBytes int64, lastSeq uint
 		lastSeq = rec.Seq
 	}
 	return validBytes, lastSeq, nil
+}
+
+// validFrameAfter looks for a well-formed record anywhere at or after
+// offset from, with a sequence number above lastSeq. It tries every byte
+// offset, so it is slow on a large tail, but it only runs when recovery
+// has already hit a bad record.
+func validFrameAfter(f *os.File, from int64, lastSeq uint64) (int64, bool) {
+	info, err := f.Stat()
+	if err != nil {
+		return 0, false
+	}
+	rest := make([]byte, max(info.Size()-from, 0))
+	if _, err := f.ReadAt(rest, from); err != nil && !errors.Is(err, io.EOF) {
+		return 0, false
+	}
+	for i := 0; i+8 <= len(rest); i++ {
+		length := int(binary.LittleEndian.Uint32(rest[i : i+4]))
+		if length < 4 || length > maxRecordLen || i+4+length > len(rest) {
+			continue
+		}
+		payload := rest[i+8 : i+4+length]
+		if crc32.ChecksumIEEE(payload) != binary.LittleEndian.Uint32(rest[i+4:i+8]) {
+			continue
+		}
+		if rec, err := decodePayload(payload); err == nil && rec.Seq > lastSeq {
+			return from + int64(i), true
+		}
+	}
+	return 0, false
 }
 
 func readRecord(r *bufio.Reader) (Record, error) {

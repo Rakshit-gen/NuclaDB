@@ -1,6 +1,7 @@
 package wal
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -257,5 +258,47 @@ func TestRecoverOffsetLetsOpenWriterAtSkipTheTornTail(t *testing.T) {
 	last, err = Replay(path, func(Record) error { n++; return nil })
 	if err != nil || n != 3 || last != 3 {
 		t.Fatalf("n=%d last=%d err=%v, want all three records", n, last, err)
+	}
+}
+
+// A bad record followed by good ones is not a torn tail. Recovery must
+// refuse to open rather than truncate away the acknowledged writes after it.
+func TestCorruptMidLogRecordFailsInsteadOfTruncating(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wal.log")
+	w, err := OpenWriter(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id := uint64(1); id <= 3; id++ {
+		if _, err := w.Append(OpInsert, id, []float32{1, 2, 3}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	full, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := len(full) / 3
+	full[frame+frame/2] ^= 0xFF // inside record 2's payload
+	if err := os.WriteFile(path, full, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Replay(path, func(Record) error { return nil }); !errors.Is(err, ErrCorruptMidLog) {
+		t.Fatalf("Replay err = %v, want ErrCorruptMidLog", err)
+	}
+	if _, err := OpenWriter(path, 0); !errors.Is(err, ErrCorruptMidLog) {
+		t.Fatalf("OpenWriter err = %v, want ErrCorruptMidLog", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(full) {
+		t.Fatalf("file was truncated from %d to %d bytes", len(full), len(after))
 	}
 }
