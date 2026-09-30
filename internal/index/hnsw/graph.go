@@ -474,6 +474,40 @@ func (g *Graph) Search(query []float32, topK, ef int) ([]SearchResult, error) {
 	return out, nil
 }
 
+// ExactSearch scores query against each id in ids by brute force and
+// returns the topK closest live ones. It is for small candidate sets, such
+// as the vectors matching a selective metadata filter, where scanning is
+// both exact and cheaper than walking the graph. Unknown and deleted ids
+// are skipped.
+func (g *Graph) ExactSearch(query []float32, ids []uint64, topK int) ([]SearchResult, error) {
+	if len(query) != g.cfg.Dim {
+		return nil, ErrDimensionMismatch
+	}
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	h := newMaxHeap()
+	for _, id := range ids {
+		nd, ok := g.nodes[id]
+		if !ok || nd.deleted {
+			continue
+		}
+		d := g.cfg.Metric.Distance(query, nd.vector)
+		if h.Len() < topK {
+			heap.Push(h, candidate{id: id, dist: d})
+		} else if d < (*h)[0].dist {
+			heap.Pop(h)
+			heap.Push(h, candidate{id: id, dist: d})
+		}
+	}
+	out := make([]SearchResult, h.Len())
+	for i := len(out) - 1; i >= 0; i-- {
+		c := heap.Pop(h).(candidate)
+		out[i] = SearchResult{ID: c.id, Distance: c.dist}
+	}
+	return out, nil
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

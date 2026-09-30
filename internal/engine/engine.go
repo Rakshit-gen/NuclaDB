@@ -424,32 +424,46 @@ type Result struct {
 	Metadata map[string]string
 }
 
+// exactFilterLimit is the most filter matches Search will score by brute
+// force. Below it, scanning the matches is exact and costs about as much as
+// a graph walk; above it, the filter is broad enough that post-filtering
+// the graph's candidates finds topK matches.
+// ponytail: fixed cutoff, tune from the ef/dataset size if it ever matters.
+const exactFilterLimit = 4096
+
 // Search returns up to topK nearest neighbors of query, optionally
 // restricted to vectors whose metadata matches every key/value in filters
 // (a plain equality AND across all filter keys).
 //
-// Filtering is applied as a post-filter over an overfetched candidate set
-// rather than steering graph traversal itself: it's simpler to reason
-// about correctly and works well as long as the filter isn't extremely
-// selective. If the first pass returns fewer than topK matches, ef is
-// widened and retried, up to a bounded number of attempts — documented
-// tradeoff, see README.
+// With a filter, Search first checks how many vectors match it using the
+// postings index. A selective filter (up to exactFilterLimit matches) is
+// answered exactly by scoring just those vectors, so it can't come back
+// short. A broad filter post-filters an overfetched graph search, widening
+// ef and retrying a bounded number of times if too few candidates match.
 func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string) ([]Result, error) {
 	if ef < topK {
 		ef = topK
 	}
+
+	// LoadSnapshot is the only thing that ever reassigns e.graph (Insert and
+	// Delete mutate the existing graph in place under its own lock), so an
+	// atomic load keeps Search off the writer's mutex.
+	graph := e.graph.Load()
+
+	if len(filters) > 0 {
+		if ids, ok := e.filterCandidates(filters); ok {
+			res, err := graph.ExactSearch(query, ids, topK)
+			if err != nil {
+				return nil, err
+			}
+			return e.withMetadata(res), nil
+		}
+	}
+
 	overfetch := ef
 	if len(filters) > 0 {
 		overfetch = ef * 4
 	}
-
-	// LoadSnapshot is the only thing that ever reassigns e.graph (Insert and
-	// Delete mutate the existing graph in place under its own internal
-	// lock). An atomic load here means Search never touches the writer's
-	// Mutex — the traversal below runs fully concurrently with other
-	// searches, bounded only by the graph's own RWMutex.
-	graph := e.graph.Load()
-
 	const maxAttempts = 3
 	var candidates []hnsw.SearchResult
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -469,6 +483,43 @@ func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string
 		overfetch *= 4
 	}
 	return e.filterMatches(candidates, filters, topK), nil
+}
+
+// filterCandidates returns the ids matching every filter when the most
+// selective filter pair has at most exactFilterLimit ids. ok is false when
+// the filter is too broad for an exact scan.
+func (e *Engine) filterCandidates(filters map[string]string) (ids []uint64, ok bool) {
+	e.metaMu.RLock()
+	defer e.metaMu.RUnlock()
+
+	var smallest map[uint64]struct{}
+	first := true
+	for k, v := range filters {
+		p := e.postings[postingKey(k, v)]
+		if first || len(p) < len(smallest) {
+			smallest, first = p, false
+		}
+	}
+	if len(smallest) > exactFilterLimit {
+		return nil, false
+	}
+	ids = make([]uint64, 0, len(smallest))
+	for id := range smallest {
+		if matchesFilters(e.metadata[id], filters) {
+			ids = append(ids, id)
+		}
+	}
+	return ids, true
+}
+
+func (e *Engine) withMetadata(res []hnsw.SearchResult) []Result {
+	e.metaMu.RLock()
+	defer e.metaMu.RUnlock()
+	out := make([]Result, len(res))
+	for i, r := range res {
+		out[i] = Result{ID: r.ID, Distance: r.Distance, Metadata: e.metadata[r.ID]}
+	}
+	return out
 }
 
 func (e *Engine) filterMatches(candidates []hnsw.SearchResult, filters map[string]string, topK int) []Result {

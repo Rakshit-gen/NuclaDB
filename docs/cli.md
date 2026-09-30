@@ -126,10 +126,10 @@ $ nucladb-cli search -vector=1,0,0,0 -top-k=5 -tenant=acme
 The `acme` search above returns only `acme`'s own data. A search on
 `default` for the same query vector never sees it, and vice versa.
 
-Filtering is a post-filter over an overfetched candidate set (see
-`internal/engine/engine.go`): if a filter is very selective, the search
-widens its internal candidate window and retries a bounded number of
-times before returning fewer than `top-k` results.
+Filtering checks a key/value index first. If the filter matches at most
+4096 vectors, the search scores just those vectors and returns the exact
+nearest `top-k` among them. A broader filter post-filters a widened graph
+search instead (see `internal/engine/engine.go`).
 
 ## `delete`
 

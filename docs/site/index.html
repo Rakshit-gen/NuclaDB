@@ -383,10 +383,9 @@ upserted 2 vectors</span></code></pre>
 <span class="ex-py">$ nucladb search --vector 1,0,0,0 --top-k 3 --filter team=infra
 2	score=2.000000	{'team': 'infra'}</span></code></pre>
       <p>
-        The filter is a post-filter over an overfetched candidate set, not a
-        pre-index scan: if a filter is very selective the search widens its
-        internal candidate window and retries a bounded number of times
-        rather than returning fewer than <code>top-k</code> silently.
+        Filtering checks a key/value index first. A filter matching at most
+        4096 vectors is answered exactly by scoring only those vectors; a
+        broader filter post-filters a widened graph search.
       </p>
 
       <h3 id="commands-delete"><code>delete</code></h3>
