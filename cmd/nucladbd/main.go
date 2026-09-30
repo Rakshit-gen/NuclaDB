@@ -40,6 +40,7 @@ func main() {
 		m              = flag.Int("m", 16, "HNSW M: bidirectional links per node above layer 0")
 		efConstruction = flag.Int("ef-construction", 200, "HNSW build-time candidate list size")
 		snapshotEvery  = flag.Duration("snapshot-interval", 5*time.Minute, "how often to snapshot to disk")
+		maxMessage     = flag.Int("max-message-bytes", 64<<20, "largest gRPC message or REST body accepted, in bytes")
 		metricsEvery   = flag.Duration("metrics-interval", 15*time.Second, "how often to refresh per-tenant usage gauges")
 	)
 	flag.Parse()
@@ -77,6 +78,7 @@ func main() {
 	svc := grpcapi.New(store, pbMetric)
 
 	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(*maxMessage),
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor()),
 	)
@@ -99,7 +101,7 @@ func main() {
 	}()
 
 	httpMux := http.NewServeMux()
-	httpMux.Handle("/", gateway.New(svc))
+	httpMux.Handle("/", gateway.New(svc, int64(*maxMessage)))
 	httpMux.Handle("/metrics", telemetry.Handler(registry))
 	httpServer := &http.Server{Addr: *httpAddr, Handler: httpMux}
 	go func() {

@@ -534,6 +534,11 @@ type Result struct {
 // ponytail: fixed cutoff, tune from the ef/dataset size if it ever matters.
 const exactFilterLimit = 4096
 
+// DefaultEf is the search beam width used when a caller doesn't pick one.
+// In the SIFT benchmark at topK=10, ef=10 gave recall 0.93 and ef=50 gave
+// 0.996 at about 75% of the QPS.
+const DefaultEf = 64
+
 // Search returns up to topK nearest neighbors of query, optionally
 // restricted to vectors whose metadata matches every key/value in filters
 // (a plain equality AND across all filter keys).
@@ -544,9 +549,10 @@ const exactFilterLimit = 4096
 // short. A broad filter post-filters an overfetched graph search, widening
 // ef and retrying a bounded number of times if too few candidates match.
 func (e *Engine) Search(query []float32, topK, ef int, filters map[string]string) ([]Result, error) {
-	if ef < topK {
-		ef = topK
+	if ef <= 0 {
+		ef = DefaultEf
 	}
+	ef = max(ef, topK)
 
 	// LoadSnapshot is the only thing that ever reassigns e.graph (Insert and
 	// Delete mutate the existing graph in place under its own lock), so an

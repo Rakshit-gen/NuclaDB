@@ -7,6 +7,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"google.golang.org/grpc/codes"
@@ -19,8 +20,9 @@ import (
 // Handler serves the REST facade over an in-process gRPC server
 // implementation (internal/api/grpc.Server satisfies pb.NuclaDBServer).
 type Handler struct {
-	svc pb.NuclaDBServer
-	mux *http.ServeMux
+	svc     pb.NuclaDBServer
+	mux     *http.ServeMux
+	maxBody int64
 }
 
 // New builds the REST handler, routing:
@@ -34,9 +36,10 @@ type Handler struct {
 //
 // Every route except tenant creation accepts an optional tenant_id (JSON
 // body field, or a query parameter for DELETE); omitting it uses the
-// reserved default tenant.
-func New(svc pb.NuclaDBServer) *Handler {
-	h := &Handler{svc: svc, mux: http.NewServeMux()}
+// reserved default tenant. Request bodies over maxBodyBytes are refused
+// with 413.
+func New(svc pb.NuclaDBServer, maxBodyBytes int64) *Handler {
+	h := &Handler{svc: svc, mux: http.NewServeMux(), maxBody: maxBodyBytes}
 	h.mux.HandleFunc("POST /v1/tenants", h.createTenant)
 	h.mux.HandleFunc("POST /v1/vectors", h.insert)
 	h.mux.HandleFunc("POST /v1/vectors:batch", h.batchUpsert)
@@ -50,6 +53,7 @@ func New(svc pb.NuclaDBServer) *Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxBody)
 	h.mux.ServeHTTP(w, r)
 }
 
@@ -137,7 +141,12 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		code := http.StatusBadRequest
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			code = http.StatusRequestEntityTooLarge
+		}
+		writeError(w, code, err.Error())
 		return false
 	}
 	return true

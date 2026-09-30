@@ -19,7 +19,7 @@ func newTestHandler(t *testing.T) *Handler {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	return New(grpcapi.New(store, pb.DistanceMetric_DISTANCE_METRIC_L2))
+	return New(grpcapi.New(store, pb.DistanceMetric_DISTANCE_METRIC_L2), 1<<20)
 }
 
 func doJSON(t *testing.T, h *Handler, method, path string, body any) (int, map[string]any) {
@@ -91,5 +91,22 @@ func TestRESTBadRequest(t *testing.T) {
 	})
 	if code != 400 {
 		t.Fatalf("expected 400 for a non-numeric id, got %d (%v)", code, resp)
+	}
+}
+
+func TestRESTRejectsOversizedBodyAndHugeTopK(t *testing.T) {
+	h := newTestHandler(t) // 1 MiB body limit
+
+	big := make([]float32, 1_000_000) // about 2 MB of JSON
+	if code, _ := doJSON(t, h, "POST", "/v1/vectors", map[string]any{"id": "1", "values": big}); code != 413 {
+		t.Fatalf("oversized body: code=%d, want 413", code)
+	}
+	for _, body := range []map[string]any{
+		{"query": []float32{1, 0, 0, 0}, "top_k": grpcapi.MaxTopK + 1},
+		{"query": []float32{1, 0, 0, 0}, "top_k": 1, "ef_search": grpcapi.MaxEf + 1},
+	} {
+		if code, _ := doJSON(t, h, "POST", "/v1/search", body); code != 400 {
+			t.Fatalf("search %v: code=%d, want 400", body, code)
+		}
 	}
 }

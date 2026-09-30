@@ -40,6 +40,13 @@ func New(store *engine.Store, metric pb.DistanceMetric) *Server {
 	return &Server{store: store, metric: metric}
 }
 
+// Caps on per-search work, so one request can't ask the server to walk
+// the whole graph or sort millions of results.
+const (
+	MaxTopK = 1000
+	MaxEf   = 10000
+)
+
 func parseID(s string) (uint64, error) {
 	id, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
@@ -132,10 +139,13 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 			s.metric)
 	}
 	topK := int(req.GetTopK())
-	if topK <= 0 {
-		return nil, status.Error(codes.InvalidArgument, "top_k must be > 0")
+	if topK <= 0 || topK > MaxTopK {
+		return nil, status.Errorf(codes.InvalidArgument, "top_k must be between 1 and %d", MaxTopK)
 	}
 	ef := int(req.GetEfSearch())
+	if ef < 0 || ef > MaxEf {
+		return nil, status.Errorf(codes.InvalidArgument, "ef_search must be between 0 (server default) and %d", MaxEf)
+	}
 
 	filters := make(map[string]string, len(req.GetFilters()))
 	for _, f := range req.GetFilters() {
