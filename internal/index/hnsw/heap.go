@@ -3,7 +3,7 @@ package hnsw
 // candidate is a node reachable during graph traversal, paired with its
 // distance to the current query vector.
 type candidate struct {
-	id   uint64
+	id   uint32 // node slot, see Graph.nodes
 	dist float32
 }
 

@@ -121,7 +121,7 @@ func TestReinsertPreservesConnectivity(t *testing.T) {
 		}
 	}
 
-	entry := g.entryPoint
+	entry := g.nodes[g.entryPoint].id
 	entryVec := make([]float32, 4)
 	entryVec[entry%4] = float32(entry)
 	if err := g.Insert(entry, entryVec); err != nil {

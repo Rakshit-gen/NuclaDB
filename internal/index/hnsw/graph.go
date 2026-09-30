@@ -54,7 +54,7 @@ type node struct {
 	id        uint64
 	vector    []float32
 	level     int
-	neighbors [][]uint64 // neighbors[l] = neighbor ids at layer l
+	neighbors [][]uint32 // neighbors[l] = neighbor slots at layer l
 	deleted   bool
 }
 
@@ -69,10 +69,15 @@ type node struct {
 type Graph struct {
 	cfg Config
 
-	wmu        sync.Mutex // serializes writers; also guards rng
-	mu         sync.RWMutex
-	nodes      map[uint64]*node
-	entryPoint uint64
+	wmu sync.Mutex // serializes writers; also guards rng
+	mu  sync.RWMutex
+	// nodes is indexed by slot, a dense internal number each id keeps for
+	// the graph's lifetime (a reinsert reuses it). Edges store slots, so
+	// traversal indexes a slice instead of hashing into a map, and the
+	// visited set can be a flat array (see visitedSet).
+	nodes      []*node
+	slots      map[uint64]uint32 // id -> slot
+	entryPoint uint32
 	hasEntry   bool
 	maxLevel   int
 	live       int // non-deleted nodes, kept current so Len is O(1)
@@ -89,7 +94,7 @@ func New(cfg Config) *Graph {
 	}
 	return &Graph{
 		cfg:       cfg,
-		nodes:     make(map[uint64]*node),
+		slots:     make(map[uint64]uint32),
 		levelMult: 1 / math.Log(float64(cfg.M)),
 		rng:       rand.New(src),
 	}
@@ -126,7 +131,7 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 		id:        id,
 		vector:    vec,
 		level:     level,
-		neighbors: make([][]uint64, level+1),
+		neighbors: make([][]uint32, level+1),
 	}
 
 	// A re-insert of an id already in the graph is deferred into g.nodes
@@ -137,13 +142,16 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 	// the old node deleted — would make id resolve to an edge-less stub
 	// mid-traversal, collapsing the graph to a self-loop wherever id was
 	// entryPoint or an intermediate hop (caught by TestReinsertPreservesConnectivity).
-	existing, existed := g.nodes[id]
+	slot, existed := g.slots[id]
+	if !existed {
+		slot = uint32(len(g.nodes))
+	}
 
 	if !g.hasEntry {
 		g.mu.Lock()
 		g.live++
-		g.nodes[id] = nd
-		g.entryPoint = id
+		g.place(slot, nd, existed)
+		g.entryPoint = slot
 		g.hasEntry = true
 		g.maxLevel = level
 		g.mu.Unlock()
@@ -176,7 +184,7 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 		if existed {
 			filtered := candidates[:0]
 			for _, c := range candidates {
-				if c.id != id {
+				if c.id != slot {
 					filtered = append(filtered, c)
 				}
 			}
@@ -198,23 +206,20 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 		if l == 0 {
 			mMax = g.cfg.M * 2
 		}
-		for _, nbrID := range nd.neighbors[l] {
-			g.connect(nbrID, id, vec, l, mMax)
+		for _, nbr := range nd.neighbors[l] {
+			g.connect(nbr, slot, vec, l, mMax)
 		}
 	}
 
-	if !existed || existing.deleted {
+	if !existed || g.nodes[slot].deleted {
 		g.live++
 	}
-	if existed {
-		existing.deleted = true
-	}
-	g.nodes[id] = nd
+	g.place(slot, nd, existed)
 
 	switch {
 	case level > g.maxLevel:
 		g.maxLevel = level
-		g.entryPoint = id
+		g.entryPoint = slot
 	case len(nd.neighbors[0]) == 0:
 		// No live node was found to connect to at the base layer — every
 		// node currently reachable from the entry point is tombstoned
@@ -223,9 +228,20 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 		// entry point would stay pinned to dead nodes with no live path to
 		// nd, leaving it permanently unreachable from Search despite being
 		// live.
-		g.entryPoint = id
+		g.entryPoint = slot
 	}
 	return nil
+}
+
+// place stores nd at slot: a new slot is appended, a reinsert replaces the
+// old node so every edge into the slot now reaches nd. Caller holds mu.
+func (g *Graph) place(slot uint32, nd *node, existed bool) {
+	if existed {
+		g.nodes[slot] = nd
+		return
+	}
+	g.nodes = append(g.nodes, nd)
+	g.slots[nd.id] = slot
 }
 
 // connect adds a bidirectional edge nbrID -> newID at layer l, pruning
@@ -235,10 +251,10 @@ func (g *Graph) Insert(id uint64, vector []float32) error {
 // node isn't registered in g.nodes yet — that swap is deferred until the
 // caller's traversal finishes, so it can still see the old node under a
 // reused id.
-func (g *Graph) connect(nbrID, newID uint64, newVec []float32, l, mMax int) {
+func (g *Graph) connect(nbrID, newID uint32, newVec []float32, l, mMax int) {
 	nbr := g.nodes[nbrID]
 	if len(nbr.neighbors) <= l {
-		grown := make([][]uint64, l+1)
+		grown := make([][]uint32, l+1)
 		copy(grown, nbr.neighbors)
 		nbr.neighbors = grown
 	}
@@ -269,7 +285,7 @@ func (g *Graph) connect(nbrID, newID uint64, newVec []float32, l, mMax int) {
 	for h.Len() > mMax {
 		h.pop()
 	}
-	pruned := make([]uint64, 0, mMax)
+	pruned := make([]uint32, 0, mMax)
 	for _, c := range *h {
 		pruned = append(pruned, c.id)
 	}
@@ -278,7 +294,7 @@ func (g *Graph) connect(nbrID, newID uint64, newVec []float32, l, mMax int) {
 
 // greedyClosest walks from entry towards the single closest node to query
 // at layer l, used for the coarse descent through the upper, sparse layers.
-func (g *Graph) greedyClosest(entry uint64, entryDist float32, query []float32, l int) (uint64, float32) {
+func (g *Graph) greedyClosest(entry uint32, entryDist float32, query []float32, l int) (uint32, float32) {
 	best, bestDist := entry, entryDist
 	improved := true
 	for improved {
@@ -299,21 +315,46 @@ func (g *Graph) greedyClosest(entry uint64, entryDist float32, query []float32, 
 	return best, bestDist
 }
 
-var visitedPool = sync.Pool{New: func() any { return make(map[uint64]bool) }}
+// visitedSet marks slots seen during one traversal. A slot is visited when
+// marks[slot] == gen, so starting a new traversal is gen++ rather than
+// clearing anything; this is hnswlib's VisitedList.
+type visitedSet struct {
+	marks []uint32
+	gen   uint32
+}
+
+func (v *visitedSet) reset(n int) {
+	if len(v.marks) < n {
+		v.marks = make([]uint32, n+n/4)
+		v.gen = 0
+	}
+	v.gen++
+	if v.gen == 0 { // wrapped: old marks could collide with the new gen
+		clear(v.marks)
+		v.gen = 1
+	}
+}
+
+// visit marks slot and reports whether it was already marked.
+func (v *visitedSet) visit(slot uint32) bool {
+	if v.marks[slot] == v.gen {
+		return true
+	}
+	v.marks[slot] = v.gen
+	return false
+}
+
+var visitedPool = sync.Pool{New: func() any { return new(visitedSet) }}
 
 // searchLayer runs a best-first beam search of width ef starting from
 // entry, exploring layer l, and returns up to ef candidates sorted closest
 // first. This is the workhorse used by both Insert (efConstruction) and
 // Search (efSearch).
-func (g *Graph) searchLayer(query []float32, entry uint64, ef, l int) []candidate {
-	// A fresh map per call was the biggest allocation on the search path;
-	// reuse one, cleared, across calls.
-	visited := visitedPool.Get().(map[uint64]bool)
-	defer func() {
-		clear(visited)
-		visitedPool.Put(visited)
-	}()
-	visited[entry] = true
+func (g *Graph) searchLayer(query []float32, entry uint32, ef, l int) []candidate {
+	visited := visitedPool.Get().(*visitedSet)
+	defer visitedPool.Put(visited)
+	visited.reset(len(g.nodes))
+	visited.visit(entry)
 	entryDist := g.cfg.Metric.Distance(query, g.nodes[entry].vector)
 
 	frontier := newMinHeap()
@@ -335,10 +376,9 @@ func (g *Graph) searchLayer(query []float32, entry uint64, ef, l int) []candidat
 			continue
 		}
 		for _, nbrID := range nd.neighbors[l] {
-			if visited[nbrID] {
+			if visited.visit(nbrID) {
 				continue
 			}
-			visited[nbrID] = true
 			nbr := g.nodes[nbrID]
 			d := g.cfg.Metric.Distance(query, nbr.vector)
 
@@ -363,11 +403,11 @@ func (g *Graph) searchLayer(query []float32, entry uint64, ef, l int) []candidat
 
 // selectNeighbors picks the m closest candidates. Candidates are assumed
 // pre-sorted closest-first by searchLayer.
-func (g *Graph) selectNeighbors(candidates []candidate, m int) []uint64 {
+func (g *Graph) selectNeighbors(candidates []candidate, m int) []uint32 {
 	if len(candidates) > m {
 		candidates = candidates[:m]
 	}
-	out := make([]uint64, len(candidates))
+	out := make([]uint32, len(candidates))
 	for i, c := range candidates {
 		out[i] = c.id
 	}
@@ -397,7 +437,11 @@ func (g *Graph) Snapshot() (nodes []NodeState, entryPoint uint64, maxLevel int, 
 	for _, nd := range g.nodes {
 		neighbors := make([][]uint64, len(nd.neighbors))
 		for l, ns := range nd.neighbors {
-			neighbors[l] = append([]uint64(nil), ns...)
+			ids := make([]uint64, len(ns))
+			for i, slot := range ns {
+				ids[i] = g.nodes[slot].id
+			}
+			neighbors[l] = ids
 		}
 		nodes = append(nodes, NodeState{
 			ID:        nd.id,
@@ -407,7 +451,10 @@ func (g *Graph) Snapshot() (nodes []NodeState, entryPoint uint64, maxLevel int, 
 			Deleted:   nd.deleted,
 		})
 	}
-	return nodes, g.entryPoint, g.maxLevel, g.hasEntry
+	if g.hasEntry {
+		entryPoint = g.nodes[g.entryPoint].id
+	}
+	return nodes, entryPoint, g.maxLevel, g.hasEntry
 }
 
 // Restore rebuilds the graph directly from previously exported NodeState
@@ -422,18 +469,25 @@ func (g *Graph) Restore(nodes []NodeState, entryPoint uint64, maxLevel int, hasE
 	defer g.mu.Unlock()
 
 	for _, ns := range nodes {
-		g.nodes[ns.ID] = &node{
-			id:        ns.ID,
-			vector:    ns.Vector,
-			level:     ns.Level,
-			neighbors: ns.Neighbors,
-			deleted:   ns.Deleted,
-		}
+		g.slots[ns.ID] = uint32(len(g.nodes))
+		g.nodes = append(g.nodes, &node{id: ns.ID, vector: ns.Vector, level: ns.Level, deleted: ns.Deleted})
 		if !ns.Deleted {
 			g.live++
 		}
 	}
-	g.entryPoint = entryPoint
+	for i, ns := range nodes {
+		neighbors := make([][]uint32, len(ns.Neighbors))
+		for l, ids := range ns.Neighbors {
+			neighbors[l] = make([]uint32, 0, len(ids))
+			for _, id := range ids {
+				if slot, ok := g.slots[id]; ok {
+					neighbors[l] = append(neighbors[l], slot)
+				}
+			}
+		}
+		g.nodes[i].neighbors = neighbors
+	}
+	g.entryPoint = g.slots[entryPoint]
 	g.maxLevel = maxLevel
 	g.hasEntry = hasEntry
 }
@@ -447,11 +501,11 @@ func (g *Graph) Delete(id uint64) error {
 	defer g.wmu.Unlock()
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	nd, ok := g.nodes[id]
-	if !ok || nd.deleted {
+	slot, ok := g.slots[id]
+	if !ok || g.nodes[slot].deleted {
 		return ErrNotFound
 	}
-	nd.deleted = true
+	g.nodes[slot].deleted = true
 	g.live--
 	return nil
 }
@@ -493,7 +547,7 @@ func (g *Graph) Search(query []float32, topK, ef int) ([]SearchResult, error) {
 	}
 	out := make([]SearchResult, len(candidates))
 	for i, c := range candidates {
-		out[i] = SearchResult{ID: c.id, Distance: c.dist}
+		out[i] = SearchResult{ID: g.nodes[c.id].id, Distance: c.dist}
 	}
 	return out, nil
 }
@@ -512,22 +566,22 @@ func (g *Graph) ExactSearch(query []float32, ids []uint64, topK int) ([]SearchRe
 
 	h := newMaxHeap()
 	for _, id := range ids {
-		nd, ok := g.nodes[id]
-		if !ok || nd.deleted {
+		slot, ok := g.slots[id]
+		if !ok || g.nodes[slot].deleted {
 			continue
 		}
-		d := g.cfg.Metric.Distance(query, nd.vector)
+		d := g.cfg.Metric.Distance(query, g.nodes[slot].vector)
 		if h.Len() < topK {
-			h.push(candidate{id: id, dist: d})
+			h.push(candidate{id: slot, dist: d})
 		} else if d < (*h)[0].dist {
 			h.pop()
-			h.push(candidate{id: id, dist: d})
+			h.push(candidate{id: slot, dist: d})
 		}
 	}
 	out := make([]SearchResult, h.Len())
 	for i := len(out) - 1; i >= 0; i-- {
 		c := h.pop()
-		out[i] = SearchResult{ID: c.id, Distance: c.dist}
+		out[i] = SearchResult{ID: g.nodes[c.id].id, Distance: c.dist}
 	}
 	return out, nil
 }
