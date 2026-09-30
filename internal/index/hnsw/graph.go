@@ -288,12 +288,21 @@ func (g *Graph) greedyClosest(entry uint64, entryDist float32, query []float32, 
 	return best, bestDist
 }
 
+var visitedPool = sync.Pool{New: func() any { return make(map[uint64]bool) }}
+
 // searchLayer runs a best-first beam search of width ef starting from
 // entry, exploring layer l, and returns up to ef candidates sorted closest
 // first. This is the workhorse used by both Insert (efConstruction) and
 // Search (efSearch).
 func (g *Graph) searchLayer(query []float32, entry uint64, ef, l int) []candidate {
-	visited := map[uint64]bool{entry: true}
+	// A fresh map per call was the biggest allocation on the search path;
+	// reuse one, cleared, across calls.
+	visited := visitedPool.Get().(map[uint64]bool)
+	defer func() {
+		clear(visited)
+		visitedPool.Put(visited)
+	}()
+	visited[entry] = true
 	entryDist := g.cfg.Metric.Distance(query, g.nodes[entry].vector)
 
 	frontier := newMinHeap()
