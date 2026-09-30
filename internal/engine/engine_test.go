@@ -4,6 +4,8 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
@@ -235,5 +237,40 @@ func TestSnapshotCompactsMostlyDeletedGraph(t *testing.T) {
 	defer e2.Close()
 	if e2.Len() != 300 || e2.graph.Load().Tombstones() != 0 {
 		t.Fatalf("reopened: Len %d, tombstones %d", e2.Len(), e2.graph.Load().Tombstones())
+	}
+}
+
+func TestGetAndList(t *testing.T) {
+	e, err := Open(t.TempDir(), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	for _, id := range []uint64{5, 1, 9, 3, 7} {
+		v := make([]float32, 8)
+		v[0] = float32(id)
+		if err := e.Insert(id, v, map[string]string{"n": strconv.Itoa(int(id))}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.Delete(7); err != nil {
+		t.Fatal(err)
+	}
+
+	v, md, ok := e.Get(9)
+	if !ok || v[0] != 9 || md["n"] != "9" {
+		t.Fatalf("Get(9) = %v %v %v", v, md, ok)
+	}
+	if _, _, ok := e.Get(7); ok {
+		t.Fatal("Get found a deleted id")
+	}
+
+	ids, more := e.List(0, 2)
+	if !slices.Equal(ids, []uint64{1, 3}) || !more {
+		t.Fatalf("page 1 = %v more=%v", ids, more)
+	}
+	ids, more = e.List(ids[len(ids)-1]+1, 2)
+	if !slices.Equal(ids, []uint64{5, 9}) || more {
+		t.Fatalf("page 2 = %v more=%v", ids, more)
 	}
 }

@@ -159,6 +159,31 @@ func (g *Graph) Compact() (*Graph, error) {
 	return ng, ng.InsertBatch(ids, vecs)
 }
 
+// Get returns a copy of id's stored vector. Cosine graphs store vectors at
+// unit length, so that is what comes back for them.
+func (g *Graph) Get(id uint64) ([]float32, bool) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	slot, ok := g.slots[id]
+	if !ok || g.nodes[slot].deleted {
+		return nil, false
+	}
+	return append([]float32(nil), g.nodes[slot].vector...), true
+}
+
+// IDs returns every live id, in no particular order.
+func (g *Graph) IDs() []uint64 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]uint64, 0, g.live)
+	for _, nd := range g.nodes {
+		if !nd.deleted {
+			out = append(out, nd.id)
+		}
+	}
+	return out
+}
+
 // CountNew returns how many distinct ids in ids are not live in the graph,
 // i.e. how much Len would grow if they were all inserted now.
 func (g *Graph) CountNew(ids []uint64) int {

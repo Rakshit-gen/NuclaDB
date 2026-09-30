@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -870,6 +871,33 @@ func (e *Engine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.w.Close()
+}
+
+// Get returns id's stored vector and metadata. ok is false if id isn't
+// stored.
+func (e *Engine) Get(id uint64) (vector []float32, metadata map[string]string, ok bool) {
+	vector, ok = e.graph.Load().Get(id)
+	if !ok {
+		return nil, nil, false
+	}
+	e.metaMu.RLock()
+	defer e.metaMu.RUnlock()
+	return vector, e.metadata[id], true
+}
+
+// List returns up to limit stored ids that are >= start, in ascending
+// order, and whether more follow.
+// ponytail: sorts every id per page, O(n log n); keep a sorted index if
+// paging through big tenants gets slow.
+func (e *Engine) List(start uint64, limit int) (ids []uint64, more bool) {
+	all := e.graph.Load().IDs()
+	slices.Sort(all)
+	i, _ := slices.BinarySearch(all, start)
+	all = all[i:]
+	if len(all) > limit {
+		return all[:limit], true
+	}
+	return all, false
 }
 
 // CountNew returns how many distinct ids are not stored yet.
