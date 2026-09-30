@@ -124,6 +124,9 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 
 // Insert durably upserts id -> (vector, metadata). metadata may be nil.
 func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string) error {
+	if len(vector) != e.cfg.Dim {
+		return hnsw.ErrDimensionMismatch
+	}
 	var extra []byte
 	if len(metadata) > 0 {
 		b, err := json.Marshal(metadata)
@@ -174,6 +177,14 @@ type InsertItem struct {
 func (e *Engine) InsertBatch(items []InsertItem) error {
 	if len(items) == 0 {
 		return nil
+	}
+
+	// Validate everything before logging anything. A record the graph
+	// rejects would also be rejected on replay, and Open would fail forever.
+	for _, it := range items {
+		if len(it.Vector) != e.cfg.Dim {
+			return hnsw.ErrDimensionMismatch
+		}
 	}
 
 	records := make([]wal.Record, len(items))
