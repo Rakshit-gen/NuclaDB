@@ -1,6 +1,6 @@
 // Command nucladb-cli is a thin gRPC client for driving a running nucladbd
-// instance from the terminal: insert, search, delete, batch-upsert, and a
-// couple of inspection commands. Every subcommand and flag is documented
+// instance from the terminal: vector reads and writes, search, and tenant
+// admin. Every subcommand and flag is documented
 // in docs/cli.md — this binary's --help output and that file are kept in
 // sync by hand, so update both when a command changes.
 package main
@@ -53,6 +53,20 @@ func main() {
 		err = runSearch(addr, args)
 	case "delete":
 		err = runDelete(addr, args)
+	case "get":
+		err = runGet(addr, args)
+	case "update-metadata":
+		err = runUpdateMetadata(addr, args)
+	case "list":
+		err = runList(addr, args)
+	case "count":
+		err = runCount(addr, args)
+	case "tenants":
+		err = runTenants(addr, args)
+	case "delete-tenant":
+		err = runDeleteTenant(addr, args)
+	case "set-quota":
+		err = runSetQuota(addr, args)
 	case "ping":
 		err = runPing(addr, args)
 	case "quickstart":
@@ -88,11 +102,18 @@ Usage:
 
 Commands:
   quickstart     Spin up a local server, run a demo, then keep it up so you can try more
-  create-tenant  Provision a new tenant with an optional storage/rate quota
-  insert         Insert or update a single vector
-  batch-upsert   Insert or update many vectors from a JSON file
-  search         Find the nearest neighbors of a query vector
-  delete         Delete a vector by id
+  create-tenant    Provision a new tenant with an optional storage/rate quota
+  tenants          List tenants with their usage and settings
+  set-quota        Change a tenant's storage/rate quota
+  delete-tenant    Drop a tenant and all its data
+  insert           Insert or update a single vector
+  batch-upsert     Insert or update many vectors from a JSON file
+  get              Read one vector and its metadata
+  update-metadata  Replace a vector's metadata, keeping the vector
+  list             Print every stored id
+  count            Print how many vectors are stored
+  search           Find the nearest neighbors of a query vector
+  delete           Delete a vector by id
   ping           Check that the server is reachable
   completion     Print a shell completion script (bash, zsh, or fish)
 
@@ -101,7 +122,9 @@ than the reserved "default" one, and -json to print machine-readable
 output instead of the human-friendly default (handy for piping into jq).
 
 Environment:
-  NUCLADB_ADDR   Server address (default localhost:9090)
+  NUCLADB_ADDR     Server address (default localhost:9090)
+  NUCLADB_API_KEY  API key sent with every call, for a server run with -api-keys
+  NUCLADB_TLS      Set to 1 to connect over TLS
 
 New here? Run "nucladb-cli quickstart", no server or flags needed.
 Run "nucladb-cli <command> -h" for command-specific flags.
@@ -177,11 +200,17 @@ func runCreateTenant(addr string, args []string) error {
 	id := fs.String("id", "", "tenant id (required)")
 	maxVectors := fs.Int64("max-vectors", 0, "storage quota: max vectors this tenant may hold (0 = unlimited)")
 	maxQPS := fs.Float64("max-qps", 0, "rate limit: max requests/sec for this tenant (0 = unlimited)")
+	dim := fs.Int("dim", 0, "vector dimension (0 = the server's -dim)")
+	metricFlag := fs.String("metric", "", "cosine, l2 or dot (default: the server's -metric)")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON instead of a human-friendly line")
 	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
 	if *id == "" {
 		return fmt.Errorf("create-tenant: -id is required")
+	}
+	metric, err := parseMetric(*metricFlag)
+	if err != nil {
+		return err
 	}
 
 	conn, err := dial(addr)
@@ -196,6 +225,8 @@ func runCreateTenant(addr string, args []string) error {
 	_, err = client.CreateTenant(ctx, &pb.CreateTenantRequest{
 		TenantId: *id,
 		Quota:    &pb.TenantQuota{MaxVectors: *maxVectors, MaxQps: *maxQPS},
+		Dim:      int32(*dim),
+		Metric:   metric,
 	})
 	if err != nil {
 		return err
@@ -308,6 +339,8 @@ func runSearch(addr string, args []string) error {
 	tenant := fs.String("tenant", "", "tenant id (default: the reserved \"default\" tenant)")
 	var filters kvFlags
 	fs.Var(&filters, "filter", "metadata key=value the result must match; repeatable")
+	var where kvFlags
+	fs.Var(&where, "where", "filter as key:op[:value], e.g. year:gte:2024 or team:in:a,b; repeatable")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON instead of one line per match")
 	_ = fs.Parse(args) // flag.ExitOnError means Parse never returns on error
 
@@ -322,6 +355,13 @@ func runSearch(addr string, args []string) error {
 	var pbFilters []*pb.MetadataFilter
 	for k, v := range parseKV(filters) {
 		pbFilters = append(pbFilters, &pb.MetadataFilter{Key: k, Value: v})
+	}
+	for _, w := range where {
+		f, err := parseWhere(w)
+		if err != nil {
+			return err
+		}
+		pbFilters = append(pbFilters, f)
 	}
 
 	conn, err := dial(addr)

@@ -10,16 +10,23 @@ import (
 const bashCompletion = `_nucladb_cli() {
   local cur cmds
   cur="${COMP_WORDS[COMP_CWORD]}"
-  cmds="quickstart create-tenant insert batch-upsert search delete ping completion"
+  cmds="quickstart create-tenant tenants set-quota delete-tenant insert batch-upsert get update-metadata list count search delete ping completion"
   if [ "$COMP_CWORD" -eq 1 ]; then
     COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )
     return
   fi
   case "${COMP_WORDS[1]}" in
-    create-tenant) COMPREPLY=( $(compgen -W "-id -max-vectors -max-qps -json" -- "$cur") ) ;;
+    create-tenant) COMPREPLY=( $(compgen -W "-id -max-vectors -max-qps -dim -metric -json" -- "$cur") ) ;;
+    tenants)       COMPREPLY=( $(compgen -W "-json" -- "$cur") ) ;;
+    set-quota)     COMPREPLY=( $(compgen -W "-id -max-vectors -max-qps" -- "$cur") ) ;;
+    delete-tenant) COMPREPLY=( $(compgen -W "-id" -- "$cur") ) ;;
+    get)           COMPREPLY=( $(compgen -W "-id -tenant -json" -- "$cur") ) ;;
+    update-metadata) COMPREPLY=( $(compgen -W "-id -tenant -meta" -- "$cur") ) ;;
+    list)          COMPREPLY=( $(compgen -W "-tenant -page-size" -- "$cur") ) ;;
+    count)         COMPREPLY=( $(compgen -W "-tenant" -- "$cur") ) ;;
     insert)        COMPREPLY=( $(compgen -W "-id -vector -tenant -meta -json" -- "$cur") ) ;;
     batch-upsert)  COMPREPLY=( $(compgen -W "-file -tenant -json" -- "$cur") ) ;;
-    search)        COMPREPLY=( $(compgen -W "-vector -top-k -ef -tenant -filter -json" -- "$cur") ) ;;
+    search)        COMPREPLY=( $(compgen -W "-vector -top-k -ef -tenant -filter -where -json" -- "$cur") ) ;;
     delete)        COMPREPLY=( $(compgen -W "-id -tenant -json" -- "$cur") ) ;;
     ping)          COMPREPLY=( $(compgen -W "-json" -- "$cur") ) ;;
     completion)    COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
@@ -33,16 +40,30 @@ const zshCompletion = `autoload -Uz bashcompinit && bashcompinit
 
 const fishCompletion = `complete -c nucladb-cli -n "__fish_use_subcommand" -a quickstart -d "Try every command against a throwaway local server"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a create-tenant -d "Provision a new tenant"
+complete -c nucladb-cli -n "__fish_use_subcommand" -a tenants -d "List tenants"
+complete -c nucladb-cli -n "__fish_use_subcommand" -a set-quota -d "Change a tenant's quota"
+complete -c nucladb-cli -n "__fish_use_subcommand" -a delete-tenant -d "Drop a tenant and its data"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a insert -d "Insert or update a vector"
+complete -c nucladb-cli -n "__fish_use_subcommand" -a get -d "Read one vector"
+complete -c nucladb-cli -n "__fish_use_subcommand" -a update-metadata -d "Replace a vector's metadata"
+complete -c nucladb-cli -n "__fish_use_subcommand" -a list -d "Print every stored id"
+complete -c nucladb-cli -n "__fish_use_subcommand" -a count -d "Print the vector count"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a batch-upsert -d "Insert or update many vectors from a file"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a search -d "Find nearest neighbors"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a delete -d "Delete a vector by id"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a ping -d "Check the server is reachable"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a completion -d "Print a shell completion script"
-complete -c nucladb-cli -n "__fish_seen_subcommand_from create-tenant" -l id -l max-vectors -l max-qps -l json
+complete -c nucladb-cli -n "__fish_seen_subcommand_from create-tenant" -l id -l max-vectors -l max-qps -l dim -l metric -l json
+complete -c nucladb-cli -n "__fish_seen_subcommand_from tenants" -l json
+complete -c nucladb-cli -n "__fish_seen_subcommand_from set-quota" -l id -l max-vectors -l max-qps
+complete -c nucladb-cli -n "__fish_seen_subcommand_from delete-tenant" -l id
+complete -c nucladb-cli -n "__fish_seen_subcommand_from get" -l id -l tenant -l json
+complete -c nucladb-cli -n "__fish_seen_subcommand_from update-metadata" -l id -l tenant -l meta
+complete -c nucladb-cli -n "__fish_seen_subcommand_from list" -l tenant -l page-size
+complete -c nucladb-cli -n "__fish_seen_subcommand_from count" -l tenant
 complete -c nucladb-cli -n "__fish_seen_subcommand_from insert" -l id -l vector -l tenant -l meta -l json
 complete -c nucladb-cli -n "__fish_seen_subcommand_from batch-upsert" -l file -l tenant -l json
-complete -c nucladb-cli -n "__fish_seen_subcommand_from search" -l vector -l top-k -l ef -l tenant -l filter -l json
+complete -c nucladb-cli -n "__fish_seen_subcommand_from search" -l vector -l top-k -l ef -l tenant -l filter -l where -l json
 complete -c nucladb-cli -n "__fish_seen_subcommand_from delete" -l id -l tenant -l json
 complete -c nucladb-cli -n "__fish_seen_subcommand_from ping" -l json
 complete -c nucladb-cli -n "__fish_seen_subcommand_from completion" -a "bash zsh fish"
