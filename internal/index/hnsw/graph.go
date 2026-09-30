@@ -8,6 +8,7 @@ import (
 	"errors"
 	"math"
 	"math/rand"
+	"sort"
 	"sync"
 )
 
@@ -207,6 +208,11 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	if !existed || g.nodes[slot].deleted {
+		g.live++
+	}
+	g.place(slot, nd, existed)
+
 	for l := range nd.neighbors {
 		mMax := g.cfg.M
 		if l == 0 {
@@ -216,11 +222,6 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 			g.connect(nbr, slot, vec, l, mMax)
 		}
 	}
-
-	if !existed || g.nodes[slot].deleted {
-		g.live++
-	}
-	g.place(slot, nd, existed)
 
 	switch {
 	case level > g.maxLevel:
@@ -278,23 +279,17 @@ func (g *Graph) connect(nbrID, newID uint32, newVec []float32, l, mMax int) {
 		return
 	}
 
-	// Over budget: keep the mMax closest neighbors by distance to nbr.
-	h := newMaxHeap()
-	for _, id := range nbr.neighbors[l] {
+	// Over budget: re-pick nbr's links with the same heuristic Insert uses.
+	cands := make([]candidate, len(nbr.neighbors[l]))
+	for i, id := range nbr.neighbors[l] {
 		v := newVec
 		if id != newID {
 			v = g.nodes[id].vector
 		}
-		h.push(candidate{id: id, dist: g.cfg.Metric.Distance(nbr.vector, v)})
+		cands[i] = candidate{id: id, dist: g.cfg.Metric.Distance(nbr.vector, v)}
 	}
-	for h.Len() > mMax {
-		h.pop()
-	}
-	pruned := make([]uint32, 0, mMax)
-	for _, c := range *h {
-		pruned = append(pruned, c.id)
-	}
-	nbr.neighbors[l] = pruned
+	sort.Slice(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
+	nbr.neighbors[l] = g.selectNeighbors(cands, mMax)
 }
 
 // greedyClosest walks from entry towards the single closest node to query
@@ -406,15 +401,30 @@ func (g *Graph) searchLayer(query []float32, entry uint32, ef, l int) []candidat
 	return out
 }
 
-// selectNeighbors picks the m closest candidates. Candidates are assumed
-// pre-sorted closest-first by searchLayer.
+// selectNeighbors picks up to m links from candidates, which must be
+// sorted closest-first and all already placed in g.nodes. It is the
+// heuristic from the HNSW paper (Algorithm 4), as in hnswlib: a candidate
+// is kept only if it is closer to the base node than to every link already
+// kept. Plain "closest m" tends to spend every link on one tight cluster;
+// the heuristic spreads links out, so a greedy search can leave a cluster
+// through them, which is what lifts recall at low ef.
 func (g *Graph) selectNeighbors(candidates []candidate, m int) []uint32 {
-	if len(candidates) > m {
-		candidates = candidates[:m]
-	}
-	out := make([]uint32, len(candidates))
-	for i, c := range candidates {
-		out[i] = c.id
+	out := make([]uint32, 0, m)
+	for _, c := range candidates {
+		if len(out) >= m {
+			break
+		}
+		v := g.nodes[c.id].vector
+		keep := true
+		for _, kept := range out {
+			if g.cfg.Metric.Distance(v, g.nodes[kept].vector) < c.dist {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			out = append(out, c.id)
+		}
 	}
 	return out
 }

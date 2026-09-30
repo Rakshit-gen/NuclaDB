@@ -288,3 +288,30 @@ func TestConcurrentInsertSearch(t *testing.T) {
 	}
 	<-done
 }
+
+// Three candidates sit in one tight cluster and one sits off to the side.
+// Plain "closest 2" would spend both links on the cluster; the heuristic
+// keeps one cluster link and the side one, so search can leave the cluster.
+func TestSelectNeighborsSpreadsLinks(t *testing.T) {
+	g := New(Config{Dim: 2, M: 2, Metric: L2(), Seed: 1})
+	for id, v := range [][]float32{{1, 0}, {1.05, 0}, {1, 0.05}, {0, 1.1}} {
+		if err := g.Insert(uint64(id), v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := []float32{0, 0}
+	var cands []candidate
+	for slot, nd := range g.nodes {
+		cands = append(cands, candidate{id: uint32(slot), dist: L2().Distance(base, nd.vector)})
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
+
+	got := g.selectNeighbors(cands, 2)
+	ids := map[uint64]bool{}
+	for _, slot := range got {
+		ids[g.nodes[slot].id] = true
+	}
+	if len(got) != 2 || !ids[0] || !ids[3] {
+		t.Fatalf("picked ids %v, want 0 (nearest in the cluster) and 3 (the outlier)", ids)
+	}
+}

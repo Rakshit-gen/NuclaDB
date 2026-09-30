@@ -133,7 +133,7 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 			if l < len(candidates[k]) {
 				found = candidates[k][l]
 			}
-			nd.neighbors[l] = g.selectNeighbors(mergeClosest(found, mates, g.cfg.M), g.cfg.M)
+			nd.neighbors[l] = g.selectNeighbors(mergeClosest(found, mates, len(found)+len(mates)), g.cfg.M)
 		}
 
 		g.mu.Lock()
