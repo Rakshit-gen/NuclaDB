@@ -156,6 +156,66 @@ func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string)
 	return nil
 }
 
+// InsertItem is one vector in an InsertBatch call, the same shape Insert
+// takes for a single record.
+type InsertItem struct {
+	ID       uint64
+	Vector   []float32
+	Metadata map[string]string
+}
+
+// InsertBatch durably upserts every item as one group: the WAL records share
+// a single fsync (see wal.Writer.AppendBatch) instead of one each. The
+// durability guarantee is the same as calling Insert per item. An fsync per
+// record is why building the 10K SIFT benchmark took 44s.
+//
+// The whole batch is made durable before any item touches the graph, so if
+// the shared fsync fails nothing in the batch is applied.
+func (e *Engine) InsertBatch(items []InsertItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	records := make([]wal.Record, len(items))
+	for i, it := range items {
+		var extra []byte
+		if len(it.Metadata) > 0 {
+			b, err := json.Marshal(it.Metadata)
+			if err != nil {
+				return err
+			}
+			extra = b
+		}
+		records[i] = wal.Record{Op: wal.OpInsert, ID: it.ID, Vector: it.Vector, Extra: extra}
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	seqs, err := e.w.AppendBatch(records)
+	if err != nil {
+		return err
+	}
+
+	graph := e.graph.Load()
+	for i, it := range items {
+		if err := graph.Insert(it.ID, it.Vector); err != nil {
+			return err
+		}
+
+		e.metaMu.Lock()
+		if len(it.Metadata) > 0 {
+			e.metadata[it.ID] = it.Metadata
+		} else {
+			delete(e.metadata, it.ID)
+		}
+		e.metaMu.Unlock()
+
+		e.seq = seqs[i]
+	}
+	return nil
+}
+
 // Delete durably removes id. It is not an error to delete an id that was
 // already deleted or never existed — deletes are idempotent by design so
 // WAL replay can safely re-apply them.

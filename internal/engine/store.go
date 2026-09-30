@@ -194,6 +194,19 @@ func (s *Store) Insert(tenantID string, id uint64, vector []float32, metadata ma
 	return t.engine.Insert(id, vector, metadata)
 }
 
+// InsertBatch durably upserts items within tenantID with one shared fsync.
+// Used by the BatchUpsert RPC for bulk loads.
+func (s *Store) InsertBatch(tenantID string, items []InsertItem) error {
+	t, err := s.getTenant(tenantID)
+	if err != nil {
+		return err
+	}
+	if err := s.checkAndReserve(t, len(items)); err != nil {
+		return err
+	}
+	return t.engine.InsertBatch(items)
+}
+
 // Delete durably removes id within tenantID.
 func (s *Store) Delete(tenantID string, id uint64) error {
 	t, err := s.getTenant(tenantID)
