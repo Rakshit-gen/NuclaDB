@@ -82,6 +82,17 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 		return nil, err
 	}
 
+	// Replayed inserts are queued and applied with InsertBatch, so a long
+	// WAL rebuilds on every core. A delete flushes the queue first, keeping
+	// the graph's operations in log order.
+	var pendingIDs []uint64
+	var pendingVecs [][]float32
+	flush := func() error {
+		err := g.InsertBatch(pendingIDs, pendingVecs)
+		pendingIDs, pendingVecs = pendingIDs[:0], pendingVecs[:0]
+		return err
+	}
+
 	lastSeq := snapshotSeq
 	walBytes, _, err := wal.Recover(walPath, func(rec wal.Record) error {
 		if rec.Seq <= snapshotSeq {
@@ -90,9 +101,8 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 		}
 		switch rec.Op {
 		case wal.OpInsert:
-			if err := g.Insert(rec.ID, rec.Vector); err != nil {
-				return err
-			}
+			pendingIDs = append(pendingIDs, rec.ID)
+			pendingVecs = append(pendingVecs, rec.Vector)
 			if len(rec.Extra) > 0 {
 				var m map[string]string
 				if err := json.Unmarshal(rec.Extra, &m); err != nil {
@@ -103,12 +113,18 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 				delete(metadata, rec.ID)
 			}
 		case wal.OpDelete:
+			if err := flush(); err != nil {
+				return err
+			}
 			_ = g.Delete(rec.ID) // idempotent: fine if already absent
 			delete(metadata, rec.ID)
 		}
 		lastSeq = rec.Seq
 		return nil
 	})
+	if err == nil {
+		err = flush()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -270,15 +286,18 @@ func (e *Engine) commitLocked(items []InsertItem, records []wal.Record) error {
 		return err
 	}
 
-	graph := e.graph.Load()
+	ids := make([]uint64, len(items))
+	vectors := make([][]float32, len(items))
 	for i, it := range items {
-		if err := graph.Insert(it.ID, it.Vector); err != nil {
-			return err
-		}
-
-		e.setMeta(it.ID, it.Metadata)
-		e.seq = seqs[i]
+		ids[i], vectors[i] = it.ID, it.Vector
 	}
+	if err := e.graph.Load().InsertBatch(ids, vectors); err != nil {
+		return err
+	}
+	for _, it := range items {
+		e.setMeta(it.ID, it.Metadata)
+	}
+	e.seq = seqs[len(seqs)-1]
 	return nil
 }
 
