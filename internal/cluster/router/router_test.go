@@ -170,3 +170,27 @@ func TestDeleteRemovesFromCorrectShard(t *testing.T) {
 		t.Fatalf("id=8 (never deleted) missing from Search results: %+v", res)
 	}
 }
+
+func TestInsertBatchSpreadsAcrossShards(t *testing.T) {
+	const numShards = 3
+	r := newTestCluster(t, numShards)
+	ctx := context.Background()
+
+	items := make([]Item, 30)
+	for i := range items {
+		items[i] = Item{ID: uint64(i), Vector: []float32{float32(i), 0, 0, 0}, Metadata: map[string]string{"i": fmt.Sprint(i)}}
+	}
+	if err := r.InsertBatch(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []uint64{0, 13, 29} {
+		got, err := r.Search(ctx, []float32{float32(want), 0, 0, 0}, 1, 50, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].ID != want || got[0].Metadata["i"] != fmt.Sprint(want) {
+			t.Fatalf("search for %d got %+v", want, got)
+		}
+	}
+}

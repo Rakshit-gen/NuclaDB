@@ -112,6 +112,52 @@ func (r *Router) Insert(ctx context.Context, id uint64, vector []float32, metada
 	return err
 }
 
+// Item is one vector in an InsertBatch call.
+type Item struct {
+	ID       uint64
+	Vector   []float32
+	Metadata map[string]string
+}
+
+// InsertBatch splits items by shard and sends each shard a single
+// BatchUpsert, all shards in parallel, so each shard logs its part with one
+// fsync. If a shard fails, the other shards' parts may still have been
+// written; upserts are idempotent, so the caller can retry the whole batch.
+func (r *Router) InsertBatch(ctx context.Context, items []Item) error {
+	numShards := r.resolver.NumShards()
+	byShard := make(map[int][]*pb.Vector)
+	for _, it := range items {
+		shard := ShardFor(it.ID, numShards)
+		byShard[shard] = append(byShard[shard], &pb.Vector{
+			Id:       strconv.FormatUint(it.ID, 10),
+			Values:   it.Vector,
+			Metadata: it.Metadata,
+			TenantId: r.tenantID,
+		})
+	}
+
+	errs := make(chan error, len(byShard))
+	for shard, vecs := range byShard {
+		go func(shard int, vecs []*pb.Vector) {
+			client, err := r.ownerClient(shard)
+			if err == nil {
+				_, err = client.BatchUpsert(ctx, &pb.BatchUpsertRequest{Vectors: vecs})
+			}
+			if err != nil {
+				err = fmt.Errorf("shard %d: %w", shard, err)
+			}
+			errs <- err
+		}(shard, vecs)
+	}
+	var firstErr error
+	for range byShard {
+		if err := <-errs; err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // Delete routes id to the single shard it hashes to.
 func (r *Router) Delete(ctx context.Context, id uint64) error {
 	client, err := r.ownerClient(ShardFor(id, r.resolver.NumShards()))
