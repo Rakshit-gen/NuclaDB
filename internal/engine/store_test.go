@@ -561,3 +561,18 @@ func TestStoreTenantAdmin(t *testing.T) {
 		t.Fatalf("recreated tenant has %d vectors", st.VectorCount)
 	}
 }
+
+func TestStoreIgnoresStrayDirectories(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "lost+found"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenStore(root, testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, ok := s.AllStats()["lost+found"]; ok {
+		t.Fatal("a directory with no tenant files was loaded as a tenant")
+	}
+}

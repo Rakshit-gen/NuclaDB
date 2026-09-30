@@ -98,7 +98,7 @@ func OpenStore(rootDir string, cfg hnsw.Config) (*Store, error) {
 	s := &Store{rootDir: rootDir, cfg: cfg, tenants: make(map[string]*tenant)}
 	foundDefault := false
 	for _, e := range entries {
-		if !e.IsDir() {
+		if !e.IsDir() || !isTenantDir(filepath.Join(rootDir, e.Name())) {
 			continue
 		}
 		quota, err := loadQuota(filepath.Join(rootDir, e.Name()))
@@ -116,6 +116,18 @@ func OpenStore(rootDir string, cfg hnsw.Config) (*Store, error) {
 		}
 	}
 	return s, nil
+}
+
+// isTenantDir reports whether dir holds a tenant's files. Every tenant gets
+// quota.json when it's created; wal.log covers tenants from before that.
+// Anything else under the root (lost+found, a backup copy) is ignored.
+func isTenantDir(dir string) bool {
+	for _, f := range []string{quotaFile, walFile} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func validTenantID(id string) bool {
