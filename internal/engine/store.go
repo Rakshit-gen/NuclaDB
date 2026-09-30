@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/time/rate"
 
@@ -37,6 +38,10 @@ type tenant struct {
 	engine  *Engine
 	quota   Quota
 	limiter *rate.Limiter // nil when MaxQPS == 0 (unlimited)
+	// reserved counts new vectors whose inserts passed the quota check but
+	// haven't finished yet, so concurrent inserts can't all squeeze past
+	// the same headroom.
+	reserved atomic.Int64
 }
 
 // Store manages multiple tenant-isolated Engines under one root directory:
@@ -215,14 +220,19 @@ func (s *Store) Engine(tenantID string) (*Engine, error) {
 	return t.engine, nil
 }
 
-func (s *Store) checkAndReserve(t *tenant, extra int) error {
-	if t.limiter != nil && !t.limiter.Allow() {
-		return ErrRateLimited
+// reserve checks the quota for ids and holds room for the ones that are new.
+// Upserting an id that already exists doesn't use any. The caller must call
+// the returned release once the insert is done.
+func (s *Store) reserve(t *tenant, ids []uint64) (release func(), err error) {
+	if t.quota.MaxVectors <= 0 {
+		return func() {}, nil
 	}
-	if t.quota.MaxVectors > 0 && int64(t.engine.Len()+extra) > t.quota.MaxVectors {
-		return ErrQuotaExceeded
+	n := int64(t.engine.CountNew(ids))
+	if int64(t.engine.Len())+t.reserved.Add(n) > t.quota.MaxVectors {
+		t.reserved.Add(-n)
+		return nil, ErrQuotaExceeded
 	}
-	return nil
+	return func() { t.reserved.Add(-n) }, nil
 }
 
 // Insert durably upserts id -> (vector, metadata) within tenantID.
@@ -231,9 +241,14 @@ func (s *Store) Insert(tenantID string, id uint64, vector []float32, metadata ma
 	if err != nil {
 		return err
 	}
-	if err := s.checkAndReserve(t, 1); err != nil {
+	if t.limiter != nil && !t.limiter.Allow() {
+		return ErrRateLimited
+	}
+	release, err := s.reserve(t, []uint64{id})
+	if err != nil {
 		return err
 	}
+	defer release()
 	return t.engine.Insert(id, vector, metadata)
 }
 
@@ -244,9 +259,18 @@ func (s *Store) InsertBatch(tenantID string, items []InsertItem) error {
 	if err != nil {
 		return err
 	}
-	if err := s.checkAndReserve(t, len(items)); err != nil {
+	if t.limiter != nil && !t.limiter.Allow() {
+		return ErrRateLimited
+	}
+	ids := make([]uint64, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	release, err := s.reserve(t, ids)
+	if err != nil {
 		return err
 	}
+	defer release()
 	return t.engine.InsertBatch(items)
 }
 

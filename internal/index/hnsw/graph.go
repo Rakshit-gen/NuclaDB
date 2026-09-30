@@ -111,6 +111,21 @@ func (g *Graph) Len() int {
 	return g.live
 }
 
+// CountNew returns how many distinct ids in ids are not live in the graph,
+// i.e. how much Len would grow if they were all inserted now.
+func (g *Graph) CountNew(ids []uint64) int {
+	seen := make(map[uint64]struct{}, len(ids))
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	for _, id := range ids {
+		if slot, ok := g.slots[id]; ok && !g.nodes[slot].deleted {
+			continue
+		}
+		seen[id] = struct{}{}
+	}
+	return len(seen)
+}
+
 func (g *Graph) randomLevel() int {
 	// Standard HNSW level assignment: P(level >= l) decays exponentially so
 	// higher layers stay sparse, giving log-time greedy descent.

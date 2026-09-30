@@ -736,6 +736,11 @@ func (e *Engine) Close() error {
 	return e.w.Close()
 }
 
+// CountNew returns how many distinct ids are not stored yet.
+func (e *Engine) CountNew(ids []uint64) int {
+	return e.graph.Load().CountNew(ids)
+}
+
 // Len returns the number of live (non-deleted) vectors.
 func (e *Engine) Len() int {
 	return e.graph.Load().Len()

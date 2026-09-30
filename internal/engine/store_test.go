@@ -346,3 +346,46 @@ func TestStoreSnapshotContinuesPastAFailingTenant(t *testing.T) {
 		t.Fatalf("tenant b was not snapshotted: %v", err)
 	}
 }
+
+func TestStoreQuotaIgnoresUpsertsAndHoldsUnderConcurrency(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.CreateTenant("q", Quota{MaxVectors: 10}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 50 writers race for 10 slots.
+	var wg sync.WaitGroup
+	for i := uint64(0); i < 50; i++ {
+		wg.Add(1)
+		go func(id uint64) {
+			defer wg.Done()
+			_ = s.Insert("q", id, []float32{float32(id), 0, 0, 0}, nil)
+		}(i)
+	}
+	wg.Wait()
+	stats, _ := s.Stats("q")
+	if stats.VectorCount != 10 {
+		t.Fatalf("VectorCount = %d, want exactly the quota of 10", stats.VectorCount)
+	}
+
+	// At the quota, overwriting stored ids is still allowed.
+	var stored []InsertItem
+	for i := uint64(0); i < 50 && len(stored) < 10; i++ {
+		if s.tenants["q"].engine.CountNew([]uint64{i}) == 0 {
+			stored = append(stored, InsertItem{ID: i, Vector: []float32{0, 0, 0, 1}})
+		}
+	}
+	if err := s.Insert("q", stored[0].ID, []float32{0, 0, 1, 0}, nil); err != nil {
+		t.Fatalf("upsert of a stored id at the quota: %v", err)
+	}
+	if err := s.InsertBatch("q", stored); err != nil {
+		t.Fatalf("batch upsert of stored ids at the quota: %v", err)
+	}
+	if err := s.Insert("q", 1000, []float32{1, 1, 1, 1}, nil); err != ErrQuotaExceeded {
+		t.Fatalf("new id past the quota: got %v, want ErrQuotaExceeded", err)
+	}
+}
