@@ -234,6 +234,11 @@ gRPC message or REST body, `top_k` is capped at 1000, `ef_search` at
 10000, and `-tenant-idle-timeout` (30m) closes tenants nobody has used so
 thousands of them don't all hold files open.
 
+## Feature guides
+
+Plain-language guides to each part, with the measured numbers behind it:
+[`docs/features`](docs/features/README.md).
+
 ## Design writeups
 
 - [Why WAL-then-snapshot, and what it actually costs](docs/writeups/01-wal-then-snapshot.md)
