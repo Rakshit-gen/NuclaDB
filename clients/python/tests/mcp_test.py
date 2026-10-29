@@ -70,6 +70,11 @@ def main() -> None:
                 assert again == ids[:1], (again, ids)
                 assert call(server, "count") == 3
 
+
+                twice = call(server, "add_texts", texts=["a boat", "a boat"])
+                assert twice[0] == twice[1], twice
+                assert call(server, "count") == 4
+
             print("OK: add_texts and search verified against a real nucladbd subprocess")
         finally:
             proc.terminate()
