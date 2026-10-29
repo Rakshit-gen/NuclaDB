@@ -19,7 +19,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 
-from .client import Client
+from .client import Client, DistanceMetric
 
 # texts in, one vector per text out
 Embedder = Callable[[list[str]], list[list[float]]]
@@ -138,6 +138,25 @@ def sentence_transformer(model_name: str) -> Embedder:
     return lambda texts: model.encode(texts, normalize_embeddings=True).tolist()
 
 
+def check_tenant(db: Client, dim: int) -> None:
+    """Fail at startup, not on the agent's first add, when the tenant was
+    made for vectors of a different size than the model produces."""
+    try:
+        tenants = {t.id: t for t in db.list_tenants()}
+    except grpc.RpcError as e:
+        # listing tenants is an admin call; a tenant-scoped key just skips the check
+        if e.code() in (grpc.StatusCode.PERMISSION_DENIED, grpc.StatusCode.UNAUTHENTICATED):
+            return
+        raise
+    name = db.tenant_id or "default"
+    tenant = tenants.get(name)
+    if tenant is not None and tenant.dim != dim:
+        raise SystemExit(
+            f"nucladb-mcp: tenant {name!r} holds {tenant.dim}-dim vectors but the "
+            f"embedding model makes {dim}-dim ones; use a tenant created with dim={dim}"
+        )
+
+
 def main() -> None:
     embed = sentence_transformer(os.environ.get("NUCLADB_MCP_MODEL", DEFAULT_MODEL))
     with Client(
@@ -146,6 +165,7 @@ def main() -> None:
         api_key=os.environ.get("NUCLADB_API_KEY", ""),
         tls=os.environ.get("NUCLADB_TLS") == "1",
     ) as db:
+        check_tenant(db, len(embed(["dimension probe"])[0]))
         build(db, embed).run("stdio")
 
 
