@@ -11,6 +11,8 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError  # noqa: E402
+
 from nucladb import Client  # noqa: E402
 from nucladb.mcp_server import build, check_tenant  # noqa: E402
 from smoke_test import REPO_ROOT, free_port, wait_ready  # noqa: E402
@@ -26,6 +28,18 @@ def embed(texts: list[str]) -> list[list[float]]:
 
 def call(server, tool: str, **args):
     return asyncio.run(server.call_tool(tool, args)).structured_content["result"]
+
+
+def fails(server, tool: str, **args) -> str:
+    """The message the agent reads when tool refuses args. A crash would
+    only show it "Error executing tool", so that counts as a failure here."""
+    try:
+        call(server, tool, **args)
+    except UnexpectedToolError as e:
+        raise AssertionError(f"{tool} crashed instead of refusing: {e.__cause__!r}")
+    except ToolError as e:
+        return str(e)
+    raise AssertionError(f"{tool}({args}) should have failed")
 
 
 def main() -> None:
@@ -86,6 +100,11 @@ def main() -> None:
                 assert call(server, "get", id=ids[1]) is None
                 assert ids[1] not in [m["id"] for m in call(server, "search", query="dog", top_k=10)]
                 assert call(server, "delete", id=ids[1]) is True  # idempotent, like the client
+
+                assert "empty" in fails(server, "add_texts", texts=[])
+                assert "non-whitespace" in fails(server, "add_texts", texts=["ok", "  "])
+                assert "at most 256" in fails(server, "add_texts", texts=["cat"] * 257)
+                assert "reserved" in fails(server, "add_texts", texts=["cat"], metadata={"text": "x"})
 
             print("OK: add_texts and search verified against a real nucladbd subprocess")
         finally:
