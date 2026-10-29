@@ -91,7 +91,8 @@ def sentence_transformer(model_name: str) -> Embedder:
     from sentence_transformers import SentenceTransformer
 
     model = SentenceTransformer(model_name)
-    return lambda texts: model.encode(texts).tolist()
+    # unit length, so cosine, dot and l2 tenants all rank the same way
+    return lambda texts: model.encode(texts, normalize_embeddings=True).tolist()
 
 
 def main() -> None:
