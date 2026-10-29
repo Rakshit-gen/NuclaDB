@@ -61,4 +61,13 @@ def build(db: Client, embed: Embedder) -> MCPServer:
             for m in matches
         ]
 
+    @server.tool()
+    def get(id: str) -> dict | None:
+        """Fetch one stored text and its metadata by id, or null if absent."""
+        found = db.get(id)
+        if found is None:
+            return None
+        metadata = found[1]
+        return {"id": id, "text": metadata.pop("text", ""), "metadata": metadata}
+
     return server
