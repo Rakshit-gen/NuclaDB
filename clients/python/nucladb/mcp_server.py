@@ -41,7 +41,10 @@ def _rpc() -> Iterator[None]:
     try:
         yield
     except grpc.RpcError as e:
-        raise ToolError(f"nucladb: {e.code().name}: {e.details()}") from e
+        msg = f"nucladb: {e.code().name}: {e.details()}"
+        if "dimension mismatch" in (e.details() or ""):
+            msg += " (the tenant's dim has to equal the embedding model's, 384 for all-MiniLM-L6-v2)"
+        raise ToolError(msg) from e
 
 
 def build(db: Client, embed: Embedder) -> MCPServer:
