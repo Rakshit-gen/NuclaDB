@@ -63,17 +63,20 @@ def main() -> None:
                 top = call(server, "search", query="where is the cat", top_k=1)
                 assert [m["text"] for m in top] == ["the cat sat on the mat"], top
 
-
                 assert call(server, "count") == 3
                 # same text, same id: adding it again updates instead of duplicating
                 again = call(server, "add_texts", texts=["the cat sat on the mat"])
                 assert again == ids[:1], (again, ids)
                 assert call(server, "count") == 3
 
-
                 twice = call(server, "add_texts", texts=["a boat", "a boat"])
                 assert twice[0] == twice[1], twice
                 assert call(server, "count") == 4
+
+                call(server, "add_texts", texts=["a dog in a car"], metadata={"source": "notes"})
+                only_notes = call(server, "search", query="dog", filters={"source": "notes"})
+                assert [m["text"] for m in only_notes] == ["a dog in a car"], only_notes
+                assert only_notes[0]["metadata"] == {"source": "notes"}, only_notes
 
             print("OK: add_texts and search verified against a real nucladbd subprocess")
         finally:
