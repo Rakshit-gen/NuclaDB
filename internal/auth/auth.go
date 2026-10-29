@@ -42,12 +42,29 @@ func Load(path string) (*Keys, error) {
 	if err := json.Unmarshal(b, &keys); err != nil {
 		return nil, fmt.Errorf("auth: %s: %w", path, err)
 	}
+	loaded, err := New(keys)
+	if err != nil {
+		return nil, fmt.Errorf("auth: %s: %w", path, err)
+	}
+	return loaded, nil
+}
+
+// New validates and constructs an in-memory key set.
+func New(keys []Key) (*Keys, error) {
+	seen := make(map[string]struct{}, len(keys))
+	cloned := make([]Key, len(keys))
 	for i, k := range keys {
 		if len(k.Key) < 16 {
-			return nil, fmt.Errorf("auth: %s: key %d is shorter than 16 characters", path, i)
+			return nil, fmt.Errorf("key %d is shorter than 16 characters", i)
 		}
+		if _, duplicate := seen[k.Key]; duplicate {
+			return nil, fmt.Errorf("duplicate key at entry %d", i)
+		}
+		seen[k.Key] = struct{}{}
+		cloned[i] = k
+		cloned[i].Tenants = append([]string(nil), k.Tenants...)
 	}
-	return &Keys{keys: keys}, nil
+	return &Keys{keys: cloned}, nil
 }
 
 // Allow reports whether the key in ctx may use tenant, and admin calls if
