@@ -17,6 +17,7 @@ from typing import Callable, Iterator
 import grpc
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp_types import ToolAnnotations
 
 from .client import Client
 
@@ -74,7 +75,7 @@ def build(db: Client, embed: Embedder) -> MCPServer:
             )
         return ids
 
-    @server.tool()
+    @server.tool(annotations=READ_ONLY)
     def search(
         query: str, top_k: int = 5, filters: dict[str, str] | None = None
     ) -> list[dict]:
@@ -97,7 +98,7 @@ def build(db: Client, embed: Embedder) -> MCPServer:
             for m in matches
         ]
 
-    @server.tool()
+    @server.tool(annotations=READ_ONLY)
     def get(id: str) -> dict | None:
         """Fetch one stored text and its metadata by id, or null if absent."""
         with _rpc():
@@ -113,13 +114,16 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         with _rpc():
             return db.delete(id)
 
-    @server.tool()
+    @server.tool(annotations=READ_ONLY)
     def count() -> int:
         """How many texts are stored."""
         with _rpc():
             return db.count()
 
     return server
+
+
+READ_ONLY = ToolAnnotations(read_only_hint=True)
 
 
 def sentence_transformer(model_name: str) -> Embedder:
