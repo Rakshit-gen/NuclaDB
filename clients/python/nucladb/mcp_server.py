@@ -157,7 +157,8 @@ def check_tenant(db: Client, dim: int) -> None:
     if tenant.dim != dim:
         raise SystemExit(
             f"nucladb-mcp: tenant {name!r} holds {tenant.dim}-dim vectors but the "
-            f"embedding model makes {dim}-dim ones; use a tenant created with dim={dim}"
+            f"embedding model makes {dim}-dim ones; set NUCLADB_TENANT to a new name "
+            f"and it will be created to fit"
         )
 
 
