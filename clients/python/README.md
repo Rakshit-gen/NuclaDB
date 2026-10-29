@@ -110,6 +110,21 @@ the shell's `PATH`, so give the full path from `which nucladb-mcp`:
 }
 ```
 
+### Tools
+
+| Tool | Does | Notes |
+|---|---|---|
+| `add_texts(texts, metadata?)` | Stores up to 256 texts | The id is a hash of the text, so adding the same text again updates it instead of storing a copy. `metadata` goes on every text in the call; the key `text` is reserved |
+| `search(query, top_k=5, filters?)` | Closest texts to `query` | `top_k` is 1 to 50. `filters` is key=value pairs that all have to match. `score` is a distance, so lower means closer |
+| `get(id)` | One text and its metadata | `null` if the id isn't stored |
+| `delete(id)` | Forgets one text | Deleting an unknown id is not an error |
+| `count()` | How many texts are stored | |
+
+`search`, `get` and `count` are marked read-only, and `delete` is marked
+destructive, so clients that read those hints can skip the approval
+prompt for lookups. When the server rejects a call, the agent sees the
+reason (`nucladb: INVALID_ARGUMENT: ...`), not just "Error executing tool".
+
 ## Regenerating the protobuf stubs
 
 `nucladb/nucladb_pb2.py` and `nucladb/nucladb_pb2_grpc.py` are generated,
