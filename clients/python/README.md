@@ -67,6 +67,27 @@ with Client("localhost:9090") as db:
 every data call, `api_key` is sent as a bearer token, `tls=True` connects
 with the system's root certificates.
 
+## MCP server
+
+`nucladb-mcp` lets an agent (Claude Code, Claude Desktop, anything that
+speaks MCP) store and search text in a NuclaDB tenant. NuclaDB only takes
+vectors, so the server turns text into vectors itself with a small local
+model, `all-MiniLM-L6-v2` (384 numbers per text, runs on a laptop CPU, no
+API key). The text is kept in each vector's metadata so results come back
+readable.
+
+```
+pip install './clients/python[mcp]'
+./bin/nucladbd -data-dir=./data &
+NUCLADB_TENANT=memory nucladb-mcp
+```
+
+The first start downloads the model (about 90 MB, roughly a minute);
+after that it is ready in about 7 seconds. If the tenant doesn't exist,
+it is created with 384 dimensions and the cosine metric. If it exists
+with a different size, the server refuses to start and says so, rather
+than failing on the first write.
+
 ## Regenerating the protobuf stubs
 
 `nucladb/nucladb_pb2.py` and `nucladb/nucladb_pb2_grpc.py` are generated,
