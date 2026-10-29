@@ -78,6 +78,10 @@ def main() -> None:
                 assert [m["text"] for m in only_notes] == ["a dog in a car"], only_notes
                 assert only_notes[0]["metadata"] == {"source": "notes"}, only_notes
 
+                got = call(server, "get", id=ids[1])
+                assert got == {"id": ids[1], "text": "a dog chased the ball", "metadata": {}}, got
+                assert call(server, "get", id="12345") is None
+
             print("OK: add_texts and search verified against a real nucladbd subprocess")
         finally:
             proc.terminate()
