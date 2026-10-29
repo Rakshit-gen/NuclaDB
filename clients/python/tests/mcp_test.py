@@ -116,6 +116,13 @@ def main() -> None:
                 assert "INVALID_ARGUMENT" in msg and "embedding model" in msg, msg
                 assert "INVALID_ARGUMENT" in fails(short, "search", query="cat")
 
+                try:
+                    check_tenant(db, 384)
+                except SystemExit as e:
+                    assert "4-dim" in str(e) and "384-dim" in str(e), e
+                else:
+                    raise AssertionError("check_tenant accepted a 384-dim model for a 4-dim tenant")
+
             print("OK: add_texts and search verified against a real nucladbd subprocess")
         finally:
             proc.terminate()
