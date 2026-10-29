@@ -38,6 +38,8 @@ var (
 	magic   = [8]byte{'N', 'U', 'C', 'L', 'A', 'D', 'B', '2'}
 )
 
+const maxSnapshotLevel = 64
+
 // ErrInvalidFormat is returned when a snapshot file's header doesn't match
 // the expected magic, indicating it's missing, foreign, or corrupt.
 var ErrInvalidFormat = errors.New("segment: invalid or corrupt snapshot format")
@@ -188,7 +190,7 @@ type cursor struct {
 }
 
 func (c *cursor) need(n int) error {
-	if c.pos+n > len(c.data) {
+	if n < 0 || c.pos < 0 || c.pos > len(c.data) || n > len(c.data)-c.pos {
 		return ErrInvalidFormat
 	}
 	return nil
@@ -315,6 +317,9 @@ func Load(path string, cfg hnsw.Config) (*hnsw.Graph, uint64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
+	if hasEntryByte > 1 || nodeCount > uint64(len(c.data)/21) {
+		return nil, 0, ErrInvalidFormat
+	}
 	if v2 {
 		dim, err := c.uint32()
 		if err != nil {
@@ -346,10 +351,52 @@ func Load(path string, cfg hnsw.Config) (*hnsw.Graph, uint64, error) {
 		}
 		nodes = append(nodes, nd)
 	}
+	if c.pos != len(c.data) {
+		return nil, 0, ErrInvalidFormat
+	}
+	if err := validateGraphState(nodes, entryPoint, int(int32(maxLevelRaw)), hasEntryByte == 1); err != nil {
+		return nil, 0, err
+	}
 
 	g := hnsw.New(cfg)
 	g.Restore(nodes, entryPoint, int(int32(maxLevelRaw)), hasEntryByte == 1)
 	return g, walSeq, nil
+}
+
+func validateGraphState(nodes []hnsw.NodeState, entryPoint uint64, maxLevel int, hasEntry bool) error {
+	if maxLevel < 0 || maxLevel > maxSnapshotLevel || hasEntry != (len(nodes) > 0) {
+		return ErrInvalidFormat
+	}
+	seen := make(map[uint64]struct{}, len(nodes))
+	for _, nd := range nodes {
+		if nd.Level < 0 || nd.Level > maxSnapshotLevel || len(nd.Neighbors) != nd.Level+1 {
+			return ErrInvalidFormat
+		}
+		if _, duplicate := seen[nd.ID]; duplicate {
+			return ErrInvalidFormat
+		}
+		seen[nd.ID] = struct{}{}
+	}
+	if hasEntry {
+		if _, ok := seen[entryPoint]; !ok {
+			return ErrInvalidFormat
+		}
+	}
+	for _, nd := range nodes {
+		for _, layer := range nd.Neighbors {
+			layerSeen := make(map[uint64]struct{}, len(layer))
+			for _, id := range layer {
+				if _, ok := seen[id]; !ok || id == nd.ID {
+					return ErrInvalidFormat
+				}
+				if _, duplicate := layerSeen[id]; duplicate {
+					return ErrInvalidFormat
+				}
+				layerSeen[id] = struct{}{}
+			}
+		}
+	}
+	return nil
 }
 
 func readNode(c *cursor) (hnsw.NodeState, error) {
@@ -365,6 +412,9 @@ func readNode(c *cursor) (hnsw.NodeState, error) {
 	if err != nil {
 		return hnsw.NodeState{}, err
 	}
+	if deletedByte > 1 {
+		return hnsw.NodeState{}, ErrInvalidFormat
+	}
 	dim, err := c.uint32()
 	if err != nil {
 		return hnsw.NodeState{}, err
@@ -376,6 +426,10 @@ func readNode(c *cursor) (hnsw.NodeState, error) {
 	numLevels, err := c.uint32()
 	if err != nil {
 		return hnsw.NodeState{}, err
+	}
+	level := int(int32(levelRaw))
+	if level < 0 || level > maxSnapshotLevel || numLevels != uint32(level+1) {
+		return hnsw.NodeState{}, ErrInvalidFormat
 	}
 	neighbors := make([][]uint64, numLevels)
 	for l := uint32(0); l < numLevels; l++ {
@@ -392,7 +446,7 @@ func readNode(c *cursor) (hnsw.NodeState, error) {
 	return hnsw.NodeState{
 		ID:        id,
 		Vector:    vector,
-		Level:     int(int32(levelRaw)),
+		Level:     level,
 		Neighbors: neighbors,
 		Deleted:   deletedByte == 1,
 	}, nil
