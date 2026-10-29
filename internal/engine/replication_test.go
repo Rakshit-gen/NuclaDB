@@ -1,10 +1,82 @@
 package engine
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Rakshit-gen/nucladb/internal/storage/wal"
 )
+
+func TestLoadSnapshotRejectsBeforeReplacingLiveState(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Open(dir, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Insert(9, make([]float32, 8), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.LoadSnapshot(bytes.NewReader([]byte("not a snapshot")), bytes.NewReader([]byte(`{}`)), 1); err == nil {
+		t.Fatal("invalid snapshot was accepted")
+	}
+	if _, _, ok := e.Get(9); !ok {
+		t.Fatal("live state was replaced by invalid snapshot")
+	}
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
+	}
+	e, err = Open(dir, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	if _, _, ok := e.Get(9); !ok {
+		t.Fatal("persistent state was replaced by invalid snapshot")
+	}
+}
+
+func TestLoadSnapshotTruncatesStaleIncomingWAL(t *testing.T) {
+	leader, err := Open(t.TempDir(), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leader.Close()
+	if err := leader.Insert(1, make([]float32, 8), nil); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, metadata, seq, err := leader.OpenSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshot.Close()
+	defer metadata.Close()
+
+	dir := t.TempDir()
+	follower, err := Open(dir, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := wal.EncodeRecord(wal.Record{Seq: seq + 50, Op: wal.OpDelete, ID: 1})
+	if err := os.WriteFile(filepath.Join(dir, walFile)+".incoming", stale, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := follower.LoadSnapshot(snapshot, metadata, seq); err != nil {
+		t.Fatal(err)
+	}
+	if err := follower.Close(); err != nil {
+		t.Fatal(err)
+	}
+	follower, err = Open(dir, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer follower.Close()
+	if _, _, ok := follower.Get(1); !ok {
+		t.Fatal("stale incoming WAL record was resurrected")
+	}
+}
 
 // TestApplyReplicatedMirrorsInsert verifies a replica follower applying a
 // record captured from a leader's real Insert ends up with the same

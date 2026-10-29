@@ -70,6 +70,24 @@ func TestSelectiveFilterReturnsExactTopK(t *testing.T) {
 	}
 }
 
+func TestInFilterDuplicateValuesDoNotDuplicateResults(t *testing.T) {
+	e, err := Open(t.TempDir(), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	if err := e.Insert(1, make([]float32, 8), map[string]string{"team": "search"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.Search(make([]float32, 8), 2, 10, []Filter{{Key: "team", Op: OpIn, Values: []string{"search", "search"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != 1 {
+		t.Fatalf("results = %+v, want id 1 exactly once", got)
+	}
+}
+
 // With the up-front exact scan turned off, a rare filter goes through the
 // graph path. It must still come back with every match, not a short list.
 func TestBroadPathFallsBackToExactScan(t *testing.T) {

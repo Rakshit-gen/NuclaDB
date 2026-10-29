@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -48,6 +49,33 @@ func TestInsertSearchDelete(t *testing.T) {
 		if r.ID == 1 {
 			t.Fatalf("deleted id=1 still present: %+v", res)
 		}
+	}
+}
+
+func TestMetadataIsCopiedAndNonFiniteVectorsRejected(t *testing.T) {
+	e, err := Open(t.TempDir(), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	md := map[string]string{"team": "search"}
+	if err := e.Insert(1, make([]float32, 8), md); err != nil {
+		t.Fatal(err)
+	}
+	md["team"] = "mutated"
+	_, got, _ := e.Get(1)
+	if got["team"] != "search" {
+		t.Fatalf("stored metadata changed through input alias: %v", got)
+	}
+	got["team"] = "again"
+	_, got, _ = e.Get(1)
+	if got["team"] != "search" {
+		t.Fatalf("stored metadata changed through output alias: %v", got)
+	}
+	bad := make([]float32, 8)
+	bad[0] = float32(math.NaN())
+	if err := e.Insert(2, bad, nil); err != hnsw.ErrNonFiniteVector {
+		t.Fatalf("Insert(NaN) = %v", err)
 	}
 }
 

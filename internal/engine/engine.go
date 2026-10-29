@@ -5,6 +5,7 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,7 @@ const (
 	snapshotFile = "snapshot.bin"
 	metadataFile = "metadata.json"
 	walFile      = "wal.log"
+	installFile  = "snapshot.install.json"
 )
 
 // Engine is a single-node, durable vector database: HNSW search over an
@@ -83,6 +85,9 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
+	if err := recoverSnapshotInstall(dir); err != nil {
+		return nil, err
+	}
 
 	snapshotPath := filepath.Join(dir, snapshotFile)
 	walPath := filepath.Join(dir, walFile)
@@ -112,6 +117,9 @@ func Open(dir string, cfg hnsw.Config) (*Engine, error) {
 		if rec.Seq <= snapshotSeq {
 			// Already reflected in the snapshot we just loaded.
 			return nil
+		}
+		if rec.Seq != lastSeq+1 {
+			return fmt.Errorf("%w: got %d after snapshot sequence %d", wal.ErrInvalidSequence, rec.Seq, lastSeq)
 		}
 		switch rec.Op {
 		case wal.OpInsert, wal.OpMeta:
@@ -188,8 +196,8 @@ func (e *Engine) SetExactFilterLimit(n int) {
 // insert, same as before; under N concurrent writers it is roughly one per
 // round instead of N.
 func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string) error {
-	if len(vector) != e.cfg.Dim {
-		return hnsw.ErrDimensionMismatch
+	if err := validateFiniteVector(vector, e.cfg.Dim); err != nil {
+		return err
 	}
 	var extra []byte
 	if len(metadata) > 0 {
@@ -202,7 +210,7 @@ func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string)
 
 	return e.group(&pendingOp{
 		rec:  wal.Record{Op: wal.OpInsert, ID: id, Vector: vector, Extra: extra},
-		meta: metadata,
+		meta: cloneMetadata(metadata),
 		done: make(chan groupResult, 1),
 	})
 }
@@ -292,15 +300,15 @@ func (e *Engine) InsertBatch(items []InsertItem) error {
 	// Validate everything before logging anything. A record the graph
 	// rejects would also be rejected on replay, and Open would fail forever.
 	for _, it := range items {
-		if len(it.Vector) != e.cfg.Dim {
-			return hnsw.ErrDimensionMismatch
+		if err := validateFiniteVector(it.Vector, e.cfg.Dim); err != nil {
+			return err
 		}
 	}
 
 	records := make([]wal.Record, len(items))
 	metas := make([]map[string]string, len(items))
 	for i, it := range items {
-		metas[i] = it.Metadata
+		metas[i] = cloneMetadata(it.Metadata)
 		var extra []byte
 		if len(it.Metadata) > 0 {
 			b, err := json.Marshal(it.Metadata)
@@ -376,7 +384,7 @@ func (e *Engine) UpdateMetadata(id uint64, metadata map[string]string) error {
 	}
 	return e.group(&pendingOp{
 		rec:  wal.Record{Op: wal.OpMeta, ID: id, Extra: extra},
-		meta: metadata,
+		meta: cloneMetadata(metadata),
 		done: make(chan groupResult, 1),
 	})
 }
@@ -424,6 +432,38 @@ func (e *Engine) LastSeq() uint64 {
 // seq -> offset index if reconnects over large WALs get slow.
 func (e *Engine) RecordSum(seq uint64) (sum uint32, found bool, err error) {
 	return wal.SumAt(e.WALPath(), seq)
+}
+
+// OpenWALForReplication atomically checks whether a follower can resume
+// from the live WAL and, when it can, opens that exact WAL before releasing
+// the snapshot-rotation lock. needSnapshot is true when the follower must
+// receive a fresh snapshot instead.
+func (e *Engine) OpenWALForReplication(fromSeq uint64, hasSum bool, sum uint32) (f *os.File, needSnapshot bool, err error) {
+	e.snapMu.Lock()
+	defer e.snapMu.Unlock()
+	e.mu.Lock()
+	snapshotSeq, lastSeq := e.snapshotSeq, e.seq
+	e.mu.Unlock()
+	if fromSeq < snapshotSeq || fromSeq > lastSeq {
+		return nil, true, nil
+	}
+	f, err = os.Open(e.WALPath())
+	if err != nil {
+		return nil, false, err
+	}
+	if fromSeq == 0 {
+		return f, false, nil
+	}
+	leaderSum, found, err := wal.SumAtFile(f, fromSeq)
+	if err != nil {
+		_ = f.Close()
+		return nil, false, err
+	}
+	if !found || !hasSum || leaderSum != sum {
+		_ = f.Close()
+		return nil, true, nil
+	}
+	return f, false, nil
 }
 
 // SnapshotSeq returns the sequence number the current on-disk snapshot
@@ -550,46 +590,80 @@ func (e *Engine) LoadSnapshot(snapshotR, metadataR io.Reader, seq uint64) error 
 		return err
 	}
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	// Metadata before the graph snapshot, for the same reason as Snapshot.
-	if err := os.Rename(metadataIn, metadataPath); err != nil {
-		return err
-	}
-	if err := os.Rename(snapshotIn, snapshotPath); err != nil {
-		return err
-	}
-	if err := syncDir(e.dir); err != nil {
-		return err
-	}
-
-	g, gotSeq, err := segment.Load(snapshotPath, e.cfg)
+	// Fully validate both incoming files before they can replace known-good
+	// state. A CRC-valid snapshot is also checked for graph invariants by the
+	// segment loader.
+	g, gotSeq, err := segment.Load(snapshotIn, e.cfg)
 	if err != nil {
 		return err
 	}
 	if gotSeq != seq {
 		return fmt.Errorf("engine: loaded snapshot seq %d does not match expected %d", gotSeq, seq)
 	}
-	metadata, err := loadMetadata(metadataPath)
+	metadata, err := loadMetadata(metadataIn)
+	if err != nil {
+		return err
+	}
+	for id := range metadata {
+		if _, ok := g.Get(id); !ok {
+			delete(metadata, id)
+		}
+	}
+
+	walPath := filepath.Join(e.dir, walFile)
+	walIn := walPath + ".incoming"
+	defer os.Remove(walIn)
+	w, err := wal.CreateWriter(walIn, gotSeq)
 	if err != nil {
 		return err
 	}
 
-	if err := e.w.Close(); err != nil {
-		return err
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	targets := []installTarget{
+		{live: snapshotPath, incoming: snapshotIn},
+		{live: metadataPath, incoming: metadataIn},
+		{live: walPath, incoming: walIn},
 	}
-	walPath := filepath.Join(e.dir, walFile)
-	tmpPath := walPath + ".new"
-	w, err := wal.OpenWriter(tmpPath, gotSeq)
-	if err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, walPath); err != nil {
+	if err := beginSnapshotInstall(e.dir, targets); err != nil {
 		_ = w.Close()
 		return err
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = w.Close()
+			_ = recoverSnapshotInstall(e.dir)
+		}
+	}()
+	for _, target := range targets {
+		if target.original {
+			if err := os.Rename(target.live, target.backup()); err != nil {
+				return err
+			}
+		}
+		if err := os.Rename(target.incoming, target.live); err != nil {
+			return err
+		}
+	}
+	if err := syncDir(e.dir); err != nil {
+		return err
+	}
+	// Removing and syncing the marker is the commit point. Backups are only
+	// cleaned afterward, so startup can always roll back a partial install.
+	if err := os.Remove(filepath.Join(e.dir, installFile)); err != nil {
+		return err
+	}
+	committed = true
+	syncErr := syncDir(e.dir)
+	if syncErr == nil {
+		for _, target := range targets {
+			_ = os.Remove(target.backup())
+		}
+	}
 
+	_ = e.w.Close()
 	e.graph.Store(g)
 	e.w = w
 	e.seq = gotSeq
@@ -599,7 +673,86 @@ func (e *Engine) LoadSnapshot(snapshotR, metadataR io.Reader, seq uint64) error 
 	e.postings = buildPostings(metadata)
 	e.metaMu.Unlock()
 	e.notifyWAL()
+	return syncErr
+}
+
+type installTarget struct {
+	live, incoming string
+	original       bool
+}
+
+func (t installTarget) backup() string { return t.live + ".install-backup" }
+
+type installMarker struct {
+	Original map[string]bool `json:"original"`
+}
+
+func beginSnapshotInstall(dir string, targets []installTarget) error {
+	m := installMarker{Original: make(map[string]bool, len(targets))}
+	for i := range targets {
+		_, err := os.Stat(targets[i].live)
+		targets[i].original = err == nil
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		m.Original[filepath.Base(targets[i].live)] = targets[i].original
+		_ = os.Remove(targets[i].backup())
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(filepath.Join(dir, installFile), b); err != nil {
+		return err
+	}
 	return nil
+}
+
+// recoverSnapshotInstall rolls back an install whose durable commit marker
+// still exists. If no marker exists, leftover backups are harmless and are
+// removed after the committed live files have won.
+func recoverSnapshotInstall(dir string) error {
+	markerPath := filepath.Join(dir, installFile)
+	b, err := os.ReadFile(markerPath)
+	if errors.Is(err, os.ErrNotExist) {
+		for _, name := range []string{snapshotFile, metadataFile, walFile} {
+			_ = os.Remove(filepath.Join(dir, name) + ".install-backup")
+			_ = os.Remove(filepath.Join(dir, name) + ".incoming")
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var m installMarker
+	if err := json.Unmarshal(b, &m); err != nil {
+		return fmt.Errorf("engine: invalid snapshot install marker: %w", err)
+	}
+	for _, name := range []string{snapshotFile, metadataFile, walFile} {
+		live := filepath.Join(dir, name)
+		backup := live + ".install-backup"
+		if m.Original[name] {
+			if _, err := os.Stat(backup); err == nil {
+				_ = os.Remove(live)
+				if err := os.Rename(backup, live); err != nil {
+					return fmt.Errorf("engine: restore %s: %w", name, err)
+				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		} else {
+			_ = os.Remove(live)
+			_ = os.Remove(backup)
+		}
+		_ = os.Remove(live + ".incoming")
+	}
+	if err := syncDir(dir); err != nil {
+		return err
+	}
+	if err := os.Remove(markerPath); err != nil {
+		return err
+	}
+	return syncDir(dir)
 }
 
 // writeFileAtomic replaces path with data so that after a crash the file
@@ -684,6 +837,15 @@ const DefaultEf = 64
 // ef and retrying a bounded number of times; if that still finds fewer
 // than topK matches, it scores every match exactly.
 func (e *Engine) Search(query []float32, topK, ef int, filters []Filter) ([]Result, error) {
+	return e.SearchContext(context.Background(), query, topK, ef, filters)
+}
+
+// SearchContext is Search with cooperative cancellation in graph and exact
+// scans, used by the network API when a client disconnects or times out.
+func (e *Engine) SearchContext(ctx context.Context, query []float32, topK, ef int, filters []Filter) ([]Result, error) {
+	if err := validateFiniteVector(query, e.cfg.Dim); err != nil {
+		return nil, err
+	}
 	for _, f := range filters {
 		if err := f.validate(); err != nil {
 			return nil, err
@@ -701,7 +863,7 @@ func (e *Engine) Search(query []float32, topK, ef int, filters []Filter) ([]Resu
 
 	if len(filters) > 0 {
 		if ids, ok := e.filterCandidates(graph, filters, int(e.exactFilterLimit.Load())); ok {
-			res, err := graph.ExactSearch(query, ids, topK)
+			res, err := graph.ExactSearchContext(ctx, query, ids, topK)
 			if err != nil {
 				return nil, err
 			}
@@ -716,7 +878,7 @@ func (e *Engine) Search(query []float32, topK, ef int, filters []Filter) ([]Resu
 	const maxAttempts = 3
 	var candidates []hnsw.SearchResult
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		res, err := graph.Search(query, overfetch, overfetch)
+		res, err := graph.SearchContext(ctx, query, overfetch, overfetch)
 		if err != nil {
 			return nil, err
 		}
@@ -734,7 +896,7 @@ func (e *Engine) Search(query []float32, topK, ef int, filters []Filter) ([]Resu
 	// The filter matched few of the graph's nearest vectors. Score all of
 	// its matches instead, so the caller still gets topK when they exist.
 	ids, _ := e.filterCandidates(graph, filters, math.MaxInt)
-	res, err := graph.ExactSearch(query, ids, topK)
+	res, err := graph.ExactSearchContext(ctx, query, ids, topK)
 	if err != nil {
 		return nil, err
 	}
@@ -756,8 +918,13 @@ func (e *Engine) filterCandidates(g *hnsw.Graph, filters []Filter, limit int) (i
 			continue
 		}
 		var sets []map[uint64]struct{}
+		seenValues := make(map[string]struct{}, len(f.Values))
 		size := 0
 		for _, v := range f.Values {
+			if _, duplicate := seenValues[v]; duplicate {
+				continue
+			}
+			seenValues[v] = struct{}{}
 			p := e.postings[postingKey(f.Key, v)]
 			sets, size = append(sets, p), size+len(p)
 		}
@@ -794,7 +961,7 @@ func (e *Engine) withMetadata(res []hnsw.SearchResult) []Result {
 	defer e.metaMu.RUnlock()
 	out := make([]Result, len(res))
 	for i, r := range res {
-		out[i] = Result{ID: r.ID, Distance: r.Distance, Metadata: e.metadata[r.ID]}
+		out[i] = Result{ID: r.ID, Distance: r.Distance, Metadata: cloneMetadata(e.metadata[r.ID])}
 	}
 	return out
 }
@@ -809,7 +976,7 @@ func (e *Engine) filterMatches(candidates []hnsw.SearchResult, filters []Filter,
 		if !matchesFilters(md, filters) {
 			continue
 		}
-		out = append(out, Result{ID: c.ID, Distance: c.Distance, Metadata: md})
+		out = append(out, Result{ID: c.ID, Distance: c.Distance, Metadata: cloneMetadata(md)})
 		if len(out) == topK {
 			break
 		}
@@ -854,7 +1021,7 @@ func (e *Engine) setMeta(id uint64, md map[string]string) {
 		delete(e.metadata, id)
 		return
 	}
-	e.metadata[id] = md
+	e.metadata[id] = cloneMetadata(md)
 	for k, v := range md {
 		addPosting(e.postings, postingKey(k, v), id)
 	}
@@ -939,15 +1106,12 @@ func (e *Engine) rotateWALLocked(seq uint64, from int64) error {
 		_ = w.Close()
 		return err
 	}
-	if err := syncDir(e.dir); err != nil {
-		_ = w.Close()
-		return err
-	}
+	syncErr := syncDir(e.dir)
 	_ = e.w.Close()
 	e.w = w
 	e.snapshotSeq = seq
 	e.notifyWAL()
-	return nil
+	return syncErr
 }
 
 // copyTail writes src's bytes from offset on into a new, fsynced dst.
@@ -1024,7 +1188,30 @@ func (e *Engine) Get(id uint64) (vector []float32, metadata map[string]string, o
 	}
 	e.metaMu.RLock()
 	defer e.metaMu.RUnlock()
-	return vector, e.metadata[id], true
+	return vector, cloneMetadata(e.metadata[id]), true
+}
+
+func cloneMetadata(md map[string]string) map[string]string {
+	if len(md) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(md))
+	for k, v := range md {
+		out[k] = v
+	}
+	return out
+}
+
+func validateFiniteVector(v []float32, dim int) error {
+	if len(v) != dim {
+		return hnsw.ErrDimensionMismatch
+	}
+	for _, x := range v {
+		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
+			return hnsw.ErrNonFiniteVector
+		}
+	}
+	return nil
 }
 
 // List returns up to limit stored ids that are >= start, in ascending
