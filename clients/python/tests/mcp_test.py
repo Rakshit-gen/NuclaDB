@@ -82,6 +82,11 @@ def main() -> None:
                 assert got == {"id": ids[1], "text": "a dog chased the ball", "metadata": {}}, got
                 assert call(server, "get", id="12345") is None
 
+                assert call(server, "delete", id=ids[1]) is True
+                assert call(server, "get", id=ids[1]) is None
+                assert ids[1] not in [m["id"] for m in call(server, "search", query="dog", top_k=10)]
+                assert call(server, "delete", id=ids[1]) is True  # idempotent, like the client
+
             print("OK: add_texts and search verified against a real nucladbd subprocess")
         finally:
             proc.terminate()
