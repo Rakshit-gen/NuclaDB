@@ -14,6 +14,7 @@ mcp = ["mcp>=2.3,<3", "sentence-transformers>=3"]
 
 [project.scripts]
 nucladb = "nucladb.cli:main"
+nucladb-mcp = "nucladb.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=68"]
