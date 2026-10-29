@@ -54,7 +54,7 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         instructions="Long-term text memory backed by a NuclaDB vector index.",
     )
 
-    @server.tool()
+    @server.tool(annotations=ADDITIVE)
     def add_texts(texts: list[str], metadata: dict[str, str] | None = None) -> list[str]:
         """Store texts so search can find them later by meaning. metadata is
         attached to every text in this call. Returns one id per text."""
@@ -124,6 +124,8 @@ def build(db: Client, embed: Embedder) -> MCPServer:
 
 
 READ_ONLY = ToolAnnotations(read_only_hint=True)
+# upserts keyed on a hash of the text, so resending the same call is harmless
+ADDITIVE = ToolAnnotations(destructive_hint=False, idempotent_hint=True)
 
 
 def sentence_transformer(model_name: str) -> Embedder:
