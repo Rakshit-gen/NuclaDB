@@ -42,6 +42,8 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         attached to every text in this call. Returns one id per text."""
         if not texts:
             raise ToolError("texts is empty")
+        if any(not t.strip() for t in texts):
+            raise ToolError("every text has to have some non-whitespace content")
         ids = [text_id(t) for t in texts]
         vectors = embed(texts)
         db.batch_upsert(
