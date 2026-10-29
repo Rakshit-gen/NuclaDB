@@ -12,6 +12,7 @@ the measured numbers behind it.
 | [Quick restarts](restarts.md) | Reloads from a saved file instead of starting over | Yes |
 | [Many apps, one server](tenants.md) | Each app gets its own space, key and limits | Yes |
 | [Works from any language](api.md) | gRPC, REST, a CLI and a Python client | Yes |
+| [Memory for AI agents](mcp.md) | Lets Claude and other agents save and search notes | Yes, as a separate client |
 | [Compression](compression.md) | Stores items in about a sixteenth of the space | Not yet, library only |
 | [Multiple machines](cluster.md) | Splits one collection across several servers | Not yet, library only |
 
