@@ -22,6 +22,7 @@ from .client import Client
 Embedder = Callable[[list[str]], list[list[float]]]
 
 DEFAULT_MODEL = "all-MiniLM-L6-v2"  # 384-dim, small enough for CPU
+MAX_TOP_K = 50  # more than this floods the agent's context with text
 MAX_BATCH = 256  # one embed call; bigger batches stall the agent with no feedback
 
 
@@ -65,6 +66,8 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         filters keeps only texts whose metadata has every key=value given."""
         if not query.strip():
             raise ToolError("query is empty")
+        if not 1 <= top_k <= MAX_TOP_K:
+            raise ToolError(f"top_k must be between 1 and {MAX_TOP_K}")
         matches = db.search(embed([query])[0], top_k=top_k, filters=filters)
         return [
             {
