@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,6 +34,80 @@ func TestStoreDefaultTenantAutoProvisioned(t *testing.T) {
 	}
 	if stats.VectorCount != 1 {
 		t.Fatalf("VectorCount = %d, want 1", stats.VectorCount)
+	}
+}
+
+func TestStoreRejectsInvalidQuotaAndUseAfterClose(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTenant("bad", Quota{MaxVectors: -1}); err != ErrInvalidQuota {
+		t.Fatalf("negative quota = %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Stats(""); err != ErrStoreClosed {
+		t.Fatalf("Stats after Close = %v", err)
+	}
+}
+
+func TestStoreMigratesLegacyDefaultFiles(t *testing.T) {
+	root := t.TempDir()
+	e, err := Open(root, testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Insert(7, []float32{1, 2, 3, 4}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenStore(root, testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, _, err := s.Get("", 7); err != nil {
+		t.Fatalf("migrated vector missing: %v", err)
+	}
+}
+
+func TestStoreFinishesPartialLegacyMigration(t *testing.T) {
+	root := t.TempDir()
+	e, err := Open(root, testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Insert(8, []float32{4, 3, 2, 1}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, DefaultTenant)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{snapshotFile, metadataFile, walFile} {
+		src := filepath.Join(root, name)
+		if _, err := os.Stat(src); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err := os.Rename(src, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s, err := OpenStore(root, testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, _, err := s.Get("", 8); err != nil {
+		t.Fatalf("partially migrated vector missing: %v", err)
 	}
 }
 

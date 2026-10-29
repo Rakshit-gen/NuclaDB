@@ -1,14 +1,18 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"golang.org/x/time/rate"
 
@@ -24,8 +28,10 @@ var (
 	ErrTenantNotFound  = errors.New("engine: tenant not found")
 	ErrQuotaExceeded   = errors.New("engine: tenant storage quota exceeded")
 	ErrRateLimited     = errors.New("engine: tenant request rate limit exceeded")
-	ErrInvalidTenantID = errors.New("engine: tenant_id must not contain path separators")
+	ErrInvalidTenantID = errors.New("engine: tenant_id must be 1-128 characters without path separators or control characters")
 	ErrDefaultTenant   = errors.New("engine: the default tenant can't be deleted")
+	ErrInvalidQuota    = errors.New("engine: quota values must be finite and non-negative")
+	ErrStoreClosed     = errors.New("engine: store is closed")
 )
 
 // Quota bounds one tenant's resource usage. A zero value for either field
@@ -49,7 +55,7 @@ type tenant struct {
 	// close an engine nobody is in the middle of using.
 	use      sync.RWMutex
 	lastUsed atomic.Int64 // unix nanos
-	pinned   bool         // handed out by Store.Engine, never closed while idle
+	pinned   atomic.Bool  // handed out by Store.Engine, never closed while idle
 	idleLen  int          // Len when CloseIdle closed it, for AllStats
 }
 
@@ -66,6 +72,7 @@ type Store struct {
 	tenants map[string]*tenant
 
 	exactFilterLimit int // 0 = engine default
+	closed           atomic.Bool
 }
 
 // SetExactFilterLimit sets every tenant's exact filter limit (see
@@ -75,9 +82,11 @@ func (s *Store) SetExactFilterLimit(n int) {
 	defer s.mu.Unlock()
 	s.exactFilterLimit = n
 	for _, t := range s.tenants {
+		t.use.RLock()
 		if t.engine != nil {
 			t.engine.SetExactFilterLimit(n)
 		}
+		t.use.RUnlock()
 	}
 }
 
@@ -90,6 +99,9 @@ func OpenStore(rootDir string, cfg hnsw.Config) (*Store, error) {
 	if err := os.MkdirAll(rootDir, 0o755); err != nil {
 		return nil, err
 	}
+	if err := migrateLegacyDefault(rootDir, cfg); err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(rootDir)
 	if err != nil {
 		return nil, err
@@ -98,13 +110,16 @@ func OpenStore(rootDir string, cfg hnsw.Config) (*Store, error) {
 	s := &Store{rootDir: rootDir, cfg: cfg, tenants: make(map[string]*tenant)}
 	foundDefault := false
 	for _, e := range entries {
-		if !e.IsDir() || !isTenantDir(filepath.Join(rootDir, e.Name())) {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".deleted-") || !isTenantDir(filepath.Join(rootDir, e.Name())) {
 			continue
 		}
 		dir := filepath.Join(rootDir, e.Name())
 		quota, err := loadQuota(dir)
 		if err != nil {
 			return nil, err
+		}
+		if err := validateQuota(quota); err != nil {
+			return nil, fmt.Errorf("%s: %w", filepath.Join(dir, quotaFile), err)
 		}
 		tcfg, err := loadIndex(dir, cfg)
 		if err != nil {
@@ -123,6 +138,61 @@ func OpenStore(rootDir string, cfg hnsw.Config) (*Store, error) {
 	return s, nil
 }
 
+// migrateLegacyDefault moves the original single-tenant root-level files
+// into the default tenant directory. It is restartable after a partial move.
+func migrateLegacyDefault(rootDir string, cfg hnsw.Config) error {
+	dir := filepath.Join(rootDir, DefaultTenant)
+	legacyExists := false
+	for _, name := range []string{snapshotFile, metadataFile, walFile} {
+		if _, err := os.Stat(filepath.Join(rootDir, name)); err == nil {
+			legacyExists = true
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	_, quotaErr := os.Stat(filepath.Join(dir, quotaFile))
+	finished := quotaErr == nil
+	if quotaErr != nil && !errors.Is(quotaErr, os.ErrNotExist) {
+		return quotaErr
+	}
+	if !legacyExists && finished {
+		return nil
+	}
+	// A previous migration may have moved all root files before failing to
+	// write quota.json. Finish that partial migration on the next startup.
+	partial := !finished && isTenantDir(dir)
+	if !legacyExists && !partial {
+		return nil
+	}
+	if legacyExists && finished {
+		return fmt.Errorf("engine: both legacy root data and a default tenant exist")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for _, name := range []string{snapshotFile, metadataFile, walFile} {
+		src, dst := filepath.Join(rootDir, name), filepath.Join(dir, name)
+		if _, err := os.Stat(src); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if _, err := os.Stat(dst); err == nil {
+			return fmt.Errorf("engine: legacy migration destination already exists: %s", dst)
+		}
+		if err := os.Rename(src, dst); err != nil {
+			return err
+		}
+	}
+	if err := saveIndex(dir, cfg); err != nil {
+		return err
+	}
+	if err := saveQuota(dir, Quota{}); err != nil {
+		return err
+	}
+	return syncDir(rootDir)
+}
+
 // isTenantDir reports whether dir holds a tenant's files. Every tenant gets
 // quota.json when it's created; wal.log covers tenants from before that.
 // Anything else under the root (lost+found, a backup copy) is ignored.
@@ -136,7 +206,15 @@ func isTenantDir(dir string) bool {
 }
 
 func validTenantID(id string) bool {
-	return id != "" && id != "." && id != ".." && filepath.Base(id) == id
+	if id == "" || len(id) > 128 || id == "." || id == ".." || filepath.Base(id) != id {
+		return false
+	}
+	for _, r := range id {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // CreateTenant provisions a new, empty tenant with the given quota. It is
@@ -161,6 +239,12 @@ var ErrBadIndexSpec = errors.New("engine: dim must be positive and metric one of
 // metric. They're fixed for the tenant's life: the graph's links depend on
 // the metric, and every stored vector has the dimension.
 func (s *Store) CreateTenantWithIndex(tenantID string, quota Quota, spec IndexSpec) error {
+	if s.closed.Load() {
+		return ErrStoreClosed
+	}
+	if err := validateQuota(quota); err != nil {
+		return err
+	}
 	if !validTenantID(tenantID) {
 		return ErrInvalidTenantID
 	}
@@ -180,6 +264,9 @@ func (s *Store) CreateTenantWithIndex(tenantID string, quota Quota, spec IndexSp
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return ErrStoreClosed
+	}
 	if _, exists := s.tenants[tenantID]; exists {
 		return ErrTenantExists
 	}
@@ -272,13 +359,24 @@ func (t *tenant) spec() IndexSpec {
 
 // allow takes n tokens from the tenant's rate limiter, so a batch of n
 // vectors costs the same as n single inserts. A batch bigger than the whole
-// bucket takes the whole bucket instead of being refused forever.
+// bucket is rejected instead of silently being charged fewer tokens.
 func (t *tenant) allow(n int) bool {
 	lim := t.limits.Load().limiter
 	if lim == nil {
 		return true
 	}
-	return lim.AllowN(time.Now(), min(max(n, 1), lim.Burst()))
+	n = max(n, 1)
+	if n > lim.Burst() {
+		return false
+	}
+	return lim.AllowN(time.Now(), n)
+}
+
+func validateQuota(q Quota) error {
+	if q.MaxVectors < 0 || q.MaxQPS < 0 || math.IsNaN(q.MaxQPS) || math.IsInf(q.MaxQPS, 0) {
+		return ErrInvalidQuota
+	}
+	return nil
 }
 
 type limits struct {
@@ -329,6 +427,10 @@ func saveQuota(dir string, q Quota) error {
 }
 
 func burstFor(qps float64) int {
+	maxInt := int(^uint(0) >> 1)
+	if qps >= float64(maxInt) {
+		return maxInt
+	}
 	b := int(qps)
 	if b < 1 {
 		b = 1
@@ -339,6 +441,9 @@ func burstFor(qps float64) int {
 // acquire returns the tenant's entry with its Engine open, opening it on
 // first access. The caller must call t.use.RUnlock when done with it.
 func (s *Store) acquire(tenantID string) (*tenant, error) {
+	if s.closed.Load() {
+		return nil, ErrStoreClosed
+	}
 	if tenantID == "" {
 		tenantID = DefaultTenant
 	}
@@ -350,6 +455,11 @@ func (s *Store) acquire(tenantID string) (*tenant, error) {
 		return nil, ErrTenantNotFound
 	}
 	t.use.RLock()
+	if s.closed.Load() {
+		t.use.RUnlock()
+		s.mu.RUnlock()
+		return nil, ErrStoreClosed
+	}
 	if t.engine != nil {
 		s.mu.RUnlock()
 		t.lastUsed.Store(time.Now().UnixNano())
@@ -360,6 +470,9 @@ func (s *Store) acquire(tenantID string) (*tenant, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return nil, ErrStoreClosed
+	}
 	// Re-check under the write lock: another goroutine may have opened it,
 	// or deleted the tenant, while we waited.
 	if t, ok = s.tenants[tenantID]; !ok {
@@ -390,9 +503,7 @@ func (s *Store) Engine(tenantID string) (*Engine, error) {
 		return nil, err
 	}
 	defer t.use.RUnlock()
-	s.mu.Lock()
-	t.pinned = true
-	s.mu.Unlock()
+	t.pinned.Store(true)
 	return t.engine, nil
 }
 
@@ -409,7 +520,7 @@ func (s *Store) CloseIdle(maxIdle time.Duration) (int, error) {
 	var errs []error
 	closed := 0
 	for id, t := range s.tenants {
-		if t.engine == nil || t.pinned || t.lastUsed.Load() > cutoff || !t.use.TryLock() {
+		if t.engine == nil || t.pinned.Load() || t.lastUsed.Load() > cutoff || !t.use.TryLock() {
 			continue
 		}
 		n := t.engine.Len()
@@ -427,11 +538,17 @@ func (s *Store) CloseIdle(maxIdle time.Duration) (int, error) {
 // DeleteTenant closes tenantID and removes all of its data from disk. The
 // default tenant can't be deleted.
 func (s *Store) DeleteTenant(tenantID string) error {
+	if s.closed.Load() {
+		return ErrStoreClosed
+	}
 	if tenantID == "" || tenantID == DefaultTenant {
 		return ErrDefaultTenant
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return ErrStoreClosed
+	}
 	t, ok := s.tenants[tenantID]
 	if !ok {
 		return ErrTenantNotFound
@@ -444,17 +561,35 @@ func (s *Store) DeleteTenant(tenantID string) error {
 		}
 		t.engine = nil
 	}
+	dir := filepath.Join(s.rootDir, tenantID)
+	tombstone := filepath.Join(s.rootDir, fmt.Sprintf(".deleted-%d-%s", time.Now().UnixNano(), tenantID))
+	if err := os.Rename(dir, tombstone); err != nil {
+		return err
+	}
+	if err := syncDir(s.rootDir); err != nil {
+		_ = os.Rename(tombstone, dir)
+		return err
+	}
 	delete(s.tenants, tenantID)
-	return os.RemoveAll(filepath.Join(s.rootDir, tenantID))
+	return os.RemoveAll(tombstone)
 }
 
 // SetQuota replaces tenantID's quota, on disk and for requests from now on.
 func (s *Store) SetQuota(tenantID string, quota Quota) error {
+	if s.closed.Load() {
+		return ErrStoreClosed
+	}
+	if err := validateQuota(quota); err != nil {
+		return err
+	}
 	if tenantID == "" {
 		tenantID = DefaultTenant
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return ErrStoreClosed
+	}
 	t, ok := s.tenants[tenantID]
 	if !ok {
 		return ErrTenantNotFound
@@ -570,8 +705,8 @@ func (s *Store) InsertBatches(batches []TenantBatch) error {
 		}
 		defer t.use.RUnlock()
 		for _, it := range b.Items {
-			if len(it.Vector) != t.cfg.Dim {
-				return hnsw.ErrDimensionMismatch
+			if err := validateFiniteVector(it.Vector, t.cfg.Dim); err != nil {
+				return err
 			}
 		}
 		tenants[i] = t
@@ -615,6 +750,11 @@ func (s *Store) Delete(tenantID string, id uint64) error {
 
 // Search finds the nearest neighbors of query within tenantID.
 func (s *Store) Search(tenantID string, query []float32, topK, ef int, filters []Filter) ([]Result, error) {
+	return s.SearchContext(context.Background(), tenantID, query, topK, ef, filters)
+}
+
+// SearchContext is Search with cooperative cancellation.
+func (s *Store) SearchContext(ctx context.Context, tenantID string, query []float32, topK, ef int, filters []Filter) ([]Result, error) {
 	t, err := s.acquire(tenantID)
 	if err != nil {
 		return nil, err
@@ -623,7 +763,7 @@ func (s *Store) Search(tenantID string, query []float32, topK, ef int, filters [
 	if !t.allow(1) {
 		return nil, ErrRateLimited
 	}
-	return t.engine.Search(query, topK, ef, filters)
+	return t.engine.SearchContext(ctx, query, topK, ef, filters)
 }
 
 // TenantStats reports one tenant's current usage against its quota.
@@ -655,11 +795,13 @@ func (s *Store) AllStats() map[string]TenantStats {
 	defer s.mu.RUnlock()
 	out := make(map[string]TenantStats, len(s.tenants))
 	for id, t := range s.tenants {
+		t.use.RLock()
 		count := t.idleLen
 		if t.engine != nil {
 			count = t.engine.Len()
 		}
 		out[id] = TenantStats{VectorCount: count, Quota: t.quota(), Index: t.spec()}
+		t.use.RUnlock()
 	}
 	return out
 }
@@ -667,6 +809,9 @@ func (s *Store) AllStats() map[string]TenantStats {
 // Snapshot snapshots every currently-open tenant engine. One tenant failing
 // doesn't stop the others; every failure is returned, joined.
 func (s *Store) Snapshot() error {
+	if s.closed.Load() {
+		return ErrStoreClosed
+	}
 	var errs []error
 	for _, t := range s.openTenants() {
 		if err := t.engine.Snapshot(); err != nil {
@@ -696,12 +841,27 @@ func (s *Store) openTenants() []*tenant {
 
 // Close snapshots and closes every currently-open tenant engine.
 func (s *Store) Close() error {
+	if !s.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	var errs []error
-	for _, t := range s.openTenants() {
+	s.mu.RLock()
+	tenants := make([]*tenant, 0, len(s.tenants))
+	for _, t := range s.tenants {
+		tenants = append(tenants, t)
+	}
+	s.mu.RUnlock()
+	for _, t := range tenants {
+		t.use.Lock()
+		if t.engine == nil {
+			t.use.Unlock()
+			continue
+		}
 		if err := t.engine.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close %s: %w", t.engine.dir, err))
 		}
-		t.use.RUnlock()
+		t.engine = nil
+		t.use.Unlock()
 	}
 	return errors.Join(errs...)
 }
