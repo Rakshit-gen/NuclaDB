@@ -28,6 +28,11 @@ DEFAULT_MODEL = "all-MiniLM-L6-v2"  # 384-dim, small enough for CPU
 MAX_TOP_K = 50  # more than this floods the agent's context with text
 MAX_BATCH = 256  # one embed call; bigger batches stall the agent with no feedback
 
+READ_ONLY = ToolAnnotations(read_only_hint=True)
+DESTRUCTIVE = ToolAnnotations(destructive_hint=True, idempotent_hint=True)
+# upserts keyed on a hash of the text, so resending the same call is harmless
+ADDITIVE = ToolAnnotations(destructive_hint=False, idempotent_hint=True)
+
 
 def text_id(text: str) -> str:
     """Same text, same id, so adding it twice upserts instead of storing a
@@ -122,12 +127,6 @@ def build(db: Client, embed: Embedder) -> MCPServer:
             return db.count()
 
     return server
-
-
-READ_ONLY = ToolAnnotations(read_only_hint=True)
-DESTRUCTIVE = ToolAnnotations(destructive_hint=True, idempotent_hint=True)
-# upserts keyed on a hash of the text, so resending the same call is harmless
-ADDITIVE = ToolAnnotations(destructive_hint=False, idempotent_hint=True)
 
 
 def sentence_transformer(model_name: str) -> Embedder:
