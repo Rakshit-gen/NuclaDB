@@ -14,6 +14,7 @@ import os
 from typing import Callable
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from .client import Client
 
@@ -39,6 +40,8 @@ def build(db: Client, embed: Embedder) -> MCPServer:
     def add_texts(texts: list[str], metadata: dict[str, str] | None = None) -> list[str]:
         """Store texts so search can find them later by meaning. metadata is
         attached to every text in this call. Returns one id per text."""
+        if not texts:
+            raise ToolError("texts is empty")
         ids = [text_id(t) for t in texts]
         vectors = embed(texts)
         db.batch_upsert(
