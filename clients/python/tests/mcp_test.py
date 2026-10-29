@@ -110,6 +110,12 @@ def main() -> None:
                 assert "between 1 and 50" in fails(server, "search", query="cat", top_k=0)
                 assert "between 1 and 50" in fails(server, "search", query="cat", top_k=51)
 
+                # a model that makes 3-dim vectors against the 4-dim tenant
+                short = build(db, lambda texts: [v[:3] for v in embed(texts)])
+                msg = fails(short, "add_texts", texts=["cat"])
+                assert "INVALID_ARGUMENT" in msg and "embedding model" in msg, msg
+                assert "INVALID_ARGUMENT" in fails(short, "search", query="cat")
+
             print("OK: add_texts and search verified against a real nucladbd subprocess")
         finally:
             proc.terminate()
