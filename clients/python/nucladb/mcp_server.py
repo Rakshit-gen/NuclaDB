@@ -9,10 +9,12 @@ reaches the server.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
-from typing import Callable
+from typing import Callable, Iterator
 
+import grpc
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -30,6 +32,16 @@ def text_id(text: str) -> str:
     """Same text, same id, so adding it twice upserts instead of storing a
     duplicate. The server wants decimal uint64 ids; 60 bits of sha256 fit."""
     return str(int(hashlib.sha256(text.encode()).hexdigest()[:15], 16))
+
+
+@contextlib.contextmanager
+def _rpc() -> Iterator[None]:
+    # Anything but ToolError reaches the agent as a bare "Error executing
+    # tool", so pass the server's own reason through instead.
+    try:
+        yield
+    except grpc.RpcError as e:
+        raise ToolError(f"nucladb: {e.code().name}: {e.details()}") from e
 
 
 def build(db: Client, embed: Embedder) -> MCPServer:
@@ -52,10 +64,11 @@ def build(db: Client, embed: Embedder) -> MCPServer:
             raise ToolError("metadata key \"text\" is reserved for the text itself")
         ids = [text_id(t) for t in texts]
         vectors = embed(texts)
-        db.batch_upsert(
-            (i, v, {**(metadata or {}), "text": t})
-            for i, v, t in zip(ids, vectors, texts)
-        )
+        with _rpc():
+            db.batch_upsert(
+                (i, v, {**(metadata or {}), "text": t})
+                for i, v, t in zip(ids, vectors, texts)
+            )
         return ids
 
     @server.tool()
@@ -68,7 +81,9 @@ def build(db: Client, embed: Embedder) -> MCPServer:
             raise ToolError("query is empty")
         if not 1 <= top_k <= MAX_TOP_K:
             raise ToolError(f"top_k must be between 1 and {MAX_TOP_K}")
-        matches = db.search(embed([query])[0], top_k=top_k, filters=filters)
+        vector = embed([query])[0]
+        with _rpc():
+            matches = db.search(vector, top_k=top_k, filters=filters)
         return [
             {
                 "id": m.id,
@@ -82,7 +97,8 @@ def build(db: Client, embed: Embedder) -> MCPServer:
     @server.tool()
     def get(id: str) -> dict | None:
         """Fetch one stored text and its metadata by id, or null if absent."""
-        found = db.get(id)
+        with _rpc():
+            found = db.get(id)
         if found is None:
             return None
         metadata = found[1]
@@ -91,12 +107,14 @@ def build(db: Client, embed: Embedder) -> MCPServer:
     @server.tool()
     def delete(id: str) -> bool:
         """Forget one stored text. Deleting an unknown id is not an error."""
-        return db.delete(id)
+        with _rpc():
+            return db.delete(id)
 
     @server.tool()
     def count() -> int:
         """How many texts are stored."""
-        return db.count()
+        with _rpc():
+            return db.count()
 
     return server
 
