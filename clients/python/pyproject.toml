@@ -9,6 +9,9 @@ dependencies = [
     "protobuf>=7.35.1",
 ]
 
+[project.optional-dependencies]
+mcp = ["mcp>=2.3,<3", "sentence-transformers>=3"]
+
 [project.scripts]
 nucladb = "nucladb.cli:main"
 
