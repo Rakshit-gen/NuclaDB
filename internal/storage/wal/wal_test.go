@@ -63,6 +63,27 @@ func TestReplayMissingFile(t *testing.T) {
 	}
 }
 
+func TestWriterIsPoisonedAfterIOFailure(t *testing.T) {
+	w, err := OpenWriter(filepath.Join(t.TempDir(), "wal.log"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an unrecoverable descriptor failure. The first append reports
+	// the I/O error; later calls must not keep assigning sequence numbers.
+	if err := w.f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Append(OpInsert, 1, []float32{1}); err == nil {
+		t.Fatal("first append unexpectedly succeeded")
+	}
+	if _, err := w.Append(OpInsert, 2, []float32{2}); !errors.Is(err, ErrWriterFailed) {
+		t.Fatalf("second append error = %v, want ErrWriterFailed", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close after writer failure = %v, want nil", err)
+	}
+}
+
 func TestSequenceNumbersResumeFromStartSeq(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "wal.log")

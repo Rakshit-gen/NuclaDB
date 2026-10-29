@@ -68,6 +68,8 @@ var errCorruptTail = errors.New("wal: corrupt or partial tail record")
 // untouched for an operator to inspect.
 var ErrCorruptMidLog = errors.New("wal: corrupt record in the middle of the log")
 
+var ErrInvalidSequence = errors.New("wal: non-contiguous sequence numbers")
+
 // maxRecordLen bounds the on-disk length prefix. A torn or corrupt tail can
 // leave arbitrary bytes there; without a cap, replay would try to allocate up
 // to 4 GiB before the CRC check could reject the record.
@@ -80,7 +82,14 @@ type Writer struct {
 	mu      sync.Mutex
 	f       *os.File
 	nextSeq uint64
+	failed  error // a write/sync failure makes further appends unsafe
+	closed  bool
 }
+
+// ErrWriterFailed means a previous append had an ambiguous I/O result. The
+// writer is deliberately poisoned: continuing could create duplicate or
+// skipped sequence numbers, or make memory disagree with recovery state.
+var ErrWriterFailed = errors.New("wal: writer unusable after I/O failure")
 
 // OpenWriter opens (creating if necessary) the log file at path for
 // appending, starting sequence numbers at startSeq+1. Callers recovering
@@ -90,6 +99,38 @@ func OpenWriter(path string, startSeq uint64) (*Writer, error) {
 		return nil, err
 	}
 	return openAppend(path, startSeq)
+}
+
+// CreateWriter creates a brand-new empty WAL, replacing any stale file at
+// path. It is used when installing a snapshot, where preserving a leftover
+// .new file would resurrect records from a previous failed installation.
+func CreateWriter(path string, startSeq uint64) (*Writer, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return &Writer{f: f, nextSeq: startSeq + 1}, nil
+}
+
+func (w *Writer) readyLocked() error {
+	if w.failed != nil {
+		return fmt.Errorf("%w: %v", ErrWriterFailed, w.failed)
+	}
+	if w.closed {
+		return os.ErrClosed
+	}
+	return nil
+}
+
+func (w *Writer) failLocked(err error) error {
+	w.failed = err
+	w.closed = true
+	_ = w.f.Close()
+	return err
 }
 
 // OpenWriterAt is OpenWriter for a caller that has just run Recover on path
@@ -153,6 +194,9 @@ func (w *Writer) Append(op Op, id uint64, vector []float32) (uint64, error) {
 func (w *Writer) AppendWithExtra(op Op, id uint64, vector []float32, extra []byte) (uint64, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if err := w.readyLocked(); err != nil {
+		return 0, err
+	}
 
 	seq := w.nextSeq
 	payload := encodePayload(seq, op, id, vector, extra)
@@ -163,10 +207,10 @@ func (w *Writer) AppendWithExtra(op Op, id uint64, vector []float32, extra []byt
 	copy(buf[8:], payload)
 
 	if _, err := w.f.Write(buf); err != nil {
-		return 0, err
+		return 0, w.failLocked(err)
 	}
 	if err := w.f.Sync(); err != nil {
-		return 0, err
+		return 0, w.failLocked(err)
 	}
 	w.nextSeq++
 	return seq, nil
@@ -182,15 +226,18 @@ func (w *Writer) AppendWithExtra(op Op, id uint64, vector []float32, extra []byt
 func (w *Writer) AppendRecord(rec Record) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if err := w.readyLocked(); err != nil {
+		return err
+	}
 
 	if rec.Seq != w.nextSeq {
 		return fmt.Errorf("wal: out-of-order append: got seq %d, want %d", rec.Seq, w.nextSeq)
 	}
 	if _, err := w.f.Write(EncodeRecord(rec)); err != nil {
-		return err
+		return w.failLocked(err)
 	}
 	if err := w.f.Sync(); err != nil {
-		return err
+		return w.failLocked(err)
 	}
 	w.nextSeq++
 	return nil
@@ -214,22 +261,27 @@ func (w *Writer) AppendBatch(items []Record) ([]uint64, error) {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if err := w.readyLocked(); err != nil {
+		return nil, err
+	}
 
 	seqs := make([]uint64, len(items))
 	var buf []byte
+	nextSeq := w.nextSeq
 	for i, rec := range items {
-		rec.Seq = w.nextSeq
+		rec.Seq = nextSeq
 		seqs[i] = rec.Seq
 		buf = append(buf, EncodeRecord(rec)...)
-		w.nextSeq++
+		nextSeq++
 	}
 
 	if _, err := w.f.Write(buf); err != nil {
-		return nil, err
+		return nil, w.failLocked(err)
 	}
 	if err := w.f.Sync(); err != nil {
-		return nil, err
+		return nil, w.failLocked(err)
 	}
+	w.nextSeq = nextSeq
 	return seqs, nil
 }
 
@@ -238,6 +290,9 @@ func (w *Writer) AppendBatch(items []Record) ([]uint64, error) {
 func (w *Writer) Size() (int64, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if err := w.readyLocked(); err != nil {
+		return 0, err
+	}
 	info, err := w.f.Stat()
 	if err != nil {
 		return 0, err
@@ -249,6 +304,10 @@ func (w *Writer) Size() (int64, error) {
 func (w *Writer) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.closed {
+		return nil
+	}
+	w.closed = true
 	return w.f.Close()
 }
 
@@ -296,6 +355,9 @@ func decodePayload(payload []byte) (Record, error) {
 	}
 	seq := binary.LittleEndian.Uint64(payload[0:8])
 	op := Op(payload[8])
+	if op != OpInsert && op != OpDelete && op != OpMeta {
+		return Record{}, errCorruptTail
+	}
 	id := binary.LittleEndian.Uint64(payload[9:17])
 	dim := binary.LittleEndian.Uint32(payload[17:21])
 
@@ -370,6 +432,9 @@ func Recover(path string, fn func(Record) error) (validBytes int64, lastSeq uint
 			}
 			return validBytes, lastSeq, err
 		}
+		if lastSeq != 0 && rec.Seq != lastSeq+1 {
+			return validBytes, lastSeq, fmt.Errorf("%w: got %d after %d", ErrInvalidSequence, rec.Seq, lastSeq)
+		}
 		if err := fn(rec); err != nil {
 			return validBytes, lastSeq, err
 		}
@@ -388,7 +453,15 @@ func validFrameAfter(f *os.File, from int64, lastSeq uint64) (int64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	rest := make([]byte, max(info.Size()-from, 0))
+	remaining := max(info.Size()-from, 0)
+	// Never allocate an attacker/corruption-controlled multi-gigabyte tail.
+	// For a larger tail, fail closed as mid-log corruption and leave the WAL
+	// untouched for operator recovery.
+	const maxCorruptionScan = int64(64 << 20)
+	if remaining > maxCorruptionScan {
+		return from, true
+	}
+	rest := make([]byte, int(remaining))
 	if _, err := f.ReadAt(rest, from); err != nil && !errors.Is(err, io.EOF) {
 		return 0, false
 	}
@@ -486,6 +559,13 @@ func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.
 	if err != nil {
 		return err
 	}
+	return FollowOpened(ctx, path, f, fromSeq, pollInterval, changed, fn)
+}
+
+// FollowOpened is Follow starting from an already-open file descriptor. It
+// lets a caller atomically decide that WAL streaming is sufficient and open
+// that exact WAL before snapshot rotation can replace the path.
+func FollowOpened(ctx context.Context, path string, f *os.File, fromSeq uint64, pollInterval time.Duration, changed func() <-chan struct{}, fn func(Record) error) error {
 	// A closure, not a bound method value: f is reassigned on rotation
 	// below, and this must close whichever file is current when Follow
 	// returns, not the one open when the defer statement ran.
@@ -498,21 +578,24 @@ func Follow(ctx context.Context, path string, fromSeq uint64, pollInterval time.
 		if changed != nil {
 			wake = changed()
 		}
-		if pathInfo, statErr := os.Stat(path); statErr == nil {
-			if fdInfo, fdErr := f.Stat(); fdErr == nil && !os.SameFile(fdInfo, pathInfo) {
-				if next, openErr := os.Open(path); openErr == nil {
-					_ = f.Close()
-					f = next
-					offset = 0
-				}
-			}
-		}
-
 		n, err := f.ReadAt(header, offset)
 		if err != nil && !errors.Is(err, io.EOF) {
 			return err
 		}
 		if n < len(header) {
+			// Drain the current descriptor before following a rotation. This is
+			// essential when the caller atomically opened the pre-snapshot WAL:
+			// switching at the top of the loop could skip its unread tail.
+			if pathInfo, statErr := os.Stat(path); statErr == nil {
+				if fdInfo, fdErr := f.Stat(); fdErr == nil && !os.SameFile(fdInfo, pathInfo) {
+					if next, openErr := os.Open(path); openErr == nil {
+						_ = f.Close()
+						f = next
+						offset = 0
+						continue
+					}
+				}
+			}
 			if err := waitOrDone(ctx, pollInterval, wake); err != nil {
 				return err
 			}
@@ -591,8 +674,13 @@ func SumAt(path string, seq uint64) (sum uint32, found bool, err error) {
 		return 0, false, err
 	}
 	defer f.Close()
+	return SumAtFile(f, seq)
+}
 
-	r := bufio.NewReader(f)
+// SumAtFile is SumAt over an already-open WAL without changing its file
+// offset, so it can be followed from the same descriptor afterward.
+func SumAtFile(f *os.File, seq uint64) (sum uint32, found bool, err error) {
+	r := bufio.NewReader(io.NewSectionReader(f, 0, math.MaxInt64))
 	header := make([]byte, 8)
 	for {
 		if _, err := io.ReadFull(r, header); err != nil {

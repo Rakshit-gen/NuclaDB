@@ -171,3 +171,68 @@ func TestFollowSurvivesRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A replication handshake may open the old WAL just before a snapshot
+// rotates the path. FollowOpened must drain that descriptor before switching
+// to the new file, or acknowledged records in its unread tail are skipped.
+func TestFollowOpenedDrainsOldWALBeforeFollowingRotation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wal.log")
+	w, err := OpenWriter(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id := uint64(1); id <= 2; id++ {
+		if _, err := w.Append(OpInsert, id, []float32{float32(id)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opened, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	newPath := path + ".new"
+	w2, err := CreateWriter(newPath, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w2.Append(OpInsert, 3, []float32{3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(newPath, path); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	got := make(chan uint64, 3)
+	done := make(chan error, 1)
+	go func() {
+		done <- FollowOpened(ctx, path, opened, 0, time.Millisecond, nil, func(rec Record) error {
+			got <- rec.Seq
+			if rec.Seq == 3 {
+				cancel()
+			}
+			return nil
+		})
+	}()
+	for want := uint64(1); want <= 3; want++ {
+		select {
+		case seq := <-got:
+			if seq != want {
+				t.Fatalf("sequence = %d, want %d", seq, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for sequence %d", want)
+		}
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("FollowOpened returned %v, want context.Canceled", err)
+	}
+	if err := w2.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
