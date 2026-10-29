@@ -94,6 +94,22 @@ than failing on the first write.
 claude mcp add nucladb -e NUCLADB_ADDR=localhost:9090 -e NUCLADB_TENANT=memory -- nucladb-mcp
 ```
 
+### Claude Desktop
+
+Add this to `claude_desktop_config.json`. Desktop apps often don't see
+the shell's `PATH`, so give the full path from `which nucladb-mcp`:
+
+```json
+{
+  "mcpServers": {
+    "nucladb": {
+      "command": "/full/path/to/nucladb-mcp",
+      "env": { "NUCLADB_ADDR": "localhost:9090", "NUCLADB_TENANT": "memory" }
+    }
+  }
+}
+```
+
 ## Regenerating the protobuf stubs
 
 `nucladb/nucladb_pb2.py` and `nucladb/nucladb_pb2_grpc.py` are generated,
