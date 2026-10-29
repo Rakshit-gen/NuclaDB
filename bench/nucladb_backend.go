@@ -33,7 +33,7 @@ func StartNuclaDB(binPath, dataDir string, dim int, metric string, grpcAddr stri
 		"-dim", strconv.Itoa(dim),
 		"-metric", metric,
 		"-grpc-addr", grpcAddr,
-		"-http-addr", ":0",
+		"-http-addr", "127.0.0.1:0",
 	)
 	cmd.Stdout = os.Stderr // keep server logs out of stdout, which carries the report
 	cmd.Stderr = os.Stderr

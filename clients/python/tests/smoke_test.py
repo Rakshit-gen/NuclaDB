@@ -50,8 +50,8 @@ def main() -> None:
         proc = subprocess.Popen([
             bin_path,
             "-data-dir", os.path.join(tmp, "data"),
-            "-grpc-addr", f":{grpc_port}",
-            "-http-addr", f":{http_port}",
+            "-grpc-addr", f"127.0.0.1:{grpc_port}",
+            "-http-addr", f"127.0.0.1:{http_port}",
             "-dim", "4",
             "-metric", "l2",
         ])
