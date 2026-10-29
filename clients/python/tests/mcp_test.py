@@ -130,7 +130,9 @@ def main() -> None:
                 assert all(tools[n].read_only_hint for n in ("search", "get", "count")), tools
                 assert tools["delete"].destructive_hint and not tools["add_texts"].destructive_hint, tools
 
-            print("OK: add_texts and search verified against a real nucladbd subprocess")
+            print("OK: add_texts, search, filters, get, delete, count, refusals, "
+                  "error passthrough, tenant setup and tool hints all verified "
+                  "against a real nucladbd subprocess")
         finally:
             proc.terminate()
             proc.wait(timeout=5)
