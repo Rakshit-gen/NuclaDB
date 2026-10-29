@@ -106,6 +106,10 @@ def main() -> None:
                 assert "at most 256" in fails(server, "add_texts", texts=["cat"] * 257)
                 assert "reserved" in fails(server, "add_texts", texts=["cat"], metadata={"text": "x"})
 
+                assert "empty" in fails(server, "search", query=" ")
+                assert "between 1 and 50" in fails(server, "search", query="cat", top_k=0)
+                assert "between 1 and 50" in fails(server, "search", query="cat", top_k=51)
+
             print("OK: add_texts and search verified against a real nucladbd subprocess")
         finally:
             proc.terminate()
