@@ -63,6 +63,8 @@ def build(db: Client, embed: Embedder) -> MCPServer:
     ) -> list[dict]:
         """Find stored texts closest in meaning to query, best match first.
         filters keeps only texts whose metadata has every key=value given."""
+        if not query.strip():
+            raise ToolError("query is empty")
         matches = db.search(embed([query])[0], top_k=top_k, filters=filters)
         return [
             {
