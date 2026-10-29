@@ -70,4 +70,9 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         metadata = found[1]
         return {"id": id, "text": metadata.pop("text", ""), "metadata": metadata}
 
+    @server.tool()
+    def delete(id: str) -> bool:
+        """Forget one stored text. Deleting an unknown id is not an error."""
+        return db.delete(id)
+
     return server
