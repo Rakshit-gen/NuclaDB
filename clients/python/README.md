@@ -125,6 +125,22 @@ destructive, so clients that read those hints can skip the approval
 prompt for lookups. When the server rejects a call, the agent sees the
 reason (`nucladb: INVALID_ARGUMENT: ...`), not just "Error executing tool".
 
+### Settings
+
+All environment variables, the first four shared with the `nucladb` CLI:
+
+| Variable | Default | |
+|---|---|---|
+| `NUCLADB_ADDR` | `localhost:9090` | gRPC address |
+| `NUCLADB_TENANT` | the `default` tenant | Created on first start if missing |
+| `NUCLADB_API_KEY` | none | With a tenant-scoped key the startup size check is skipped, since listing tenants needs an admin key |
+| `NUCLADB_TLS` | off | `1` to connect over TLS |
+| `NUCLADB_MCP_MODEL` | `all-MiniLM-L6-v2` | Any sentence-transformers model. A different size needs a tenant made for it |
+
+The `default` tenant takes the server's `-dim`, which is 128 unless you
+set it, so it won't fit the model. Set `NUCLADB_TENANT` to a new name
+instead.
+
 ## Regenerating the protobuf stubs
 
 `nucladb/nucladb_pb2.py` and `nucladb/nucladb_pb2_grpc.py` are generated,
