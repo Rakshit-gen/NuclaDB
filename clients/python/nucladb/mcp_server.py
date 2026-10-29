@@ -22,6 +22,7 @@ from .client import Client
 Embedder = Callable[[list[str]], list[list[float]]]
 
 DEFAULT_MODEL = "all-MiniLM-L6-v2"  # 384-dim, small enough for CPU
+MAX_BATCH = 256  # one embed call; bigger batches stall the agent with no feedback
 
 
 def text_id(text: str) -> str:
@@ -42,6 +43,8 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         attached to every text in this call. Returns one id per text."""
         if not texts:
             raise ToolError("texts is empty")
+        if len(texts) > MAX_BATCH:
+            raise ToolError(f"at most {MAX_BATCH} texts per call, got {len(texts)}")
         if any(not t.strip() for t in texts):
             raise ToolError("every text has to have some non-whitespace content")
         ids = [text_id(t) for t in texts]
