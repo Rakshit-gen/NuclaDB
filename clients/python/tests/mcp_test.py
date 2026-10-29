@@ -125,6 +125,11 @@ def main() -> None:
                 else:
                     raise AssertionError("check_tenant accepted a 384-dim model for a 4-dim tenant")
 
+                tools = {t.name: t.annotations for t in asyncio.run(server.list_tools())}
+                assert sorted(tools) == ["add_texts", "count", "delete", "get", "search"], tools
+                assert all(tools[n].read_only_hint for n in ("search", "get", "count")), tools
+                assert tools["delete"].destructive_hint and not tools["add_texts"].destructive_hint, tools
+
             print("OK: add_texts and search verified against a real nucladbd subprocess")
         finally:
             proc.terminate()
