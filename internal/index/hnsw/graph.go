@@ -5,6 +5,7 @@
 package hnsw
 
 import (
+	"context"
 	"errors"
 	"math"
 	"math/rand"
@@ -15,6 +16,10 @@ import (
 // ErrDimensionMismatch is returned when a vector's length does not match
 // the graph's configured dimensionality.
 var ErrDimensionMismatch = errors.New("hnsw: vector dimension mismatch")
+
+// ErrNonFiniteVector is returned for NaN or infinite components, which do
+// not define a stable distance ordering and would poison graph traversal.
+var ErrNonFiniteVector = errors.New("hnsw: vector contains NaN or infinity")
 
 // ErrNotFound is returned when an operation references an id that does not
 // exist in the graph.
@@ -39,7 +44,7 @@ type Config struct {
 }
 
 func (c Config) withDefaults() Config {
-	if c.M <= 0 {
+	if c.M <= 1 {
 		c.M = 16
 	}
 	if c.EfConstruction <= 0 {
@@ -49,6 +54,18 @@ func (c Config) withDefaults() Config {
 		c.Metric = Cosine()
 	}
 	return c
+}
+
+func validateVector(v []float32, dim int) error {
+	if len(v) != dim {
+		return ErrDimensionMismatch
+	}
+	for _, x := range v {
+		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
+			return ErrNonFiniteVector
+		}
+	}
+	return nil
 }
 
 type node struct {
@@ -203,14 +220,14 @@ func (g *Graph) randomLevel() int {
 	// Standard HNSW level assignment: P(level >= l) decays exponentially so
 	// higher layers stay sparse, giving log-time greedy descent.
 	level := int(math.Floor(-math.Log(g.rng.Float64()) * g.levelMult))
-	return level
+	return min(level, 64)
 }
 
 // Insert adds or replaces the vector stored under id. The vector's length
 // must equal cfg.Dim.
 func (g *Graph) Insert(id uint64, vector []float32) error {
-	if len(vector) != g.cfg.Dim {
-		return ErrDimensionMismatch
+	if err := validateVector(vector, g.cfg.Dim); err != nil {
+		return err
 	}
 	vec := g.prep(vector)
 
@@ -441,6 +458,11 @@ var visitedPool = sync.Pool{New: func() any { return new(visitedSet) }}
 // first. This is the workhorse used by both Insert (efConstruction) and
 // Search (efSearch).
 func (g *Graph) searchLayer(query []float32, entry uint32, ef, l int) []candidate {
+	out, _ := g.searchLayerContext(context.Background(), query, entry, ef, l)
+	return out
+}
+
+func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry uint32, ef, l int) ([]candidate, error) {
 	visited := visitedPool.Get().(*visitedSet)
 	defer visitedPool.Put(visited)
 	visited.reset(len(g.nodes))
@@ -456,6 +478,9 @@ func (g *Graph) searchLayer(query []float32, entry uint32, ef, l int) []candidat
 	}
 
 	for frontier.Len() > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		c := frontier.pop()
 		if results.Len() >= ef && c.dist > (*results)[0].dist {
 			break
@@ -488,7 +513,7 @@ func (g *Graph) searchLayer(query []float32, entry uint32, ef, l int) []candidat
 	for i := len(out) - 1; i >= 0; i-- {
 		out[i] = results.pop()
 	}
-	return out
+	return out, nil
 }
 
 // selectNeighbors picks up to m links from candidates, which must be
@@ -639,8 +664,13 @@ type SearchResult struct {
 // and is typically swept between topK and a few hundred to trade latency
 // for accuracy.
 func (g *Graph) Search(query []float32, topK, ef int) ([]SearchResult, error) {
-	if len(query) != g.cfg.Dim {
-		return nil, ErrDimensionMismatch
+	return g.SearchContext(context.Background(), query, topK, ef)
+}
+
+// SearchContext is Search with cooperative cancellation during traversal.
+func (g *Graph) SearchContext(ctx context.Context, query []float32, topK, ef int) ([]SearchResult, error) {
+	if err := validateVector(query, g.cfg.Dim); err != nil {
+		return nil, err
 	}
 	if topK <= 0 {
 		return nil, nil
@@ -662,10 +692,16 @@ func (g *Graph) Search(query []float32, topK, ef int) ([]SearchResult, error) {
 	entry := g.entryPoint
 	curDist := g.dist(query, g.nodes[entry].vector)
 	for l := g.maxLevel; l > 0; l-- {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		entry, curDist = g.greedyClosest(entry, curDist, query, l)
 	}
 
-	candidates := g.searchLayer(query, entry, ef, 0)
+	candidates, err := g.searchLayerContext(ctx, query, entry, ef, 0)
+	if err != nil {
+		return nil, err
+	}
 	if len(candidates) > topK {
 		candidates = candidates[:topK]
 	}
@@ -682,8 +718,13 @@ func (g *Graph) Search(query []float32, topK, ef int) ([]SearchResult, error) {
 // both exact and cheaper than walking the graph. Unknown and deleted ids
 // are skipped.
 func (g *Graph) ExactSearch(query []float32, ids []uint64, topK int) ([]SearchResult, error) {
-	if len(query) != g.cfg.Dim {
-		return nil, ErrDimensionMismatch
+	return g.ExactSearchContext(context.Background(), query, ids, topK)
+}
+
+// ExactSearchContext is ExactSearch with cooperative cancellation.
+func (g *Graph) ExactSearchContext(ctx context.Context, query []float32, ids []uint64, topK int) ([]SearchResult, error) {
+	if err := validateVector(query, g.cfg.Dim); err != nil {
+		return nil, err
 	}
 	if topK <= 0 {
 		return nil, nil
@@ -695,7 +736,12 @@ func (g *Graph) ExactSearch(query []float32, ids []uint64, topK int) ([]SearchRe
 	defer g.mu.RUnlock()
 
 	h := newMaxHeap()
-	for _, id := range ids {
+	for i, id := range ids {
+		if i&255 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 		slot, ok := g.slots[id]
 		if !ok || g.nodes[slot].deleted {
 			continue

@@ -31,8 +31,8 @@ func (g *Graph) InsertBatch(ids []uint64, vectors [][]float32) error {
 		return ErrDimensionMismatch
 	}
 	for _, v := range vectors {
-		if len(v) != g.cfg.Dim {
-			return ErrDimensionMismatch
+		if err := validateVector(v, g.cfg.Dim); err != nil {
+			return err
 		}
 	}
 
