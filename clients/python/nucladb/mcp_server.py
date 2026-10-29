@@ -80,7 +80,8 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         query: str, top_k: int = 5, filters: dict[str, str] | None = None
     ) -> list[dict]:
         """Find stored texts closest in meaning to query, best match first.
-        filters keeps only texts whose metadata has every key=value given."""
+        filters keeps only texts whose metadata has every key=value given.
+        score is a distance: lower is closer, 0 is the same meaning."""
         if not query.strip():
             raise ToolError("query is empty")
         if not 1 <= top_k <= MAX_TOP_K:
