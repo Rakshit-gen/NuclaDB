@@ -67,6 +67,12 @@ func (m *Metrics) SetTenantStats(tenantID string, vectorCount int, maxVectors in
 	m.tenantQuotaMax.WithLabelValues(tenantID).Set(float64(maxVectors))
 }
 
+// DeleteTenantStats removes gauges for a tenant that no longer exists.
+func (m *Metrics) DeleteTenantStats(tenantID string) {
+	m.tenantVectorCount.DeleteLabelValues(tenantID)
+	m.tenantQuotaMax.DeleteLabelValues(tenantID)
+}
+
 // tenantExtractor pulls a tenant_id label out of a gRPC request message
 // for the interceptor below. Every request type that carries a top-level
 // tenant_id implements this narrow interface (the generated protobuf

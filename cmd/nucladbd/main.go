@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -35,8 +37,8 @@ import (
 func main() {
 	var (
 		dataDir        = flag.String("data-dir", "./data", "directory holding the WAL and snapshot files")
-		grpcAddr       = flag.String("grpc-addr", ":9090", "gRPC listen address")
-		httpAddr       = flag.String("http-addr", ":8080", "REST/JSON + /metrics listen address")
+		grpcAddr       = flag.String("grpc-addr", "127.0.0.1:9090", "gRPC listen address")
+		httpAddr       = flag.String("http-addr", "127.0.0.1:8080", "REST/JSON + /metrics listen address")
 		dim            = flag.Int("dim", 128, "vector dimension for tenants created without their own")
 		metric         = flag.String("metric", "cosine", "distance metric for tenants created without their own: cosine, l2, or dot")
 		m              = flag.Int("m", 16, "HNSW M: bidirectional links per node above layer 0")
@@ -46,11 +48,25 @@ func main() {
 		exactFilter    = flag.Int("exact-filter-limit", engine.DefaultExactFilterLimit, "filters matching at most this many vectors are answered by scoring every match")
 		idleTimeout    = flag.Duration("tenant-idle-timeout", 30*time.Minute, "close tenants unused for this long (0 keeps them open)")
 		apiKeys        = flag.String("api-keys", "", "JSON file of API keys (see internal/auth); without it every request is allowed")
+		allowUnauth    = flag.Bool("allow-unauthenticated", false, "explicitly allow an unauthenticated non-loopback listener")
 		tlsCert        = flag.String("tls-cert", "", "TLS certificate file; with -tls-key, serves gRPC and REST over TLS")
 		tlsKey         = flag.String("tls-key", "", "TLS private key file")
 		metricsEvery   = flag.Duration("metrics-interval", 15*time.Second, "how often to refresh per-tenant usage gauges")
 	)
 	flag.Parse()
+	if *dim <= 0 || *m <= 1 || *efConstruction <= 0 {
+		log.Fatalf("nucladbd: -dim and -ef-construction must be positive and -m must be at least 2")
+	}
+	if *snapshotEvery <= 0 || *metricsEvery <= 0 || *idleTimeout < 0 || (*idleTimeout > 0 && *idleTimeout < 2*time.Nanosecond) {
+		log.Fatalf("nucladbd: snapshot/metrics intervals must be positive and tenant idle timeout must be 0 or at least 2ns")
+	}
+	if *maxMessage <= 0 || *exactFilter < 0 {
+		log.Fatalf("nucladbd: max-message-bytes must be positive and exact-filter-limit non-negative")
+	}
+	envAPIKey := os.Getenv("NUCLADB_API_KEY")
+	if *apiKeys == "" && envAPIKey == "" && !*allowUnauth && (!loopbackAddress(*grpcAddr) || !loopbackAddress(*httpAddr)) {
+		log.Fatalf("nucladbd: refusing unauthenticated non-loopback listeners; configure -api-keys or explicitly pass -allow-unauthenticated")
+	}
 
 	hnswMetric, ok := hnsw.MetricByName(*metric)
 	if !ok {
@@ -85,12 +101,17 @@ func main() {
 
 	svc := grpcapi.New(store)
 
-	if *apiKeys != "" {
-		keys, err := auth.Load(*apiKeys)
+	var configuredKeys *auth.Keys
+	if *apiKeys != "" || envAPIKey != "" {
+		if *apiKeys != "" {
+			configuredKeys, err = auth.Load(*apiKeys)
+		} else {
+			configuredKeys, err = auth.New([]auth.Key{{Key: envAPIKey, Tenants: []string{"*"}, Admin: true}})
+		}
 		if err != nil {
 			log.Fatalf("nucladbd: %v", err)
 		}
-		svc.RequireKeys(keys)
+		svc.RequireKeys(configuredKeys)
 	} else {
 		log.Printf("nucladbd: no -api-keys file, so every request is allowed")
 	}
@@ -131,13 +152,29 @@ func main() {
 
 	httpMux := http.NewServeMux()
 	httpMux.Handle("/", gateway.New(svc, int64(*maxMessage)))
-	httpMux.Handle("/metrics", telemetry.Handler(registry))
-	httpServer := &http.Server{Addr: *httpAddr, Handler: httpMux}
+	metricsHandler := telemetry.Handler(registry)
+	if configuredKeys != nil {
+		metricsHandler = requireAdminKey(configuredKeys, metricsHandler)
+	}
+	httpMux.Handle("/metrics", metricsHandler)
+	httpMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	httpServer := &http.Server{
+		Addr: *httpAddr, Handler: httpMux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	httpLis, err := net.Listen("tcp", *httpAddr)
+	if err != nil {
+		_ = lis.Close()
+		log.Fatalf("nucladbd: listening on %s: %v", *httpAddr, err)
+	}
 	go func() {
 		log.Printf("nucladbd: REST listening on %s (/metrics for Prometheus)", *httpAddr)
-		serve := httpServer.ListenAndServe
+		serve := func() error { return httpServer.Serve(httpLis) }
 		if *tlsCert != "" {
-			serve = func() error { return httpServer.ListenAndServeTLS(*tlsCert, *tlsKey) }
+			serve = func() error { return httpServer.ServeTLS(httpLis, *tlsCert, *tlsKey) }
 		}
 		if err := serve(); err != nil && err != http.ErrServerClosed {
 			log.Printf("nucladbd: REST server stopped: %v", err)
@@ -145,10 +182,12 @@ func main() {
 	}()
 
 	stopBackground := make(chan struct{})
-	go periodicSnapshot(store, *snapshotEvery, stopBackground)
-	go periodicMetricsRefresh(store, metrics, *metricsEvery, stopBackground)
+	var background sync.WaitGroup
+	startBackground := func(fn func()) { background.Add(1); go func() { defer background.Done(); fn() }() }
+	startBackground(func() { periodicSnapshot(store, *snapshotEvery, stopBackground) })
+	startBackground(func() { periodicMetricsRefresh(store, metrics, *metricsEvery, stopBackground) })
 	if *idleTimeout > 0 {
-		go periodicIdleClose(store, *idleTimeout, stopBackground)
+		startBackground(func() { periodicIdleClose(store, *idleTimeout, stopBackground) })
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -157,16 +196,50 @@ func main() {
 	log.Println("nucladbd: shutting down")
 
 	close(stopBackground)
-	grpcServer.GracefulStop()
+	background.Wait()
+	grpcStopped := make(chan struct{})
+	go func() { grpcServer.GracefulStop(); close(grpcStopped) }()
+	select {
+	case <-grpcStopped:
+	case <-time.After(10 * time.Second):
+		grpcServer.Stop()
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = httpServer.Shutdown(shutdownCtx)
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("nucladbd: REST shutdown: %v", err)
+	}
 
 	if err := store.Close(); err != nil {
-		log.Fatalf("nucladbd: final snapshot on shutdown failed: %v", err)
+		log.Printf("nucladbd: final snapshot on shutdown failed: %v", err)
+		return
 	}
 	log.Println("nucladbd: clean shutdown, final snapshot written")
+}
+
+func loopbackAddress(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func requireAdminKey(keys *auth.Keys, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := auth.FromHeader(r.Header.Get("Authorization"), r.Header.Get("X-API-Key"))
+		if err := keys.Allow(auth.WithKey(r.Context(), key), "", true); err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func periodicSnapshot(store *engine.Store, interval time.Duration, stop <-chan struct{}) {
@@ -208,12 +281,21 @@ func periodicIdleClose(store *engine.Store, idle time.Duration, stop <-chan stru
 func periodicMetricsRefresh(store *engine.Store, metrics *telemetry.Metrics, interval time.Duration, stop <-chan struct{}) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	seen := make(map[string]struct{})
 	for {
 		select {
 		case <-ticker.C:
+			current := make(map[string]struct{})
 			for tenantID, stats := range store.AllStats() {
 				metrics.SetTenantStats(tenantID, stats.VectorCount, stats.Quota.MaxVectors)
+				current[tenantID] = struct{}{}
 			}
+			for tenantID := range seen {
+				if _, ok := current[tenantID]; !ok {
+					metrics.DeleteTenantStats(tenantID)
+				}
+			}
+			seen = current
 		case <-stop:
 			return
 		}

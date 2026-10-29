@@ -52,7 +52,7 @@ type nucladbdProcess struct {
 
 func startNucladbd(t *testing.T, bin, dataDir, grpcAddr string) *nucladbdProcess {
 	t.Helper()
-	cmd := exec.Command(bin, "-data-dir", dataDir, "-dim", "4", "-metric", "l2", "-grpc-addr", grpcAddr, "-http-addr", ":0")
+	cmd := exec.Command(bin, "-data-dir", dataDir, "-dim", "4", "-metric", "l2", "-grpc-addr", grpcAddr, "-http-addr", "127.0.0.1:0")
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
