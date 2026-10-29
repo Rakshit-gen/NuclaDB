@@ -140,7 +140,8 @@ def sentence_transformer(model_name: str) -> Embedder:
 
 def check_tenant(db: Client, dim: int) -> None:
     """Fail at startup, not on the agent's first add, when the tenant was
-    made for vectors of a different size than the model produces."""
+    made for vectors of a different size than the model produces. A tenant
+    that doesn't exist yet is created to fit the model."""
     try:
         tenants = {t.id: t for t in db.list_tenants()}
     except grpc.RpcError as e:
@@ -150,7 +151,10 @@ def check_tenant(db: Client, dim: int) -> None:
         raise
     name = db.tenant_id or "default"
     tenant = tenants.get(name)
-    if tenant is not None and tenant.dim != dim:
+    if tenant is None:
+        db.create_tenant(name, dim=dim, metric=DistanceMetric.COSINE)
+        return
+    if tenant.dim != dim:
         raise SystemExit(
             f"nucladb-mcp: tenant {name!r} holds {tenant.dim}-dim vectors but the "
             f"embedding model makes {dim}-dim ones; use a tenant created with dim={dim}"
