@@ -10,6 +10,7 @@ reaches the server.
 from __future__ import annotations
 
 import hashlib
+import os
 from typing import Callable
 
 from mcp.server.mcpserver import MCPServer
@@ -18,6 +19,8 @@ from .client import Client
 
 # texts in, one vector per text out
 Embedder = Callable[[list[str]], list[list[float]]]
+
+DEFAULT_MODEL = "all-MiniLM-L6-v2"  # 384-dim, small enough for CPU
 
 
 def text_id(text: str) -> str:
@@ -81,3 +84,21 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         return db.count()
 
     return server
+
+
+def sentence_transformer(model_name: str) -> Embedder:
+    # imported here so the plain client never needs torch installed
+    from sentence_transformers import SentenceTransformer
+
+    model = SentenceTransformer(model_name)
+    return lambda texts: model.encode(texts).tolist()
+
+
+def main() -> None:
+    embed = sentence_transformer(DEFAULT_MODEL)
+    with Client(os.environ.get("NUCLADB_ADDR", "localhost:9090")) as db:
+        build(db, embed).run("stdio")
+
+
+if __name__ == "__main__":
+    main()
