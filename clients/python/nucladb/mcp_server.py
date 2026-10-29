@@ -49,7 +49,7 @@ def _rpc() -> Iterator[None]:
     except grpc.RpcError as e:
         msg = f"nucladb: {e.code().name}: {e.details()}"
         if "dimension mismatch" in (e.details() or ""):
-            msg += " (the tenant's dim has to equal the embedding model's, 384 for all-MiniLM-L6-v2)"
+            msg += " (the tenant's dim has to equal the embedding model's output size)"
         raise ToolError(msg) from e
 
 
