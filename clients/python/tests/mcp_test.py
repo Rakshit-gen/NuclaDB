@@ -13,7 +13,7 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError  # noqa: E402
 
-from nucladb import Client  # noqa: E402
+from nucladb import Client, DistanceMetric  # noqa: E402
 from nucladb.mcp_server import build, check_tenant  # noqa: E402
 from smoke_test import REPO_ROOT, free_port, wait_ready  # noqa: E402
 
@@ -65,6 +65,8 @@ def main() -> None:
             with Client(addr, tenant_id="memory") as db:
                 # "memory" doesn't exist yet, so this also covers creating it
                 check_tenant(db, len(WORDS))
+                made = {t.id: t for t in db.list_tenants()}["memory"]
+                assert (made.dim, made.metric) == (4, DistanceMetric.COSINE), made
                 server = build(db, embed)
 
                 ids = call(server, "add_texts", texts=[
