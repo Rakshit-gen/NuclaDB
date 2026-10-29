@@ -45,9 +45,12 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         return ids
 
     @server.tool()
-    def search(query: str, top_k: int = 5) -> list[dict]:
-        """Find stored texts closest in meaning to query, best match first."""
-        matches = db.search(embed([query])[0], top_k=top_k)
+    def search(
+        query: str, top_k: int = 5, filters: dict[str, str] | None = None
+    ) -> list[dict]:
+        """Find stored texts closest in meaning to query, best match first.
+        filters keeps only texts whose metadata has every key=value given."""
+        matches = db.search(embed([query])[0], top_k=top_k, filters=filters)
         return [
             {
                 "id": m.id,
