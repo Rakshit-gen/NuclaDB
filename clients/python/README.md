@@ -167,4 +167,10 @@ side. Run from a checkout with Go available:
 
 ```
 python tests/smoke_test.py
+python tests/mcp_test.py
 ```
+
+`tests/mcp_test.py` does the same for `nucladb-mcp`: every tool, the
+refusals, a server-side error reaching the agent, and the startup tenant
+check. It swaps the real model for a stand-in that counts four words, so
+it needs the `mcp` package but not torch or a model download.
