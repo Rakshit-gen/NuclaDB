@@ -47,6 +47,8 @@ def build(db: Client, embed: Embedder) -> MCPServer:
             raise ToolError(f"at most {MAX_BATCH} texts per call, got {len(texts)}")
         if any(not t.strip() for t in texts):
             raise ToolError("every text has to have some non-whitespace content")
+        if metadata and "text" in metadata:
+            raise ToolError("metadata key \"text\" is reserved for the text itself")
         ids = [text_id(t) for t in texts]
         vectors = embed(texts)
         db.batch_upsert(
