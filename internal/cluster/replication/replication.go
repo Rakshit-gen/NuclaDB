@@ -34,6 +34,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -61,6 +62,9 @@ const (
 // connected follower per the protocol above. It blocks until ln is closed
 // or ctx is cancelled, at which point it returns nil.
 func Serve(ctx context.Context, ln net.Listener, e *engine.Engine) error {
+	if tcp, ok := ln.Addr().(*net.TCPAddr); ok && (tcp.IP == nil || tcp.IP.IsUnspecified() || !tcp.IP.IsLoopback()) {
+		return fmt.Errorf("replication: refusing unauthenticated non-loopback listener %s", ln.Addr())
+	}
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()
@@ -83,22 +87,39 @@ func Serve(ctx context.Context, ln net.Listener, e *engine.Engine) error {
 
 func serveConn(ctx context.Context, conn net.Conn, e *engine.Engine) error {
 	defer func() { _ = conn.Close() }()
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
 
 	header := make([]byte, headerLen)
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	if _, err := io.ReadFull(conn, header); err != nil {
 		return fmt.Errorf("replication: read from-seq: %w", err)
 	}
+	_ = conn.SetReadDeadline(time.Time{})
 	fromSeq := binary.BigEndian.Uint64(header[0:8])
 	hasSum := header[8] == 1
 	sum := binary.BigEndian.Uint32(header[9:13])
 
-	fromSeq, err := sendSnapshotIfNeeded(conn, e, fromSeq, hasSum, sum)
+	fromSeq, walFile, err := sendSnapshotIfNeeded(conn, e, fromSeq, hasSum, sum)
 	if err != nil {
 		return err
 	}
 
 	w := bufio.NewWriter(conn)
-	return wal.Follow(ctx, e.WALPath(), fromSeq, pollInterval, e.WALChanged, func(rec wal.Record) error {
+	if walFile == nil {
+		walFile, err = os.Open(e.WALPath())
+		if err != nil {
+			return err
+		}
+	}
+	return wal.FollowOpened(ctx, e.WALPath(), walFile, fromSeq, pollInterval, e.WALChanged, func(rec wal.Record) error {
 		if _, err := w.Write(wal.EncodeRecord(rec)); err != nil {
 			return err
 		}
@@ -109,40 +130,41 @@ func serveConn(ctx context.Context, conn net.Conn, e *engine.Engine) error {
 // sendSnapshotIfNeeded implements steps 2-3 of the protocol, returning the
 // sequence number the caller should now wal.Follow from — either fromSeq
 // unchanged, or the snapshot's sequence if one was sent.
-func sendSnapshotIfNeeded(conn net.Conn, e *engine.Engine, fromSeq uint64, hasSum bool, sum uint32) (uint64, error) {
-	resync, err := needsSnapshot(e, fromSeq, hasSum, sum)
+func sendSnapshotIfNeeded(conn net.Conn, e *engine.Engine, fromSeq uint64, hasSum bool, sum uint32) (uint64, *os.File, error) {
+	walFile, resync, err := e.OpenWALForReplication(fromSeq, hasSum, sum)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if !resync {
 		if _, err := conn.Write([]byte{markerNoSnapshot}); err != nil {
-			return 0, fmt.Errorf("replication: send no-snapshot marker: %w", err)
+			_ = walFile.Close()
+			return 0, nil, fmt.Errorf("replication: send no-snapshot marker: %w", err)
 		}
-		return fromSeq, nil
+		return fromSeq, walFile, nil
 	}
 
 	snapshot, metadata, seq, err := e.OpenSnapshot()
 	if err != nil {
-		return 0, fmt.Errorf("replication: snapshot for bootstrap: %w", err)
+		return 0, nil, fmt.Errorf("replication: snapshot for bootstrap: %w", err)
 	}
 	defer snapshot.Close()
 	defer metadata.Close()
 
 	if _, err := conn.Write([]byte{markerSnapshotFollows}); err != nil {
-		return 0, fmt.Errorf("replication: send snapshot marker: %w", err)
+		return 0, nil, fmt.Errorf("replication: send snapshot marker: %w", err)
 	}
 	seqBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(seqBuf, seq)
 	if _, err := conn.Write(seqBuf); err != nil {
-		return 0, fmt.Errorf("replication: send snapshot seq: %w", err)
+		return 0, nil, fmt.Errorf("replication: send snapshot seq: %w", err)
 	}
 	if err := writeBlob(conn, snapshot); err != nil {
-		return 0, fmt.Errorf("replication: send snapshot blob: %w", err)
+		return 0, nil, fmt.Errorf("replication: send snapshot blob: %w", err)
 	}
 	if err := writeBlob(conn, metadata); err != nil {
-		return 0, fmt.Errorf("replication: send metadata blob: %w", err)
+		return 0, nil, fmt.Errorf("replication: send metadata blob: %w", err)
 	}
-	return seq, nil
+	return seq, nil, nil
 }
 
 // needsSnapshot reports whether the follower at fromSeq has to be rebuilt
@@ -193,6 +215,10 @@ type blobReader struct {
 	started bool
 }
 
+const maxSnapshotBlob = uint64(64 << 30)
+
+var errBlobTooLarge = errors.New("replication: snapshot blob too large")
+
 func (b *blobReader) Read(p []byte) (int, error) {
 	if !b.started {
 		lenBuf := make([]byte, 8)
@@ -203,6 +229,9 @@ func (b *blobReader) Read(p []byte) (int, error) {
 			return 0, err
 		}
 		b.n, b.started = binary.BigEndian.Uint64(lenBuf), true
+		if b.n > maxSnapshotBlob {
+			return 0, fmt.Errorf("%w: %d", errBlobTooLarge, b.n)
+		}
 	}
 	if b.n == 0 {
 		return 0, io.EOF

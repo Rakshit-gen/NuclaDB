@@ -52,6 +52,12 @@ type point struct {
 // cluster sizes; it's exposed rather than hardcoded so it can be tuned
 // and measured, not guessed.
 func New(numShards, virtualNodes int) *Ring {
+	if numShards < 1 {
+		numShards = 1
+	}
+	if virtualNodes < 1 {
+		virtualNodes = 1
+	}
 	return &Ring{
 		virtualNodes: virtualNodes,
 		numShards:    numShards,
@@ -150,6 +156,9 @@ func (r *Ring) OwnersOf(shardID int, n int) ([]string, error) {
 	defer r.mu.RUnlock()
 	if len(r.points) == 0 {
 		return nil, ErrNoNodes
+	}
+	if n <= 0 {
+		return nil, nil
 	}
 	if n > len(r.nodeSet) {
 		n = len(r.nodeSet)

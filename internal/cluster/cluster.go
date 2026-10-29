@@ -54,6 +54,15 @@ func (c *Cluster) SetReplicaProgress(p ReplicaProgress) {
 // the ring reflects whatever topology the node already knows about before
 // returning.
 func New(node *raft.Node, numShards, virtualNodes, replicationFactor int) *Cluster {
+	if numShards < 1 {
+		numShards = 1
+	}
+	if virtualNodes < 1 {
+		virtualNodes = 1
+	}
+	if replicationFactor < 1 {
+		replicationFactor = 1
+	}
 	c := &Cluster{
 		node:              node,
 		numShards:         numShards,
@@ -305,6 +314,7 @@ func (c *Cluster) Join(nodeID, raftAddr, apiAddr string, timeout time.Duration) 
 		return fmt.Errorf("cluster: add raft voter: %w", err)
 	}
 	if err := c.node.AddNode(nodeID, apiAddr); err != nil {
+		_ = c.node.RemoveServer(nodeID, timeout)
 		return fmt.Errorf("cluster: propose node metadata: %w", err)
 	}
 	c.Refresh()
@@ -318,11 +328,16 @@ func (c *Cluster) Join(nodeID, raftAddr, apiAddr string, timeout time.Duration) 
 // metadata, then rebalances shards away from it. Only the leader can call
 // this.
 func (c *Cluster) Leave(nodeID string, timeout time.Duration) error {
-	if err := c.node.RemoveServer(nodeID, timeout); err != nil {
-		return fmt.Errorf("cluster: remove raft server: %w", err)
-	}
+	state := c.node.State()
+	oldAddr, existed := state.Nodes[nodeID]
 	if err := c.node.RemoveNode(nodeID); err != nil {
 		return fmt.Errorf("cluster: propose node removal: %w", err)
+	}
+	if err := c.node.RemoveServer(nodeID, timeout); err != nil {
+		if existed {
+			_ = c.node.AddNode(nodeID, oldAddr)
+		}
+		return fmt.Errorf("cluster: remove raft server: %w", err)
 	}
 	c.Refresh()
 	if err := c.Rebalance(); err != nil {

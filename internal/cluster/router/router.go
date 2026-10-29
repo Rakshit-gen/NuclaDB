@@ -40,6 +40,9 @@ type ShardResolver interface {
 // for the cluster's lifetime, so a plain, fast, uniform hash of the id is
 // all that's needed to pick which of the fixed shards owns it.
 func ShardFor(id uint64, numShards int) int {
+	if numShards <= 0 {
+		return 0
+	}
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], id)
 	h := fnv.New64a()
@@ -55,8 +58,9 @@ type Router struct {
 
 	dialOpts []grpc.DialOption
 
-	mu    sync.Mutex
-	conns map[string]*grpc.ClientConn // API addr -> reused connection
+	mu     sync.Mutex
+	conns  map[string]*grpc.ClientConn // API addr -> reused connection
+	closed bool
 }
 
 // New creates a Router over resolver, scoping every request to tenantID
@@ -80,12 +84,17 @@ func (r *Router) Close() error {
 			firstErr = fmt.Errorf("router: close conn to %s: %w", addr, err)
 		}
 	}
+	clear(r.conns)
+	r.closed = true
 	return firstErr
 }
 
 func (r *Router) clientFor(addr string) (pb.NuclaDBClient, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closed {
+		return nil, fmt.Errorf("router: closed")
+	}
 	if conn, ok := r.conns[addr]; ok {
 		return pb.NewNuclaDBClient(conn), nil
 	}
@@ -107,7 +116,11 @@ func (r *Router) ownerClient(shard int) (pb.NuclaDBClient, error) {
 
 // Insert routes id/vector to the single shard id hashes to.
 func (r *Router) Insert(ctx context.Context, id uint64, vector []float32, metadata map[string]string) error {
-	client, err := r.ownerClient(ShardFor(id, r.resolver.NumShards()))
+	numShards := r.resolver.NumShards()
+	if numShards <= 0 {
+		return fmt.Errorf("router: resolver returned invalid shard count %d", numShards)
+	}
+	client, err := r.ownerClient(ShardFor(id, numShards))
 	if err != nil {
 		return err
 	}
@@ -133,6 +146,9 @@ type Item struct {
 // written; upserts are idempotent, so the caller can retry the whole batch.
 func (r *Router) InsertBatch(ctx context.Context, items []Item) error {
 	numShards := r.resolver.NumShards()
+	if numShards <= 0 {
+		return fmt.Errorf("router: resolver returned invalid shard count %d", numShards)
+	}
 	byShard := make(map[int][]*pb.Vector)
 	for _, it := range items {
 		shard := ShardFor(it.ID, numShards)
@@ -168,7 +184,11 @@ func (r *Router) InsertBatch(ctx context.Context, items []Item) error {
 
 // Delete routes id to the single shard it hashes to.
 func (r *Router) Delete(ctx context.Context, id uint64) error {
-	client, err := r.ownerClient(ShardFor(id, r.resolver.NumShards()))
+	numShards := r.resolver.NumShards()
+	if numShards <= 0 {
+		return fmt.Errorf("router: resolver returned invalid shard count %d", numShards)
+	}
+	client, err := r.ownerClient(ShardFor(id, numShards))
 	if err != nil {
 		return err
 	}
@@ -230,6 +250,13 @@ const searchAttempts = 2
 // shard fails, it returns no results.
 func (r *Router) Search(ctx context.Context, query []float32, topK, efSearch int, filters map[string]string) ([]Match, error) {
 	numShards := r.resolver.NumShards()
+	if numShards <= 0 {
+		return nil, fmt.Errorf("router: resolver returned invalid shard count %d", numShards)
+	}
+	const maxInt32 = int(^uint32(0) >> 1)
+	if topK <= 0 || topK > maxInt32 || efSearch < 0 || efSearch > maxInt32 {
+		return nil, fmt.Errorf("router: invalid topK or efSearch")
+	}
 
 	var pbFilters []*pb.MetadataFilter
 	for k, v := range filters {

@@ -2,6 +2,7 @@ package replication
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -36,7 +37,7 @@ func TestBlobRoundTrip(t *testing.T) {
 	// Declared 16 EiB, only 2 bytes follow: must fail, not read forever or
 	// allocate the declared size.
 	short := bytes.NewReader([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 1, 2})
-	if _, err := io.ReadAll(&blobReader{r: short}); err != io.ErrUnexpectedEOF {
-		t.Fatalf("err = %v, want ErrUnexpectedEOF", err)
+	if _, err := io.ReadAll(&blobReader{r: short}); !errors.Is(err, errBlobTooLarge) {
+		t.Fatalf("err = %v, want errBlobTooLarge", err)
 	}
 }
