@@ -88,6 +88,12 @@ it is created with 384 dimensions and the cosine metric. If it exists
 with a different size, the server refuses to start and says so, rather
 than failing on the first write.
 
+### Claude Code
+
+```
+claude mcp add nucladb -e NUCLADB_ADDR=localhost:9090 -e NUCLADB_TENANT=memory -- nucladb-mcp
+```
+
 ## Regenerating the protobuf stubs
 
 `nucladb/nucladb_pb2.py` and `nucladb/nucladb_pb2_grpc.py` are generated,
