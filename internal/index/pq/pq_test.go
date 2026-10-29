@@ -69,6 +69,24 @@ func TestEncodeDecodeReconstructsClusteredData(t *testing.T) {
 	}
 }
 
+func TestMalformedCodesAndNonPositiveTopKDoNotPanic(t *testing.T) {
+	vectors := clusteredVectors(rand.New(rand.NewSource(99)), 32, 4, 2)
+	cb, err := Train(Config{Dim: 4, NumSubvectors: 2, NumCentroids: 4}, vectors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cb.Decode([]byte{0}); got != nil {
+		t.Fatalf("Decode malformed code = %v", got)
+	}
+	idx := NewIndex(cb)
+	if err := idx.Insert(1, vectors[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := idx.Search(vectors[0], 0); err != nil || len(got) != 0 {
+		t.Fatalf("Search topK=0 = %v, %v", got, err)
+	}
+}
+
 func TestDistanceTableMatchesExactDistanceToDecodedCode(t *testing.T) {
 	rng := rand.New(rand.NewSource(2))
 	const dim, m = 32, 8

@@ -21,6 +21,7 @@ package pq
 
 import (
 	"errors"
+	"math"
 	"math/rand"
 )
 
@@ -87,6 +88,9 @@ func Train(cfg Config, vectors [][]float32) (*Codebook, error) {
 		if len(v) != cfg.Dim {
 			return nil, ErrDimMismatch
 		}
+		if !finite(v) {
+			return nil, ErrDimMismatch
+		}
 	}
 
 	subDim := cfg.Dim / cfg.NumSubvectors
@@ -116,12 +120,24 @@ func centroidAt(flat []float32, idx, subDim int) []float32 {
 }
 
 func sqDist(a, b []float32) float32 {
+	if len(a) != len(b) {
+		return float32(math.Inf(1))
+	}
 	var sum float64
 	for i := range a {
 		d := float64(a[i]) - float64(b[i])
 		sum += d * d
 	}
 	return float32(sum)
+}
+
+func finite(v []float32) bool {
+	for _, x := range v {
+		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
+			return false
+		}
+	}
+	return true
 }
 
 // Dim returns the codebook's full vector dimensionality.
@@ -133,7 +149,7 @@ func (c *Codebook) NumSubvectors() int { return c.cfg.NumSubvectors }
 // Encode quantizes vector into an M-byte code, one nearest-centroid index
 // per subspace.
 func (c *Codebook) Encode(vector []float32) ([]byte, error) {
-	if len(vector) != c.cfg.Dim {
+	if len(vector) != c.cfg.Dim || !finite(vector) {
 		return nil, ErrDimMismatch
 	}
 	code := make([]byte, c.cfg.NumSubvectors)
@@ -157,8 +173,14 @@ func (c *Codebook) Encode(vector []float32) ([]byte, error) {
 // concatenating the assigned centroids. Used for measuring reconstruction
 // error, not on the search hot path.
 func (c *Codebook) Decode(code []byte) []float32 {
+	if len(code) != c.cfg.NumSubvectors {
+		return nil
+	}
 	out := make([]float32, c.cfg.Dim)
 	for s, idx := range code {
+		if int(idx) >= c.cfg.NumCentroids {
+			return nil
+		}
 		off := s * c.subDim
 		copy(out[off:off+c.subDim], centroidAt(c.centroids[s], int(idx), c.subDim))
 	}
@@ -178,7 +200,7 @@ type DistanceTable struct {
 // O(Dim*NumCentroids) once per query; scoring each candidate afterwards
 // is then just NumSubvectors lookups and additions.
 func (c *Codebook) NewDistanceTable(query []float32) (*DistanceTable, error) {
-	if len(query) != c.cfg.Dim {
+	if len(query) != c.cfg.Dim || !finite(query) {
 		return nil, ErrDimMismatch
 	}
 	t := &DistanceTable{m: c.cfg.NumSubvectors, k: c.cfg.NumCentroids, table: make([]float32, c.cfg.NumSubvectors*c.cfg.NumCentroids)}
@@ -199,8 +221,14 @@ func (c *Codebook) NewDistanceTable(query []float32) (*DistanceTable, error) {
 // the query and Decode(code) — ADC is just a faster way to get that same
 // number without materializing the decoded vector.
 func (t *DistanceTable) Distance(code []byte) float32 {
+	if len(code) != t.m {
+		return float32(math.Inf(1))
+	}
 	var sum float32
 	for s, idx := range code {
+		if int(idx) >= t.k {
+			return float32(math.Inf(1))
+		}
 		sum += t.table[s*t.k+int(idx)]
 	}
 	return sum

@@ -59,6 +59,9 @@ func TrainIVF(codebook *Codebook, nlist int, sample [][]float32, seed int64) (*I
 
 // nearestLists returns the n list numbers whose centroids are closest to v.
 func (idx *IVFIndex) nearestLists(v []float32, n int) []int {
+	if n <= 0 {
+		return nil
+	}
 	order := make([]int, idx.nlist)
 	dists := make([]float32, idx.nlist)
 	for c := range order {
@@ -112,6 +115,9 @@ func (idx *IVFIndex) Len() int {
 // scanning only the nprobe lists nearest to it. nprobe >= nlist scans
 // everything and matches the flat Index.
 func (idx *IVFIndex) Search(query []float32, topK, nprobe int) ([]SearchResult, error) {
+	if topK <= 0 || nprobe <= 0 {
+		return nil, nil
+	}
 	table, err := idx.codebook.NewDistanceTable(query)
 	if err != nil {
 		return nil, err

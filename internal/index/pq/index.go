@@ -79,6 +79,9 @@ func (h *maxHeap) Pop() interface{} {
 // scanning every stored code. A single DistanceTable is built once and
 // reused across the whole scan.
 func (idx *Index) Search(query []float32, topK int) ([]SearchResult, error) {
+	if topK <= 0 {
+		return nil, nil
+	}
 	table, err := idx.codebook.NewDistanceTable(query)
 	if err != nil {
 		return nil, err
@@ -129,10 +132,13 @@ func (idx *Index) SearchRerank(query []float32, topK, candidates int, vectorOf f
 // rerank scores approx by exact squared L2 against the full vectors from
 // vectorOf and keeps the topK closest. Ids vectorOf can't find are dropped.
 func rerank(query []float32, topK int, approx []SearchResult, vectorOf func(id uint64) ([]float32, bool)) []SearchResult {
+	if topK <= 0 {
+		return nil
+	}
 	out := make([]SearchResult, 0, len(approx))
 	for _, c := range approx {
 		v, ok := vectorOf(c.ID)
-		if !ok {
+		if !ok || len(v) != len(query) || !finite(v) {
 			continue
 		}
 		out = append(out, SearchResult{ID: c.ID, Distance: sqDist(query, v)})
