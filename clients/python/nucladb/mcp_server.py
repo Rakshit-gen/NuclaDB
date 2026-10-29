@@ -96,7 +96,7 @@ def sentence_transformer(model_name: str) -> Embedder:
 
 
 def main() -> None:
-    embed = sentence_transformer(DEFAULT_MODEL)
+    embed = sentence_transformer(os.environ.get("NUCLADB_MCP_MODEL", DEFAULT_MODEL))
     with Client(
         os.environ.get("NUCLADB_ADDR", "localhost:9090"),
         tenant_id=os.environ.get("NUCLADB_TENANT", ""),
