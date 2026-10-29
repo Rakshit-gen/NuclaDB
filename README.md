@@ -226,8 +226,12 @@ deleting and re-quota'ing tenants needs an admin key. Send it as
 `NUCLADB_API_KEY`, the Python client takes `api_key=`. Add
 `-tls-cert`/`-tls-key` to serve both gRPC and REST over TLS
 (`NUCLADB_TLS=1` for the CLI, `tls=True` in Python). Without
-`-api-keys`, every request is allowed, which is what the local quickstart
-uses.
+`-api-keys`, every request is allowed only on the default loopback listeners,
+which is what the local quickstart uses. A key can also be supplied directly
+through `NUCLADB_API_KEY`; it becomes an all-tenant admin key. Binding either
+listener to a non-loopback address without authentication is refused unless
+you explicitly pass `-allow-unauthenticated`. When authentication is enabled,
+`/metrics` requires an admin key; `/healthz` remains public for orchestrators.
 
 Other server limits worth knowing: `-max-message-bytes` (64 MiB) caps a
 gRPC message or REST body, `top_k` is capped at 1000, `ef_search` at
@@ -257,7 +261,8 @@ limits enforced before a request reaches the engine
 
 Every gRPC call gets an OpenTelemetry trace span and is recorded into
 Prometheus request-count/duration histograms; `/metrics` is served
-alongside the REST API. Span export is off by default (a server that
+alongside the REST API (and requires an admin key when API authentication is
+enabled). Span export is off by default (a server that
 serializes a span per RPC pays for it on the hot path whether or not
 anyone reads the traces); set `OTEL_EXPORTER_OTLP_ENDPOINT` to send spans
 to a collector, or `NUCLADB_TRACE_STDOUT=1` to pretty-print them to
@@ -265,13 +270,14 @@ stdout for local inspection.
 
 ## Deploying
 
-**Live demo**: https://nucladb-demo.onrender.com/ (REST API + `/metrics`;
+**Live demo**: https://nucladb-demo.onrender.com/ (authenticated REST API;
 free tier, so the first request after idle may take ~30s to spin up).
 
 `render.yaml` is a Render Blueprint: connect this repo at
 [render.com](https://render.com) (New → Blueprint), and it builds
 `Dockerfile` and deploys the REST/JSON API on Render's free web-service
-tier, with `/metrics` as the health check.
+tier, with the public `/healthz` endpoint as the health check. Render generates
+the deployment's admin key as `NUCLADB_API_KEY`.
 
 `docker-entrypoint.sh` binds the REST gateway to Render's dynamically
 assigned `$PORT` (Docker's exec-form `ENTRYPOINT` can't expand that

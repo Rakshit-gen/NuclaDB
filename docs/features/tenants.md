@@ -54,8 +54,10 @@ Start the server with `-api-keys=keys.json`:
 A key only reaches the tenants it lists. Creating, deleting and changing
 limits on tenants needs an admin key. Clients send the key as
 `Authorization: Bearer <key>` or `X-API-Key: <key>`. Add `-tls-cert` and
-`-tls-key` to encrypt traffic. Without `-api-keys`, every request is
-allowed, which is fine on your own machine but not on a network.
+`-tls-key` to encrypt traffic. You can alternatively set `NUCLADB_API_KEY`
+to configure one all-tenant admin key. Without authentication, requests are
+allowed on the default loopback listeners. The server refuses an unauthenticated
+non-loopback bind unless `-allow-unauthenticated` explicitly opts into it.
 
 ## Lots of tenants
 

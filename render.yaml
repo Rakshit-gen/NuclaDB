@@ -4,4 +4,7 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
-    healthCheckPath: /metrics
+    healthCheckPath: /healthz
+    envVars:
+      - key: NUCLADB_API_KEY
+        generateValue: true

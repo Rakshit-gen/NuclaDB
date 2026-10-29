@@ -8,6 +8,7 @@ services:
       - nucladb-data:/data
     environment:
       - PORT=8080 # entrypoint script binds REST here; matches the exposed port above
+      - NUCLADB_ALLOW_UNAUTHENTICATED=1 # explicit local-development opt-in
     command:
       - "-dim=128"
       - "-metric=cosine"

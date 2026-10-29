@@ -54,7 +54,8 @@ with Client("localhost:9090") as db:
 | `POST /v1/tenants`, `GET /v1/tenants` | Create and list tenants |
 | `DELETE /v1/tenants/{id}` | Delete a tenant and its files |
 | `PUT /v1/tenants/{id}/quota` | Change a tenant's limits |
-| `GET /metrics` | Prometheus metrics |
+| `GET /metrics` | Prometheus metrics (admin key required when auth is enabled) |
+| `GET /healthz` | Public liveness check |
 
 The REST layer is written by hand on top of the same service the gRPC
 server uses, so both always behave the same.
@@ -82,7 +83,8 @@ results: [`bench/results-loadtest.md`](../../bench/results-loadtest.md).
 ## Watching it run
 
 `/metrics` on port 8080 serves request counts and durations for
-Prometheus, plus per-tenant usage. Every gRPC call also gets an
+Prometheus, plus per-tenant usage. It requires an admin API key when the
+server has authentication enabled; `/healthz` remains public. Every gRPC call also gets an
 OpenTelemetry trace span. Sending spans is off by default; set
 `OTEL_EXPORTER_OTLP_ENDPOINT` to send them to a collector, or
 `NUCLADB_TRACE_STDOUT=1` to print them.

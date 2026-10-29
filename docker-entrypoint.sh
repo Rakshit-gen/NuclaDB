@@ -6,4 +6,8 @@
 # platform's public-facing one; only the REST/JSON gateway needs to bind
 # wherever $PORT points.
 set -eu
-exec nucladbd -data-dir=/data -grpc-addr=:9090 -http-addr=":${PORT:-8080}" "$@"
+allow_unauth=""
+if [ "${NUCLADB_ALLOW_UNAUTHENTICATED:-}" = "1" ]; then
+  allow_unauth="-allow-unauthenticated"
+fi
+exec nucladbd -data-dir=/data -grpc-addr=:9090 -http-addr=":${PORT:-8080}" ${allow_unauth} "$@"
