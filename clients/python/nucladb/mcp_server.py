@@ -49,7 +49,12 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         """Find stored texts closest in meaning to query, best match first."""
         matches = db.search(embed([query])[0], top_k=top_k)
         return [
-            {"id": m.id, "score": m.score, "text": m.metadata.get("text", "")}
+            {
+                "id": m.id,
+                "score": m.score,
+                "text": m.metadata.pop("text", ""),
+                "metadata": m.metadata,
+            }
             for m in matches
         ]
 
