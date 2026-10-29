@@ -9,6 +9,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -260,13 +261,19 @@ func (h *Handler) setQuota(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
 		code := http.StatusBadRequest
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
 			code = http.StatusRequestEntityTooLarge
 		}
 		writeError(w, code, err.Error())
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "request body must contain exactly one JSON value")
 		return false
 	}
 	return true

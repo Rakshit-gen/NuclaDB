@@ -89,11 +89,19 @@ func (s *Server) CreateTenant(ctx context.Context, req *pb.CreateTenantRequest) 
 	if req.GetTenantId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
+	metricName := ""
+	if req.GetMetric() != pb.DistanceMetric_DISTANCE_METRIC_UNSPECIFIED {
+		var ok bool
+		metricName, ok = metricNames[req.GetMetric()]
+		if !ok {
+			return nil, status.Error(codes.InvalidArgument, "unknown distance metric")
+		}
+	}
 	q := req.GetQuota()
 	err := s.store.CreateTenantWithIndex(req.GetTenantId(), engine.Quota{
 		MaxVectors: q.GetMaxVectors(),
 		MaxQPS:     q.GetMaxQps(),
-	}, engine.IndexSpec{Dim: int(req.GetDim()), Metric: metricNames[req.GetMetric()]})
+	}, engine.IndexSpec{Dim: int(req.GetDim()), Metric: metricName})
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -206,7 +214,7 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 		}
 	}
 
-	results, err := s.store.Search(req.GetTenantId(), req.GetQuery(), topK, ef, filters)
+	results, err := s.store.SearchContext(ctx, req.GetTenantId(), req.GetQuery(), topK, ef, filters)
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -354,11 +362,17 @@ func toStatus(err error) error {
 		return err
 	}
 	switch {
+	case errors.Is(err, context.Canceled):
+		return status.Error(codes.Canceled, "request canceled")
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Error(codes.DeadlineExceeded, "request deadline exceeded")
 	case errors.Is(err, engine.ErrTenantNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, engine.ErrTenantExists):
 		return status.Error(codes.AlreadyExists, err.Error())
-	case errors.Is(err, engine.ErrInvalidTenantID), errors.Is(err, hnsw.ErrDimensionMismatch),
+	case errors.Is(err, engine.ErrInvalidTenantID), errors.Is(err, engine.ErrInvalidQuota),
+		errors.Is(err, hnsw.ErrDimensionMismatch),
+		errors.Is(err, hnsw.ErrNonFiniteVector),
 		errors.Is(err, engine.ErrDefaultTenant), errors.Is(err, engine.ErrBadFilter),
 		errors.Is(err, engine.ErrBadIndexSpec):
 		return status.Error(codes.InvalidArgument, err.Error())
@@ -367,5 +381,5 @@ func toStatus(err error) error {
 	case errors.Is(err, engine.ErrNotFound), errors.Is(err, hnsw.ErrNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	}
-	return status.Error(codes.Internal, err.Error())
+	return status.Error(codes.Internal, "internal server error")
 }
