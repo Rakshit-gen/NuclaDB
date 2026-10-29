@@ -75,4 +75,9 @@ def build(db: Client, embed: Embedder) -> MCPServer:
         """Forget one stored text. Deleting an unknown id is not an error."""
         return db.delete(id)
 
+    @server.tool()
+    def count() -> int:
+        """How many texts are stored."""
+        return db.count()
+
     return server
