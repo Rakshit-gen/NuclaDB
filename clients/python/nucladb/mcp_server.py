@@ -97,7 +97,12 @@ def sentence_transformer(model_name: str) -> Embedder:
 
 def main() -> None:
     embed = sentence_transformer(DEFAULT_MODEL)
-    with Client(os.environ.get("NUCLADB_ADDR", "localhost:9090")) as db:
+    with Client(
+        os.environ.get("NUCLADB_ADDR", "localhost:9090"),
+        tenant_id=os.environ.get("NUCLADB_TENANT", ""),
+        api_key=os.environ.get("NUCLADB_API_KEY", ""),
+        tls=os.environ.get("NUCLADB_TLS") == "1",
+    ) as db:
         build(db, embed).run("stdio")
 
 
