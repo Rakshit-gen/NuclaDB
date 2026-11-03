@@ -151,8 +151,15 @@ func writeMarkdown(path, dataset string, a, b *bench.Report, topK int) error {
 	ew.printf("Upserts with wait=true return before indexing, so the harness polls until `indexed_vectors_count` covers every vector.\n")
 	ew.printf("- **%s builds through BatchUpsert in batches of 500.** Each batch shares one WAL fsync, and the graph searches for ", a.Backend)
 	ew.printf("the batch's neighbors on every core before linking them in order (`hnsw.Graph.InsertBatch`).\n")
-	ew.printf("- At only %d vectors, recall for both engines converges close to 1.0 by moderate ef. A clearer recall/QPS separation ", a.NumVectors)
-	ew.printf("would show at larger scale (SIFT1M), which has not been run.\n")
+	ew.printf("- **Qdrant is held to one segment** (`default_segment_number: 1`), so both engines search one HNSW graph per query. ")
+	ew.printf("Its default on this machine is 5 segments, each searched at the requested ef and then merged, which made its ef=10 ")
+	ew.printf("about five times the search work of NuclaDB's.\n")
+	ew.printf("- **Both engines are driven over gRPC.** Qdrant's upserts and searches use its official Go client ")
+	ew.printf("(`github.com/qdrant/go-client`); only collection setup and the index-progress poll use its REST API.\n")
+	if a.NumVectors < 100_000 {
+		ew.printf("- At only %d vectors, recall for both engines converges close to 1.0 by moderate ef. ", a.NumVectors)
+		ew.printf("See `results-sift1m.md` for the 1M-vector run.\n")
+	}
 
 	if ew.err != nil {
 		return fmt.Errorf("writing %s: %w", path, ew.err)
