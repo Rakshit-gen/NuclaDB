@@ -111,6 +111,15 @@ func (b *QdrantBackend) createCollection(dim int, distance string, m, efConstruc
 		// it index everything.
 		"optimizers_config": map[string]any{
 			"indexing_threshold": 1,
+			// One segment, so one HNSW graph, like NuclaDB. By default
+			// Qdrant splits a collection into several segments (5 on a
+			// 10-core machine), each its own graph, and searches every one
+			// at the requested ef before merging. At SIFT-1M that made its
+			// ef=10 roughly five ef=10 searches over 200K-vector graphs, so
+			// "same ef" compared different amounts of work. The size cap
+			// (KB) is raised so the optimizer won't split it back up.
+			"default_segment_number": 1,
+			"max_segment_size":       4_000_000,
 		},
 	}
 	return b.doJSON(http.MethodPut, "/collections/"+b.collection, body, nil)
