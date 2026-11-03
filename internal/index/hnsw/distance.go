@@ -82,11 +82,15 @@ func L2() Metric { return l2Metric{} }
 
 func (l2Metric) Name() string { return "l2" }
 
-// Distance is the hot loop of both build and search. Four independent
-// float32 accumulators let the CPU keep several multiply-adds in flight
-// instead of waiting on one running sum; Go has no stable SIMD, so this is
-// the portable version of what hnswlib does with intrinsics.
-func (l2Metric) Distance(a, b []float32) float32 {
+// Distance is the hot loop of both build and search. On arm64 it runs in
+// NEON assembly (distance_arm64.s); elsewhere it is l2Go.
+func (l2Metric) Distance(a, b []float32) float32 { return l2(a, b) }
+
+// l2Go is the portable L2 kernel. Four independent float32 accumulators let
+// the CPU keep several multiply-adds in flight instead of waiting on one
+// running sum; Go has no stable SIMD, so this is the portable version of
+// what hnswlib does with intrinsics.
+func l2Go(a, b []float32) float32 {
 	b = b[:len(a)] // one bounds check here instead of one per element
 	var s0, s1, s2, s3 float32
 	i := 0
@@ -115,7 +119,10 @@ func Dot() Metric { return dotMetric{} }
 
 func (dotMetric) Name() string { return "dot" }
 
-func (dotMetric) Distance(a, b []float32) float32 {
+func (dotMetric) Distance(a, b []float32) float32 { return -dot(a, b) }
+
+// dotGo is the portable dot product, unrolled like l2Go.
+func dotGo(a, b []float32) float32 {
 	b = b[:len(a)]
 	var s0, s1, s2, s3 float32
 	i := 0
@@ -128,5 +135,5 @@ func (dotMetric) Distance(a, b []float32) float32 {
 	for ; i < len(a); i++ {
 		s0 += a[i] * b[i]
 	}
-	return -((s0 + s1) + (s2 + s3))
+	return (s0 + s1) + (s2 + s3)
 }

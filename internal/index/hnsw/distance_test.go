@@ -73,3 +73,44 @@ func TestCosineGraphMatchesCosineDistance(t *testing.T) {
 		}
 	}
 }
+
+// TestKernelsMatchPortable checks l2 and dot (NEON on arm64) against the
+// portable Go loops for every length up to 300, so each tail size and
+// several multiples of 16 are covered.
+func TestKernelsMatchPortable(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	for n := 0; n <= 300; n++ {
+		a, b := make([]float32, n), make([]float32, n)
+		for i := range a {
+			a[i], b[i] = rng.Float32()*2-1, rng.Float32()*2-1
+		}
+		for _, k := range []struct {
+			name      string
+			got, want float32
+		}{
+			{"l2", l2(a, b), l2Go(a, b)},
+			{"dot", dot(a, b), dotGo(a, b)},
+		} {
+			if diff := math.Abs(float64(k.got - k.want)); diff > 1e-4*max(1, math.Abs(float64(k.want))) {
+				t.Fatalf("%s n=%d: got %v, want %v", k.name, n, k.got, k.want)
+			}
+		}
+	}
+}
+
+func BenchmarkL2(b *testing.B) {
+	x, y := make([]float32, 128), make([]float32, 128)
+	for i := range x {
+		x[i], y[i] = float32(i), float32(2*i)
+	}
+	b.Run("kernel", func(b *testing.B) {
+		for b.Loop() {
+			l2(x, y)
+		}
+	})
+	b.Run("portable", func(b *testing.B) {
+		for b.Loop() {
+			l2Go(x, y)
+		}
+	})
+}
