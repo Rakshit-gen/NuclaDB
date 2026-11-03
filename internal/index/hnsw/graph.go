@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/bits"
 	"math/rand"
+	"runtime"
 	"sort"
 	"sync"
 )
@@ -117,6 +118,8 @@ type Graph struct {
 	// recomputing both norms on every comparison.
 	unit bool
 	dist func(a, b []float32) float32
+
+	visitedFree chan *visitedSet
 }
 
 // New creates an empty graph with the given configuration.
@@ -132,6 +135,8 @@ func New(cfg Config) *Graph {
 		levelMult: 1 / math.Log(float64(cfg.M)),
 		rng:       rand.New(src),
 		dist:      cfg.Metric.Distance,
+
+		visitedFree: make(chan *visitedSet, 4*runtime.GOMAXPROCS(0)),
 		// The largest power-of-two vector count that fits in 8 MB.
 		blockShift: uint(bits.Len(uint(max(8<<20/(4*max(cfg.Dim, 1)), 1))) - 1),
 	}
@@ -495,7 +500,25 @@ func (v *visitedSet) visit(slot uint32) bool {
 	return false
 }
 
-var visitedPool = sync.Pool{New: func() any { return new(visitedSet) }}
+// getVisited and putVisited recycle visited sets through a per-graph free
+// list. A sync.Pool is emptied by every GC, and refilling it meant
+// allocating and zeroing a 4-byte-per-node array (5 MB at 1M vectors),
+// which was over a fifth of search CPU.
+func (g *Graph) getVisited() *visitedSet {
+	select {
+	case v := <-g.visitedFree:
+		return v
+	default:
+		return new(visitedSet)
+	}
+}
+
+func (g *Graph) putVisited(v *visitedSet) {
+	select {
+	case g.visitedFree <- v:
+	default: // more concurrent searches than slots; let this one go
+	}
+}
 
 // searchLayer runs a best-first beam search of width ef starting from
 // entry, exploring layer l, and returns up to ef candidates sorted closest
@@ -507,8 +530,8 @@ func (g *Graph) searchLayer(query []float32, entry uint32, ef, l int) []candidat
 }
 
 func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry uint32, ef, l int) ([]candidate, error) {
-	visited := visitedPool.Get().(*visitedSet)
-	defer visitedPool.Put(visited)
+	visited := g.getVisited()
+	defer g.putVisited(visited)
 	visited.reset(len(g.nodes))
 	visited.visit(entry)
 	entryDist := g.dist(query, g.vec(entry))
