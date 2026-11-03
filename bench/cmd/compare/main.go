@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/Rakshit-gen/nucladb/bench"
 )
@@ -27,6 +28,7 @@ func main() {
 		iterations  = flag.Int("iterations", 5, "measured passes over the query set per ef; QPS is the median pass")
 		m           = flag.Int("m", 16, "HNSW M (bidirectional links per node)")
 		efConstruct = flag.Int("ef-construct", 200, "HNSW build-time candidate list size")
+		out         = flag.String("out", "results.md", "markdown report to write")
 	)
 	flag.Parse()
 
@@ -66,7 +68,7 @@ func main() {
 	printReport(nuclaReport, *topK)
 	printReport(qdrantReport, *topK)
 	printComparison(nuclaReport, qdrantReport, *topK)
-	must(writeMarkdown(nuclaReport, qdrantReport, *topK))
+	must(writeMarkdown(*out, filepath.Base(*dataDir), nuclaReport, qdrantReport, *topK))
 }
 
 func printReport(r *bench.Report, topK int) {
@@ -103,8 +105,7 @@ func (ew *errWriter) printf(format string, args ...any) {
 	_, ew.err = fmt.Fprintf(ew.w, format, args...)
 }
 
-func writeMarkdown(a, b *bench.Report, topK int) error {
-	path := "results.md"
+func writeMarkdown(path, dataset string, a, b *bench.Report, topK int) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", path, err)
@@ -112,8 +113,8 @@ func writeMarkdown(a, b *bench.Report, topK int) error {
 	defer f.Close()
 
 	ew := &errWriter{w: f}
-	ew.printf("# NuclaDB vs Qdrant: SIFT-small benchmark\n\n")
-	ew.printf("Real measurements from running both systems over their own network APIs ")
+	ew.printf("# NuclaDB vs Qdrant: %s benchmark\n\n", dataset)
+	ew.printf("Real measurements from running both systems over gRPC ")
 	ew.printf("on the same machine, same dataset, same recall@%d target — not estimates.\n\n", topK)
 	ew.printf("%d base vectors, %d queries, dim=%d.\n\n", a.NumVectors, a.NumQueries, a.Dim)
 
