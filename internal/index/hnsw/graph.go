@@ -73,7 +73,6 @@ type node struct {
 	vector    []float32
 	level     int
 	neighbors [][]uint32 // neighbors[l] = neighbor slots at layer l
-	deleted   bool
 }
 
 // Graph is a concurrency-safe HNSW index.
@@ -94,6 +93,7 @@ type Graph struct {
 	// traversal indexes a slice instead of hashing into a map, and the
 	// visited set can be a flat array (see visitedSet).
 	nodes      []*node
+	dead       []bool            // dead[slot] marks a tombstoned slot
 	slots      map[uint64]uint32 // id -> slot
 	entryPoint uint32
 	hasEntry   bool
@@ -164,8 +164,8 @@ func (g *Graph) Compact() (*Graph, error) {
 	g.wmu.Lock()
 	var ids []uint64
 	var vecs [][]float32
-	for _, nd := range g.nodes {
-		if !nd.deleted {
+	for slot, nd := range g.nodes {
+		if !g.dead[slot] {
 			ids = append(ids, nd.id)
 			vecs = append(vecs, nd.vector)
 		}
@@ -182,7 +182,7 @@ func (g *Graph) Get(id uint64) ([]float32, bool) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	slot, ok := g.slots[id]
-	if !ok || g.nodes[slot].deleted {
+	if !ok || g.dead[slot] {
 		return nil, false
 	}
 	return append([]float32(nil), g.nodes[slot].vector...), true
@@ -193,8 +193,8 @@ func (g *Graph) IDs() []uint64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	out := make([]uint64, 0, g.live)
-	for _, nd := range g.nodes {
-		if !nd.deleted {
+	for slot, nd := range g.nodes {
+		if !g.dead[slot] {
 			out = append(out, nd.id)
 		}
 	}
@@ -208,7 +208,7 @@ func (g *Graph) CountNew(ids []uint64) int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	for _, id := range ids {
-		if slot, ok := g.slots[id]; ok && !g.nodes[slot].deleted {
+		if slot, ok := g.slots[id]; ok && !g.dead[slot] {
 			continue
 		}
 		seen[id] = struct{}{}
@@ -315,7 +315,7 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if !existed || g.nodes[slot].deleted {
+	if !existed || g.dead[slot] {
 		g.live++
 	}
 	g.place(slot, nd, existed)
@@ -359,9 +359,11 @@ func (g *Graph) maxLinks(l int) int {
 func (g *Graph) place(slot uint32, nd *node, existed bool) {
 	if existed {
 		g.nodes[slot] = nd
+		g.dead[slot] = false
 		return
 	}
 	g.nodes = append(g.nodes, nd)
+	g.dead = append(g.dead, false)
 	g.slots[nd.id] = slot
 }
 
@@ -481,7 +483,7 @@ func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry u
 	frontier.push(candidate{id: entry, dist: entryDist})
 
 	results := newMaxHeap()
-	if !g.nodes[entry].deleted {
+	if !g.dead[entry] {
 		results.push(candidate{id: entry, dist: entryDist})
 	}
 
@@ -507,7 +509,7 @@ func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry u
 
 			if results.Len() < ef || d < (*results)[0].dist {
 				frontier.push(candidate{id: nbrID, dist: d})
-				if !nbr.deleted {
+				if !g.dead[nbrID] {
 					results.push(candidate{id: nbrID, dist: d})
 					if results.Len() > ef {
 						results.pop()
@@ -582,7 +584,7 @@ func (g *Graph) Snapshot() (nodes []NodeState, entryPoint uint64, maxLevel int, 
 	defer g.mu.RUnlock()
 
 	nodes = make([]NodeState, 0, len(g.nodes))
-	for _, nd := range g.nodes {
+	for slot, nd := range g.nodes {
 		neighbors := make([][]uint64, len(nd.neighbors))
 		for l, ns := range nd.neighbors {
 			ids := make([]uint64, len(ns))
@@ -596,7 +598,7 @@ func (g *Graph) Snapshot() (nodes []NodeState, entryPoint uint64, maxLevel int, 
 			Vector:    append([]float32(nil), nd.vector...),
 			Level:     nd.level,
 			Neighbors: neighbors,
-			Deleted:   nd.deleted,
+			Deleted:   g.dead[slot],
 		})
 	}
 	if g.hasEntry {
@@ -621,7 +623,8 @@ func (g *Graph) Restore(nodes []NodeState, entryPoint uint64, maxLevel int, hasE
 			normalize(ns.Vector) // no-op for snapshots written since cosine vectors were stored unit length
 		}
 		g.slots[ns.ID] = uint32(len(g.nodes))
-		g.nodes = append(g.nodes, &node{id: ns.ID, vector: ns.Vector, level: ns.Level, deleted: ns.Deleted})
+		g.nodes = append(g.nodes, &node{id: ns.ID, vector: ns.Vector, level: ns.Level})
+		g.dead = append(g.dead, ns.Deleted)
 		if !ns.Deleted {
 			g.live++
 		}
@@ -653,10 +656,10 @@ func (g *Graph) Delete(id uint64) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	slot, ok := g.slots[id]
-	if !ok || g.nodes[slot].deleted {
+	if !ok || g.dead[slot] {
 		return ErrNotFound
 	}
-	g.nodes[slot].deleted = true
+	g.dead[slot] = true
 	g.live--
 	return nil
 }
@@ -751,7 +754,7 @@ func (g *Graph) ExactSearchContext(ctx context.Context, query []float32, ids []u
 			}
 		}
 		slot, ok := g.slots[id]
-		if !ok || g.nodes[slot].deleted {
+		if !ok || g.dead[slot] {
 			continue
 		}
 		d := g.dist(query, g.nodes[slot].vector)
