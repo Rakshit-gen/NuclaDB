@@ -30,7 +30,7 @@ type QdrantBackend struct {
 // it to accept connections, and creates the benchmark collection.
 // distance must be Qdrant's name for the metric ("Euclid", "Cosine", or
 // "Dot") matching how groundtruth was computed.
-func StartQdrant(binPath, storageDir string, dim int, distance string, httpPort, grpcPort int, m, efConstruct int) (*QdrantBackend, error) {
+func StartQdrant(binPath, storageDir string, dim int, distance string, httpPort, grpcPort int, m, efConstruct, threads int) (*QdrantBackend, error) {
 	cmd := exec.Command(binPath)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("QDRANT__STORAGE__STORAGE_PATH=%s", storageDir),
@@ -53,7 +53,7 @@ func StartQdrant(binPath, storageDir string, dim int, distance string, httpPort,
 		_ = cmd.Process.Kill()
 		return nil, err
 	}
-	if err := b.createCollection(dim, distance, m, efConstruct); err != nil {
+	if err := b.createCollection(dim, distance, m, efConstruct, threads); err != nil {
 		_ = cmd.Process.Kill()
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (b *QdrantBackend) waitReady(timeout time.Duration) error {
 	return fmt.Errorf("qdrant did not become ready within %s: %w", timeout, lastErr)
 }
 
-func (b *QdrantBackend) createCollection(dim int, distance string, m, efConstruct int) error {
+func (b *QdrantBackend) createCollection(dim int, distance string, m, efConstruct, threads int) error {
 	body := map[string]any{
 		"vectors": map[string]any{
 			"size":     dim,
@@ -102,6 +102,9 @@ func (b *QdrantBackend) createCollection(dim int, distance string, m, efConstruc
 			// regardless of collection size, matching what NuclaDB
 			// always does.
 			"full_scan_threshold": 10,
+			// 0 is Qdrant's "pick for me"; the harness passes the same cap
+			// it gives nucladbd's GOMAXPROCS.
+			"max_indexing_threads": threads,
 		},
 		// Qdrant only builds an HNSW index for a segment once it passes
 		// indexing_threshold (KB). The default, 10,000 KB in 1.19, is again

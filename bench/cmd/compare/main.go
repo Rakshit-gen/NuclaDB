@@ -15,6 +15,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/Rakshit-gen/nucladb/bench"
 )
@@ -29,8 +30,12 @@ func main() {
 		m           = flag.Int("m", 16, "HNSW M (bidirectional links per node)")
 		efConstruct = flag.Int("ef-construct", 200, "HNSW build-time candidate list size")
 		out         = flag.String("out", "results.md", "markdown report to write")
+		threads     = flag.Int("threads", 0, "cap both engines' build threads (nucladbd GOMAXPROCS, Qdrant max_indexing_threads); 0 = all cores")
 	)
 	flag.Parse()
+	if *threads > 0 {
+		os.Setenv("GOMAXPROCS", strconv.Itoa(*threads)) // inherited by the nucladbd subprocess
+	}
 
 	base, queries, groundtruth, err := bench.LoadSIFT(*dataDir)
 	must(err)
@@ -57,7 +62,7 @@ func main() {
 	defer os.RemoveAll(qdrantStorageDir)
 
 	log.Println("compare: starting qdrant...")
-	qdrantBackend, err := bench.StartQdrant(*qdrantBin, qdrantStorageDir, dim, "Euclid", 19201, 19202, *m, *efConstruct)
+	qdrantBackend, err := bench.StartQdrant(*qdrantBin, qdrantStorageDir, dim, "Euclid", 19201, 19202, *m, *efConstruct, *threads)
 	must(err)
 
 	log.Println("compare: benchmarking Qdrant...")
