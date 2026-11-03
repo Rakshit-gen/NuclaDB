@@ -51,6 +51,7 @@ func main() {
 	log.Println("compare: starting nucladbd...")
 	nuclaBackend, err := bench.StartNuclaDB(*nucladbdBin, nucladbDataDir, dim, "l2", "127.0.0.1:19200")
 	must(err)
+	onFatal = func() { _ = nuclaBackend.Close() }
 
 	log.Println("compare: benchmarking NuclaDB...")
 	nuclaReport, err := bench.Run(nuclaBackend, base, queries, groundtruth, efValues, *topK, *iterations)
@@ -64,6 +65,7 @@ func main() {
 	log.Println("compare: starting qdrant...")
 	qdrantBackend, err := bench.StartQdrant(*qdrantBin, qdrantStorageDir, dim, "Euclid", 19201, 19202, *m, *efConstruct, *threads)
 	must(err)
+	onFatal = func() { _ = qdrantBackend.Close() }
 
 	log.Println("compare: benchmarking Qdrant...")
 	qdrantReport, err := bench.Run(qdrantBackend, base, queries, groundtruth, efValues, *topK, *iterations)
@@ -159,8 +161,13 @@ func writeMarkdown(path, dataset string, a, b *bench.Report, topK int) error {
 	return nil
 }
 
+// onFatal stops the running server subprocess, which log.Fatal would
+// otherwise leave behind holding its port.
+var onFatal = func() {}
+
 func must(err error) {
 	if err != nil {
+		onFatal()
 		log.Fatal(err)
 	}
 }
