@@ -2,12 +2,15 @@ package bench
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/qdrant/go-client/qdrant"
 )
 
 // QdrantBackend drives a real Qdrant subprocess over its REST API — the
@@ -17,6 +20,7 @@ type QdrantBackend struct {
 	baseURL    string
 	collection string
 	httpClient *http.Client
+	grpc       *qdrant.Client
 }
 
 // StartQdrant launches the qdrant binary at binPath with a fresh storage
@@ -51,6 +55,12 @@ func StartQdrant(binPath, storageDir string, dim int, distance string, httpPort,
 		_ = cmd.Process.Kill()
 		return nil, err
 	}
+	client, err := qdrant.NewClient(&qdrant.Config{Host: "127.0.0.1", Port: grpcPort})
+	if err != nil {
+		_ = cmd.Process.Kill()
+		return nil, fmt.Errorf("qdrant gRPC client: %w", err)
+	}
+	b.grpc = client
 	return b, nil
 }
 
@@ -108,17 +118,17 @@ func (b *QdrantBackend) Name() string { return "Qdrant" }
 
 func (b *QdrantBackend) Upsert(vectors [][]float32) error {
 	const batchSize = 500
+	wait := true
 	for start := 0; start < len(vectors); start += batchSize {
-		end := start + batchSize
-		if end > len(vectors) {
-			end = len(vectors)
-		}
-		points := make([]map[string]any, 0, end-start)
+		end := min(start+batchSize, len(vectors))
+		points := make([]*qdrant.PointStruct, 0, end-start)
 		for i := start; i < end; i++ {
-			points = append(points, map[string]any{"id": i, "vector": vectors[i]})
+			points = append(points, &qdrant.PointStruct{Id: qdrant.NewIDNum(uint64(i)), Vectors: qdrant.NewVectors(vectors[i]...)})
 		}
-		body := map[string]any{"points": points}
-		if err := b.doJSON(http.MethodPut, "/collections/"+b.collection+"/points?wait=true", body, nil); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, err := b.grpc.Upsert(ctx, &qdrant.UpsertPoints{CollectionName: b.collection, Wait: &wait, Points: points})
+		cancel()
+		if err != nil {
 			return err
 		}
 	}
@@ -182,8 +192,9 @@ func (b *QdrantBackend) RSSBytes() (uint64, error) {
 	return rssBytesForPID(b.cmd.Process.Pid)
 }
 
-// Close terminates the qdrant subprocess.
+// Close terminates the qdrant subprocess and closes the gRPC client.
 func (b *QdrantBackend) Close() error {
+	_ = b.grpc.Close()
 	if err := b.cmd.Process.Kill(); err != nil {
 		return err
 	}
