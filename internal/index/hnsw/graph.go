@@ -595,7 +595,7 @@ func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry u
 			break
 		}
 
-		// Gather the unvisited neighbors and read one value from each
+		// Gather the unvisited neighbors and read every cache line of each
 		// vector before scoring any of them. Those reads miss cache
 		// independently, so the CPU fetches them in parallel instead of
 		// stalling once per neighbor inside the distance loop; it is the
@@ -605,7 +605,10 @@ func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry u
 		for _, nbrID := range g.links(c.id, l) {
 			if !visited.visit(nbrID) {
 				fresh = append(fresh, nbrID)
-				touch += g.vec(nbrID)[0]
+				v := g.vec(nbrID)
+				for i := 0; i < len(v); i += 32 { // one read per 128-byte line
+					touch += v[i]
+				}
 			}
 		}
 		visited.fresh = fresh
