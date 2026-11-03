@@ -105,47 +105,87 @@ command: [`clients/python`](clients/python).
 
 ## Benchmarks
 
-Real, reproducible measurements from `bench/`, comparing NuclaDB against a
-real Qdrant instance over their own network APIs on the same machine, same
-10,000-vector SIFT dataset, same recall@10 target:
+NuclaDB against a real Qdrant 1.19 on SIFT-1M (1,000,000 vectors, 128
+dims, the standard 10,000 queries with their official groundtruth). Local
+numbers from an Apple M4 (10 cores, 16 GB), measured 2026-11-02, not
+production. Both engines run as their own server processes and are driven
+over gRPC, with the same HNSW settings (M=16, ef_construct=200), one
+graph each, and builds capped at 4 threads:
 
-Each ef gets one warm-up pass, then 5 measured passes over the 100
-queries. QPS is the median pass (min-max in brackets); p50/p95 latency is
-over all 500 measured queries.
+```sh
+# from bench/, after SIFT1M=1 ./download.sh
+go build -o ../bin/nucladbd ../cmd/nucladbd
+cd cmd/compare && go run . -nucladbd=../../../bin/nucladbd -qdrant=../../.qdrant-bin/qdrant \
+  -data=../../data/sift -threads=4 -out=../../results-sift1m.md
+```
+
+Single connection, sequential queries. Each ef gets one warm-up pass, then
+5 measured passes over all 10,000 queries; QPS is the median pass (min-max
+in brackets), p50/p95 are over all 50,000 measured queries.
 
 | ef | NuclaDB recall@10 | Qdrant recall@10 | NuclaDB QPS | Qdrant QPS | NuclaDB p50 / p95 | Qdrant p50 / p95 |
 |---|---|---|---|---|---|---|
-| 10 | 0.932 | 0.959 | 13914 (12289-18904) | 7624 (6193-7691) | 0.07 / 0.09 ms | 0.13 / 0.17 ms |
-| 20 | 0.981 | 0.989 | 13966 (13137-14075) | 7451 (7436-7797) | 0.07 / 0.09 ms | 0.13 / 0.15 ms |
-| 50 | 0.996 | 0.998 | 10653 (10070-10719) | 7051 (7033-7237) | 0.09 / 0.11 ms | 0.14 / 0.16 ms |
-| 100 | 0.998 | 1.000 | 7542 (7453-8083) | 6465 (6438-6686) | 0.13 / 0.16 ms | 0.15 / 0.17 ms |
-| 200 | 1.000 | 1.000 | 5822 (5486-5864) | 5512 (5167-5567) | 0.17 / 0.21 ms | 0.18 / 0.22 ms |
+| 10 | 0.723 | 0.722 | 6429 (4367-6486) | 4568 (4233-4967) | 0.16 / 0.25 ms | 0.21 / 0.31 ms |
+| 20 | 0.852 | 0.850 | 3519 (3011-3580) | 3211 (3164-3327) | 0.30 / 0.41 ms | 0.30 / 0.42 ms |
+| 50 | 0.955 | 0.955 | 2029 (1911-2195) | 2356 (2351-2364) | 0.47 / 0.71 ms | 0.43 / 0.51 ms |
+| 100 | 0.986 | 0.987 | 1204 (1131-1208) | 1585 (1494-1606) | 0.86 / 1.11 ms | 0.65 / 0.79 ms |
+| 200 | 0.997 | 0.996 | 717 (674-720) | 967 (953-1045) | 1.44 / 1.82 ms | 1.04 / 1.37 ms |
 
-| Backend | Build time (10K vectors) | RSS after build |
-|---|---|---|
-| NuclaDB | 416ms | 45.7 MB |
-| Qdrant | 557ms | 115.4 MB |
+| Backend | Build time (1M vectors, 4 threads) |
+|---|---|
+| NuclaDB | 5m34s |
+| Qdrant | 3m29s |
 
-NuclaDB now builds this index faster than Qdrant. Earlier
-versions of this table showed Qdrant at ~120ms and NuclaDB ~27x slower,
-but that compared different work: Qdrant skips building an HNSW index for
-segments under its `indexing_threshold`, so it had only ingested points
-and was answering every search by brute force. The benchmark now forces
-Qdrant to index and waits until it has. NuclaDB's own build went from
-43.9s (fsync per vector) to 3.2s (group commit) to 415ms, through faster
-distance kernels, a slice-based graph layout, and a parallel batch build
-(`hnsw.Graph.InsertBatch`). Neighbors are picked with the HNSW paper's
-diversity heuristic, which raised ef=10 recall from 0.84-0.91 (it moved
-with the random level seed) to about 0.93; Qdrant is still a little higher
-at ef=10 and ef=20, and both reach 1.000 by ef=200. Earlier versions of
-this table used a single pass per ef, and Qdrant's QPS jumped around
-(5,214, then 1,956, then 4,730 for ef 50/100/200); with a warm-up pass and
-the median of 5, both engines slow down steadily as ef grows. See
-[`docs/writeups/01-wal-then-snapshot.md`](docs/writeups/01-wal-then-snapshot.md)
-for the durability side. Full table and methodology, including the two
-Qdrant config settings that would each have made this an unfair
-comparison (`full_scan_threshold` and `indexing_threshold`), are in
-[`bench/results.md`](bench/results.md) and
+What this shows: both build graphs of the same quality (recall matches at
+every ef). NuclaDB is faster at ef 10 and 20, and Qdrant is 16-35% faster
+from ef=50 up. Qdrant builds the index 1.6x faster. RSS isn't compared at
+this scale: Qdrant's drops by more than half after indexing (it pages
+vector storage out), so the two numbers don't measure the same thing.
+
+The previous run (2026-11-01, before the storage change below) gave the
+same recall and QPS within run-to-run noise: NuclaDB 5818 / 2207 / 800 QPS
+at ef 10 / 50 / 200 against Qdrant's 4828 / 2231 / 969, with builds of
+5m53s and 2m43s. Qdrant's build time moved by 46s between the two runs on
+identical settings, so treat build times as rough.
+
+Three settings would each have made this comparison unfair, and earlier
+versions of this README were affected by them:
+
+- **Qdrant's segments.** By default Qdrant splits a collection into
+  several segments, each its own HNSW graph (5 on this machine), and
+  searches every one at the requested ef before merging. Its "ef=10" was
+  then about five times NuclaDB's search work. With those defaults Qdrant
+  reached recall 0.82 at ef=10 against NuclaDB's 0.71, and was about 2.9x
+  faster at equal recall, partly because it searches segments in
+  parallel. The harness now sets `default_segment_number: 1` and checks
+  that one indexed segment holds every point.
+- **REST vs gRPC.** Qdrant used to be driven over REST/JSON while NuclaDB
+  used gRPC. Moving Qdrant to gRPC raised its QPS 25-34% at 10K.
+- **`full_scan_threshold` and `indexing_threshold`.** Their defaults make
+  Qdrant skip the HNSW index on small collections and answer by brute
+  force, which gave it 1.0 recall at every ef and a build time that was
+  only point ingest. Both are set so Qdrant always builds and uses HNSW,
+  and build time waits for indexing to finish.
+
+### SIFT-small (10K vectors)
+
+Same harness and settings on the 10,000-vector SIFT-small set, 100
+queries (`-data=../../data/siftsmall`). At this size almost any index
+reaches near-perfect recall, so treat it as a smoke test:
+
+| ef | NuclaDB recall@10 | Qdrant recall@10 | NuclaDB QPS | Qdrant QPS |
+|---|---|---|---|---|
+| 10 | 0.929 | 0.937 | 15334 | 12776 |
+| 50 | 0.996 | 0.995 | 10457 | 10665 |
+| 100 | 0.998 | 0.998 | 7573 | 9312 |
+| 200 | 1.000 | 1.000 | 5641 | 7146 |
+
+Build: NuclaDB 562ms, Qdrant 685ms. NuclaDB's own build of this set went
+from 43.9s to 3.2s by sharing one WAL fsync per batch instead of one per
+vector, then to about 0.4s through faster distance kernels, a slice-based
+graph layout and a parallel batch build (`hnsw.Graph.InsertBatch`). Full
+tables are in [`bench/results-sift1m.md`](bench/results-sift1m.md) and
+[`bench/results.md`](bench/results.md); methodology is in
 [`bench/README.md`](bench/README.md).
 
 ### Concurrent throughput
