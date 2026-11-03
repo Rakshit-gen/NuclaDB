@@ -13,8 +13,10 @@ import (
 	"github.com/qdrant/go-client/qdrant"
 )
 
-// QdrantBackend drives a real Qdrant subprocess over its REST API — the
-// same interface any Qdrant client uses.
+// QdrantBackend drives a real Qdrant subprocess. Upsert and Search, the
+// timed paths, go over Qdrant's gRPC API with its official Go client, the
+// same transport the NuclaDB backend uses, so neither side pays for JSON.
+// Collection setup and the index-progress poll stay on REST.
 type QdrantBackend struct {
 	cmd        *exec.Cmd
 	baseURL    string
@@ -166,24 +168,21 @@ type qdrantSearchResponse struct {
 }
 
 func (b *QdrantBackend) Search(query []float32, topK, ef int) ([]uint64, error) {
-	body := map[string]any{
-		"vector": query,
-		"limit":  topK,
-		"params": map[string]any{"hnsw_ef": ef},
-	}
-	var resp qdrantSearchResponse
-	if err := b.doJSON(http.MethodPost, "/collections/"+b.collection+"/points/search", body, &resp); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	hnswEf := uint64(ef)
+	resp, err := b.grpc.GetPointsClient().Search(ctx, &qdrant.SearchPoints{
+		CollectionName: b.collection,
+		Vector:         query,
+		Limit:          uint64(topK),
+		Params:         &qdrant.SearchParams{HnswEf: &hnswEf},
+	})
+	if err != nil {
 		return nil, err
 	}
-	ids := make([]uint64, len(resp.Result))
-	for i, r := range resp.Result {
-		// Qdrant returns numeric point ids as JSON numbers (float64 once
-		// decoded into `any`).
-		f, ok := r.ID.(float64)
-		if !ok {
-			return nil, fmt.Errorf("bench: unexpected qdrant point id type %T", r.ID)
-		}
-		ids[i] = uint64(f)
+	ids := make([]uint64, len(resp.GetResult()))
+	for i, p := range resp.GetResult() {
+		ids[i] = p.GetId().GetNum()
 	}
 	return ids, nil
 }
