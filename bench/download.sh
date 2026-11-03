@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Downloads everything the benchmark needs that isn't checked into the
-# repo: the standard SIFT-small ANN dataset and a native Qdrant binary.
+# repo: the standard SIFT-small ANN dataset (plus SIFT-1M with SIFT1M=1)
+# and a native Qdrant binary.
 # Neither is committed — the dataset is a third-party corpus, and the
 # Qdrant binary is a 70MB+ platform-specific executable.
 set -euo pipefail
@@ -14,6 +15,17 @@ if [ ! -f data/siftsmall/siftsmall_base.fvecs ]; then
   rm data/siftsmall.tar.gz
 else
   echo "    already present, skipping"
+fi
+
+if [ "${SIFT1M:-0}" = 1 ]; then
+  echo "==> Downloading SIFT-1M (168MB compressed, ~550MB extracted)..."
+  if [ ! -f data/sift/sift_base.fvecs ]; then
+    curl -sL -o data/sift.tar.gz "ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz"
+    tar xzf data/sift.tar.gz -C data
+    rm data/sift.tar.gz
+  else
+    echo "    already present, skipping"
+  fi
 fi
 
 echo "==> Downloading Qdrant binary..."
