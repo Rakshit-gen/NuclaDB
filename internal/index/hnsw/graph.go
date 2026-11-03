@@ -477,10 +477,12 @@ func (g *Graph) greedyClosest(entry uint32, entryDist float32, query []float32, 
 type visitedSet struct {
 	marks []uint32
 	gen   uint32
+	fresh []uint32 // scratch for searchLayer's per-node neighbor batch
 	// searchLayer's heaps, kept so their backing arrays are reused instead
 	// of regrown from empty on every call.
 	frontier minHeap
 	results  maxHeap
+	sink     float32 // keeps the prefetch reads from being optimized away
 }
 
 func (v *visitedSet) reset(n int) {
@@ -563,10 +565,22 @@ func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry u
 		if l >= len(nd.neighbors) {
 			continue
 		}
+		// Gather the unvisited neighbors and read one value from each
+		// vector before scoring any of them. Those reads miss cache
+		// independently, so the CPU fetches them in parallel instead of
+		// stalling once per neighbor inside the distance loop; it is the
+		// software prefetch hnswlib does, which Go has no instruction for.
+		fresh := visited.fresh[:0]
+		var touch float32
 		for _, nbrID := range nd.neighbors[l] {
-			if visited.visit(nbrID) {
-				continue
+			if !visited.visit(nbrID) {
+				fresh = append(fresh, nbrID)
+				touch += g.vec(nbrID)[0]
 			}
+		}
+		visited.fresh = fresh
+		visited.sink = touch
+		for _, nbrID := range fresh {
 			d := g.dist(query, g.vec(nbrID))
 
 			if results.Len() < ef || d < (*results)[0].dist {
