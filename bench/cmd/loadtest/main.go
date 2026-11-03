@@ -42,7 +42,7 @@ const grpcAddr = "127.0.0.1:19400"
 func main() {
 	var (
 		nucladbdBin = flag.String("nucladbd", "../bin/nucladbd", "path to the nucladbd binary (default assumes running from bench/)")
-		dataDir     = flag.String("data", "./data/siftsmall", "path to the extracted siftsmall dataset")
+		dataDir     = flag.String("data", "./data/siftsmall", "path to an extracted SIFT dataset (./data/siftsmall or ./data/sift)")
 		connsCSV    = flag.String("conns", "1,8,16,32,64,128", "comma-separated concurrency levels to sweep")
 		duration    = flag.Duration("duration", 15*time.Second, "measured window per concurrency level")
 		warmup      = flag.Duration("warmup", 3*time.Second, "unmeasured warmup before each window")
@@ -54,11 +54,7 @@ func main() {
 	)
 	flag.Parse()
 
-	base, err := bench.LoadFvecs(*dataDir + "/siftsmall_base.fvecs")
-	must(err)
-	queries, err := bench.LoadFvecs(*dataDir + "/siftsmall_query.fvecs")
-	must(err)
-	groundtruth, err := bench.LoadIvecs(*dataDir + "/siftsmall_groundtruth.ivecs")
+	base, queries, groundtruth, err := bench.LoadSIFT(*dataDir)
 	must(err)
 	dim := len(base[0])
 	log.Printf("loadtest: loaded %d base vectors, %d queries, dim=%d", len(base), len(queries), dim)
