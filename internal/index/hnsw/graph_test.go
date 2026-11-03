@@ -332,3 +332,44 @@ func TestSearchWithNonPositiveTopKReturnsNothing(t *testing.T) {
 		}
 	}
 }
+
+// TestVectorsSpanBlocks uses a dim large enough that a block holds only 32
+// vectors, so vectors land in several blocks and every lookup crosses one.
+func TestVectorsSpanBlocks(t *testing.T) {
+	const dim = 1 << 16
+	g := New(Config{Dim: dim, M: 4, EfConstruction: 16, Metric: L2(), Seed: 1})
+	if per := 1 << g.blockShift; per != 32 {
+		t.Fatalf("vectors per block = %d, want 32", per)
+	}
+	vecs := make([][]float32, 100)
+	for i := range vecs {
+		vecs[i] = make([]float32, dim)
+		vecs[i][i] = 1
+		vecs[i][dim-1] = float32(i)
+	}
+	for i, v := range vecs[:50] {
+		if err := g.Insert(uint64(i), v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := make([]uint64, 50)
+	for i := range ids {
+		ids[i] = uint64(50 + i)
+	}
+	if err := g.InsertBatch(ids, vecs[50:]); err != nil {
+		t.Fatal(err)
+	}
+	if len(g.data) != 4 {
+		t.Fatalf("blocks = %d, want 4", len(g.data))
+	}
+	for i, v := range vecs {
+		got, ok := g.Get(uint64(i))
+		if !ok || got[i] != 1 || got[dim-1] != float32(i) {
+			t.Fatalf("Get(%d) returned the wrong vector", i)
+		}
+		res, err := g.Search(v, 1, 32)
+		if err != nil || len(res) != 1 || res[0].ID != uint64(i) {
+			t.Fatalf("Search(vec %d) = %v, %v; want itself", i, res, err)
+		}
+	}
+}
