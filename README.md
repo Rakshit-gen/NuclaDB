@@ -148,6 +148,27 @@ at ef 10 / 50 / 200 against Qdrant's 4828 / 2231 / 969, with builds of
 5m53s and 2m43s. Qdrant's build time moved by 46s between the two runs on
 identical settings, so treat build times as rough.
 
+**Search path work, and the gap that's left.** A profile put about 70% of
+search in the L2 distance loop, waiting on memory: every vector was its
+own allocation behind a node pointer. Vectors now live in flat 8 MB
+blocks indexed by slot, the visited set and both heaps are reused across
+queries, and each node's unvisited neighbors are gathered and touched
+before scoring (a software prefetch). Layer 0 now keeps 2M links, as
+Qdrant does. On the same restored 1M graph, searched in-process on one
+thread, that cut per-query time 2.3-2.6x:
+
+| ef | before | after |
+|---|---|---|
+| 50 | 799 µs | 337 µs |
+| 100 | 1431 µs | 566 µs |
+| 200 | 2747 µs | 1060 µs |
+
+That gain does not show up yet in the server numbers above, which barely
+moved. So the remaining cost is outside the graph code, somewhere in the
+gRPC and engine path of `nucladbd`. Server CPU profiles on macOS put most
+samples in thread wakeups, which says little. Finding it is the open item
+before NuclaDB can claim to match Qdrant at high ef.
+
 Three settings would each have made this comparison unfair, and earlier
 versions of this README were affected by them:
 
