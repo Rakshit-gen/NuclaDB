@@ -10,8 +10,7 @@ import (
 )
 
 // Backend is anything that can be bulk-loaded and searched — implemented
-// once for NuclaDB (over its own gRPC API) and once for Qdrant (over its
-// REST API), so the exact same measurement code drives both and the
+// once for NuclaDB and once for Qdrant, both over gRPC, so the exact same measurement code drives both and the
 // resulting numbers are directly comparable.
 type Backend interface {
 	Name() string
