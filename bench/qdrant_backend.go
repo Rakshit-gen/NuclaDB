@@ -143,7 +143,7 @@ func (b *QdrantBackend) Upsert(vectors [][]float32) error {
 			return err
 		}
 	}
-	return b.waitIndexed(len(vectors), 5*time.Minute)
+	return b.waitIndexed(len(vectors), 30*time.Minute)
 }
 
 // waitIndexed blocks until Qdrant reports every vector in its HNSW index
