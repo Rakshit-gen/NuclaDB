@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"math/bits"
 	"math/rand"
 	"sort"
 	"sync"
@@ -70,7 +71,6 @@ func validateVector(v []float32, dim int) error {
 
 type node struct {
 	id        uint64
-	vector    []float32
 	level     int
 	neighbors [][]uint32 // neighbors[l] = neighbor slots at layer l
 }
@@ -92,8 +92,18 @@ type Graph struct {
 	// the graph's lifetime (a reinsert reuses it). Edges store slots, so
 	// traversal indexes a slice instead of hashing into a map, and the
 	// visited set can be a flat array (see visitedSet).
-	nodes      []*node
-	dead       []bool            // dead[slot] marks a tombstoned slot
+	nodes []*node
+	// data holds every slot's vector back to back, in blocks of
+	// 1<<blockShift vectors (about 8 MB each), and dead marks tombstoned
+	// slots. Kept out of node so the search loop scores a neighbor with a
+	// read into a flat array instead of following a pointer to its node and
+	// another to its vector. Blocks, rather than one slice, because a full
+	// block is never copied again: growing one 512 MB slice by append
+	// copied it over and over under the write lock and left the old copies
+	// for the GC, which took a 1M-vector server from 1.7 to 2.8 GB RSS.
+	data       [][]float32
+	blockShift uint
+	dead       []bool
 	slots      map[uint64]uint32 // id -> slot
 	entryPoint uint32
 	hasEntry   bool
@@ -122,6 +132,8 @@ func New(cfg Config) *Graph {
 		levelMult: 1 / math.Log(float64(cfg.M)),
 		rng:       rand.New(src),
 		dist:      cfg.Metric.Distance,
+		// The largest power-of-two vector count that fits in 8 MB.
+		blockShift: uint(bits.Len(uint(max(8<<20/(4*max(cfg.Dim, 1)), 1))) - 1),
 	}
 	if cfg.Metric.Name() == "cosine" {
 		g.unit, g.dist = true, unitCosine
@@ -136,6 +148,25 @@ func (g *Graph) prep(v []float32) []float32 {
 		normalize(v)
 	}
 	return v
+}
+
+// vec returns slot's stored vector. It aliases g.data, so callers must not
+// keep it past a write that could grow the graph.
+func (g *Graph) vec(slot uint32) []float32 {
+	b := g.data[slot>>g.blockShift]
+	i := int(slot&(1<<g.blockShift-1)) * g.cfg.Dim
+	return b[i : i+g.cfg.Dim : i+g.cfg.Dim]
+}
+
+// appendVec stores the vector for the next new slot, len(g.nodes) before
+// that node is appended. A block grows by append while it is small, so a
+// graph of a few vectors stays small.
+func (g *Graph) appendVec(vec []float32) {
+	bi := len(g.nodes) >> g.blockShift
+	if bi == len(g.data) {
+		g.data = append(g.data, nil)
+	}
+	g.data[bi] = append(g.data[bi], vec...)
 }
 
 // Config returns the graph's configuration with defaults filled in.
@@ -167,7 +198,7 @@ func (g *Graph) Compact() (*Graph, error) {
 	for slot, nd := range g.nodes {
 		if !g.dead[slot] {
 			ids = append(ids, nd.id)
-			vecs = append(vecs, nd.vector)
+			vecs = append(vecs, g.vec(uint32(slot)))
 		}
 	}
 	g.wmu.Unlock()
@@ -185,7 +216,7 @@ func (g *Graph) Get(id uint64) ([]float32, bool) {
 	if !ok || g.dead[slot] {
 		return nil, false
 	}
-	return append([]float32(nil), g.nodes[slot].vector...), true
+	return append([]float32(nil), g.vec(slot)...), true
 }
 
 // IDs returns every live id, in no particular order.
@@ -243,7 +274,6 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 	level := g.randomLevel()
 	nd := &node{
 		id:        id,
-		vector:    vec,
 		level:     level,
 		neighbors: make([][]uint32, level+1),
 	}
@@ -264,7 +294,7 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 	if !g.hasEntry {
 		g.mu.Lock()
 		g.live++
-		g.place(slot, nd, existed)
+		g.place(slot, nd, vec, existed)
 		g.entryPoint = slot
 		g.hasEntry = true
 		g.maxLevel = level
@@ -273,7 +303,7 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 	}
 
 	entry := g.entryPoint
-	curDist := g.dist(vec, g.nodes[entry].vector)
+	curDist := g.dist(vec, g.vec(entry))
 
 	// Phase 1: greedy descent from the top layer down to level+1, keeping
 	// only the single closest node found at each layer as the entry point
@@ -318,7 +348,7 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 	if !existed || g.dead[slot] {
 		g.live++
 	}
-	g.place(slot, nd, existed)
+	g.place(slot, nd, vec, existed)
 
 	for l := range nd.neighbors {
 		for _, nbr := range nd.neighbors[l] {
@@ -354,14 +384,17 @@ func (g *Graph) maxLinks(l int) int {
 	return g.cfg.M
 }
 
-// place stores nd at slot: a new slot is appended, a reinsert replaces the
-// old node so every edge into the slot now reaches nd. Caller holds mu.
-func (g *Graph) place(slot uint32, nd *node, existed bool) {
+// place stores nd and its vector at slot: a new slot is appended, a
+// reinsert replaces the old node so every edge into the slot now reaches
+// nd. Caller holds mu.
+func (g *Graph) place(slot uint32, nd *node, vec []float32, existed bool) {
 	if existed {
 		g.nodes[slot] = nd
+		copy(g.vec(slot), vec)
 		g.dead[slot] = false
 		return
 	}
+	g.appendVec(vec)
 	g.nodes = append(g.nodes, nd)
 	g.dead = append(g.dead, false)
 	g.slots[nd.id] = slot
@@ -398,12 +431,13 @@ func (g *Graph) connect(nbrID, newID uint32, newVec []float32, l, mMax int) {
 
 	// Over budget: re-pick nbr's links with the same heuristic Insert uses.
 	cands := make([]candidate, len(nbr.neighbors[l]))
+	nbrVec := g.vec(nbrID)
 	for i, id := range nbr.neighbors[l] {
 		v := newVec
 		if id != newID {
-			v = g.nodes[id].vector
+			v = g.vec(id)
 		}
-		cands[i] = candidate{id: id, dist: g.dist(nbr.vector, v)}
+		cands[i] = candidate{id: id, dist: g.dist(nbrVec, v)}
 	}
 	sort.Slice(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
 	nbr.neighbors[l] = g.selectNeighbors(cands, mMax)
@@ -421,7 +455,7 @@ func (g *Graph) greedyClosest(entry uint32, entryDist float32, query []float32, 
 			break
 		}
 		for _, nbrID := range nd.neighbors[l] {
-			d := g.dist(query, g.nodes[nbrID].vector)
+			d := g.dist(query, g.vec(nbrID))
 			if d < bestDist {
 				bestDist = d
 				best = nbrID
@@ -477,7 +511,7 @@ func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry u
 	defer visitedPool.Put(visited)
 	visited.reset(len(g.nodes))
 	visited.visit(entry)
-	entryDist := g.dist(query, g.nodes[entry].vector)
+	entryDist := g.dist(query, g.vec(entry))
 
 	frontier := newMinHeap()
 	frontier.push(candidate{id: entry, dist: entryDist})
@@ -504,8 +538,7 @@ func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry u
 			if visited.visit(nbrID) {
 				continue
 			}
-			nbr := g.nodes[nbrID]
-			d := g.dist(query, nbr.vector)
+			d := g.dist(query, g.vec(nbrID))
 
 			if results.Len() < ef || d < (*results)[0].dist {
 				frontier.push(candidate{id: nbrID, dist: d})
@@ -549,10 +582,10 @@ func (g *Graph) diverse(candidates []candidate, m int) []candidate {
 		if len(out) >= m {
 			break
 		}
-		v := g.nodes[c.id].vector
+		v := g.vec(c.id)
 		keep := true
 		for _, kept := range out {
-			if g.dist(v, g.nodes[kept.id].vector) < c.dist {
+			if g.dist(v, g.vec(kept.id)) < c.dist {
 				keep = false
 				break
 			}
@@ -595,7 +628,7 @@ func (g *Graph) Snapshot() (nodes []NodeState, entryPoint uint64, maxLevel int, 
 		}
 		nodes = append(nodes, NodeState{
 			ID:        nd.id,
-			Vector:    append([]float32(nil), nd.vector...),
+			Vector:    append([]float32(nil), g.vec(uint32(slot))...),
 			Level:     nd.level,
 			Neighbors: neighbors,
 			Deleted:   g.dead[slot],
@@ -623,7 +656,8 @@ func (g *Graph) Restore(nodes []NodeState, entryPoint uint64, maxLevel int, hasE
 			normalize(ns.Vector) // no-op for snapshots written since cosine vectors were stored unit length
 		}
 		g.slots[ns.ID] = uint32(len(g.nodes))
-		g.nodes = append(g.nodes, &node{id: ns.ID, vector: ns.Vector, level: ns.Level})
+		g.appendVec(ns.Vector)
+		g.nodes = append(g.nodes, &node{id: ns.ID, level: ns.Level})
 		g.dead = append(g.dead, ns.Deleted)
 		if !ns.Deleted {
 			g.live++
@@ -701,7 +735,7 @@ func (g *Graph) SearchContext(ctx context.Context, query []float32, topK, ef int
 	}
 
 	entry := g.entryPoint
-	curDist := g.dist(query, g.nodes[entry].vector)
+	curDist := g.dist(query, g.vec(entry))
 	for l := g.maxLevel; l > 0; l-- {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -757,7 +791,7 @@ func (g *Graph) ExactSearchContext(ctx context.Context, query []float32, ids []u
 		if !ok || g.dead[slot] {
 			continue
 		}
-		d := g.dist(query, g.nodes[slot].vector)
+		d := g.dist(query, g.vec(slot))
 		if h.Len() < topK {
 			h.push(candidate{id: slot, dist: d})
 		} else if d < (*h)[0].dist {

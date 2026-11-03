@@ -76,9 +76,11 @@ func (g *Graph) freshIDs(ids []uint64) bool {
 func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 	base := uint32(len(g.nodes))
 	nodes := make([]*node, len(ids))
+	vecs := make([][]float32, len(ids))
 	for k, id := range ids {
 		level := g.randomLevel() // in order, so a seeded graph stays deterministic
-		nodes[k] = &node{id: id, vector: g.prep(vectors[k]), level: level, neighbors: make([][]uint32, level+1)}
+		nodes[k] = &node{id: id, level: level, neighbors: make([][]uint32, level+1)}
+		vecs[k] = g.prep(vectors[k])
 	}
 
 	// Parallel stage. For node k at layer l, candidates[k][l] is its beam
@@ -100,16 +102,16 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 				if k >= len(ids) {
 					return
 				}
-				nd := nodes[k]
+				nd, vec := nodes[k], vecs[k]
 				entry := entry0
-				dist := g.cfg.Metric.Distance(nd.vector, g.nodes[entry].vector)
+				dist := g.dist(vec, g.vec(entry))
 				for l := maxLevel0; l > nd.level; l-- {
-					entry, dist = g.greedyClosest(entry, dist, nd.vector, l)
+					entry, dist = g.greedyClosest(entry, dist, vec, l)
 				}
 				top := min(nd.level, maxLevel0)
 				perLayer := make([][]candidate, top+1)
 				for l := top; l >= 0; l-- {
-					found := g.searchLayer(nd.vector, entry, g.cfg.EfConstruction, l)
+					found := g.searchLayer(vec, entry, g.cfg.EfConstruction, l)
 					if len(found) > 0 {
 						entry = found[0].id
 					}
@@ -119,7 +121,7 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 
 				m := make([][]candidate, nd.level+1)
 				for j := 0; j < k; j++ {
-					d := g.cfg.Metric.Distance(nd.vector, nodes[j].vector)
+					d := g.dist(vec, vecs[j])
 					for l := 0; l <= min(nd.level, nodes[j].level); l++ {
 						m[l] = append(m[l], candidate{id: base + uint32(j), dist: d})
 					}
@@ -143,10 +145,10 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 		}
 
 		g.mu.Lock()
-		g.place(slot, nd, false)
+		g.place(slot, nd, vecs[k], false)
 		for l := range nd.neighbors {
 			for _, nbr := range nd.neighbors[l] {
-				g.connect(nbr, slot, nd.vector, l, g.maxLinks(l))
+				g.connect(nbr, slot, vecs[k], l, g.maxLinks(l))
 			}
 		}
 		g.live++

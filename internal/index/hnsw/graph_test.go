@@ -301,8 +301,8 @@ func TestSelectNeighborsSpreadsLinks(t *testing.T) {
 	}
 	base := []float32{0, 0}
 	var cands []candidate
-	for slot, nd := range g.nodes {
-		cands = append(cands, candidate{id: uint32(slot), dist: L2().Distance(base, nd.vector)})
+	for slot := range g.nodes {
+		cands = append(cands, candidate{id: uint32(slot), dist: L2().Distance(base, g.vec(uint32(slot)))})
 	}
 	sort.Slice(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
 
