@@ -87,55 +87,52 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 	// search result already thinned by the diversity heuristic (for layers
 	// the current graph has), and mates[k][l] its distances to the earlier
 	// chunk-mates that reach layer l. Neither depends on the link stage, so
-	// doing them here keeps the sequential part short.
+	// doing them here keeps that stage short.
 	candidates := make([][][]candidate, len(ids))
 	mates := make([][][]candidate, len(ids))
 	entry0, maxLevel0 := g.entryPoint, g.maxLevel
-	var next atomic.Int64
-	var wg sync.WaitGroup
-	for w := 0; w < min(workers, len(ids)); w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				k := int(next.Add(1) - 1)
-				if k >= len(ids) {
-					return
-				}
-				nd, vec := nodes[k], vecs[k]
-				entry := entry0
-				dist := g.dist(vec, g.vec(entry))
-				for l := maxLevel0; l > nd.level; l-- {
-					entry, dist = g.greedyClosest(entry, dist, vec, l)
-				}
-				top := min(nd.level, maxLevel0)
-				perLayer := make([][]candidate, top+1)
-				for l := top; l >= 0; l-- {
-					found := g.searchLayer(vec, entry, g.cfg.EfConstruction, l)
-					if len(found) > 0 {
-						entry = found[0].id
-					}
-					perLayer[l] = g.diverse(found, g.maxLinks(l))
-				}
-				candidates[k] = perLayer
-
-				m := make([][]candidate, nd.level+1)
-				for j := 0; j < k; j++ {
-					d := g.dist(vec, vecs[j])
-					for l := 0; l <= min(nd.level, nodes[j].level); l++ {
-						m[l] = append(m[l], candidate{id: base + uint32(j), dist: d})
-					}
-				}
-				mates[k] = m
+	parallel(len(ids), workers, func(k int) {
+		nd, vec := nodes[k], vecs[k]
+		entry := entry0
+		dist := g.dist(vec, g.vec(entry))
+		for l := maxLevel0; l > nd.level; l-- {
+			entry, dist = g.greedyClosest(entry, dist, vec, l)
+		}
+		top := min(nd.level, maxLevel0)
+		perLayer := make([][]candidate, top+1)
+		for l := top; l >= 0; l-- {
+			found := g.searchLayer(vec, entry, g.cfg.EfConstruction, l)
+			if len(found) > 0 {
+				entry = found[0].id
 			}
-		}()
-	}
-	wg.Wait()
+			perLayer[l] = g.diverse(found, g.maxLinks(l))
+		}
+		candidates[k] = perLayer
 
-	// Link stage, in order. The final pick reruns the heuristic over the
-	// thinned search result plus the chunk-mates, now all placed.
+		m := make([][]candidate, nd.level+1)
+		for j := 0; j < k; j++ {
+			d := g.dist(vec, vecs[j])
+			for l := 0; l <= min(nd.level, nodes[j].level); l++ {
+				m[l] = append(m[l], candidate{id: base + uint32(j), dist: d})
+			}
+		}
+		mates[k] = m
+	})
+
+	// Link stage. It holds mu, so searches wait for it, and runs in three
+	// steps. Place every chunk node first, so their vectors can be read.
+	// Then each node picks its own links, which reads only vectors. Then
+	// the back-links: grouped by the node they land on, each group is
+	// appended and, if over budget, re-pruned once, so no two workers touch
+	// the same neighbor list. Doing this one node at a time made the link
+	// stage serial, and it was most of the build's distance computations.
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	for k, nd := range nodes {
-		slot := base + uint32(k)
+		g.place(base+uint32(k), nd, vecs[k], false)
+	}
+	parallel(len(nodes), workers, func(k int) {
+		nd := nodes[k]
 		for l := 0; l <= nd.level; l++ {
 			var found []candidate
 			if l < len(candidates[k]) {
@@ -143,14 +140,40 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 			}
 			nd.neighbors[l] = g.selectNeighbors(mergeClosest(found, mates[k][l], len(found)+len(mates[k][l])), g.maxLinks(l))
 		}
+	})
 
-		g.mu.Lock()
-		g.place(slot, nd, vecs[k], false)
-		for l := range nd.neighbors {
-			for _, nbr := range nd.neighbors[l] {
-				g.connect(nbr, slot, vecs[k], l, g.maxLinks(l))
+	type linkKey struct {
+		to uint32
+		l  int
+	}
+	type backLinks struct {
+		linkKey
+		from []uint32
+	}
+	var groups []backLinks
+	index := make(map[linkKey]int)
+	for k, nd := range nodes {
+		slot := base + uint32(k)
+		for l, nbrs := range nd.neighbors {
+			for _, nbr := range nbrs {
+				key := linkKey{nbr, l}
+				i, ok := index[key]
+				if !ok {
+					i = len(groups)
+					index[key] = i
+					groups = append(groups, backLinks{linkKey: key})
+				}
+				groups[i].from = append(groups[i].from, slot)
 			}
 		}
+	}
+	parallel(len(groups), workers, func(i int) {
+		gr := groups[i]
+		g.addLinks(gr.to, gr.from, gr.l, g.maxLinks(gr.l))
+	})
+
+	for k, nd := range nodes {
+		slot := base + uint32(k)
 		g.live++
 		switch {
 		case nd.level > g.maxLevel:
@@ -159,8 +182,27 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 		case len(nd.neighbors[0]) == 0:
 			g.entryPoint = slot // same reason as in insertLocked
 		}
-		g.mu.Unlock()
 	}
+}
+
+// parallel calls f(k) for every k in [0, n) on up to workers goroutines.
+func parallel(n, workers int, f func(k int)) {
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for w := 0; w < min(workers, n); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				k := int(next.Add(1) - 1)
+				if k >= n {
+					return
+				}
+				f(k)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // mergeClosest returns the m closest of sorted (already closest-first) and

@@ -11,6 +11,7 @@ import (
 	"math/bits"
 	"math/rand"
 	"runtime"
+	"slices"
 	"sort"
 	"sync"
 )
@@ -357,7 +358,7 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 
 	for l := range nd.neighbors {
 		for _, nbr := range nd.neighbors[l] {
-			g.connect(nbr, slot, vec, l, g.maxLinks(l))
+			g.addLinks(nbr, []uint32{slot}, l, g.maxLinks(l))
 		}
 	}
 
@@ -405,31 +406,26 @@ func (g *Graph) place(slot uint32, nd *node, vec []float32, existed bool) {
 	g.slots[nd.id] = slot
 }
 
-// connect adds a bidirectional edge nbrID -> newID at layer l, pruning
-// nbrID's neighbor list back down to mMax by keeping its closest links if
-// the new edge pushed it over the limit. newVec is passed explicitly
-// (rather than looked up via g.nodes[newID]) because during Insert the new
-// node isn't registered in g.nodes yet — that swap is deferred until the
-// caller's traversal finishes, so it can still see the old node under a
-// reused id.
-func (g *Graph) connect(nbrID, newID uint32, newVec []float32, l, mMax int) {
+// addLinks adds edges nbrID -> from[i] at layer l, then prunes nbrID's
+// neighbor list back down to mMax with the diversity heuristic if they
+// pushed it over. Every node in from must already be placed.
+func (g *Graph) addLinks(nbrID uint32, from []uint32, l, mMax int) {
 	nbr := g.nodes[nbrID]
 	if len(nbr.neighbors) <= l {
 		grown := make([][]uint32, l+1)
 		copy(grown, nbr.neighbors)
 		nbr.neighbors = grown
 	}
-	// A repeated reinsert of newID (unchanged vector) re-selects nbrID as a
-	// neighbor on every pass; without this check each pass would append
-	// another copy of the same edge, and since every copy sits at the same
-	// (shortest) distance, the pruning heap below keeps them all — eventually
-	// crowding out nbrID's real, more distant neighbors entirely.
-	for _, existing := range nbr.neighbors[l] {
-		if existing == newID {
-			return
+	for _, newID := range from {
+		// A repeated reinsert of newID (unchanged vector) re-selects nbrID
+		// as a neighbor on every pass; without this check each pass would
+		// append another copy of the same edge, and since every copy sits
+		// at the same (shortest) distance, the pruning below keeps them all,
+		// eventually crowding out nbrID's real, more distant neighbors.
+		if !slices.Contains(nbr.neighbors[l], newID) {
+			nbr.neighbors[l] = append(nbr.neighbors[l], newID)
 		}
 	}
-	nbr.neighbors[l] = append(nbr.neighbors[l], newID)
 	if len(nbr.neighbors[l]) <= mMax {
 		return
 	}
@@ -438,11 +434,7 @@ func (g *Graph) connect(nbrID, newID uint32, newVec []float32, l, mMax int) {
 	cands := make([]candidate, len(nbr.neighbors[l]))
 	nbrVec := g.vec(nbrID)
 	for i, id := range nbr.neighbors[l] {
-		v := newVec
-		if id != newID {
-			v = g.vec(id)
-		}
-		cands[i] = candidate{id: id, dist: g.dist(nbrVec, v)}
+		cands[i] = candidate{id: id, dist: g.dist(nbrVec, g.vec(id))}
 	}
 	sort.Slice(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
 	nbr.neighbors[l] = g.selectNeighbors(cands, mMax)
