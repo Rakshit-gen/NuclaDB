@@ -477,6 +477,10 @@ func (g *Graph) greedyClosest(entry uint32, entryDist float32, query []float32, 
 type visitedSet struct {
 	marks []uint32
 	gen   uint32
+	// searchLayer's heaps, kept so their backing arrays are reused instead
+	// of regrown from empty on every call.
+	frontier minHeap
+	results  maxHeap
 }
 
 func (v *visitedSet) reset(n int) {
@@ -536,10 +540,12 @@ func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry u
 	visited.visit(entry)
 	entryDist := g.dist(query, g.vec(entry))
 
-	frontier := newMinHeap()
+	frontier := &visited.frontier
+	*frontier = (*frontier)[:0]
 	frontier.push(candidate{id: entry, dist: entryDist})
 
-	results := newMaxHeap()
+	results := &visited.results
+	*results = (*results)[:0]
 	if !g.dead[entry] {
 		results.push(candidate{id: entry, dist: entryDist})
 	}
