@@ -5,7 +5,7 @@
 // systems on this machine.
 //
 // Requires: a built nucladbd binary, a downloaded qdrant binary, and the
-// siftsmall dataset. See bench/download.sh and bench/README.md.
+// SIFT dataset (siftsmall or SIFT-1M). See bench/download.sh and bench/README.md.
 package main
 
 import (
@@ -22,7 +22,7 @@ func main() {
 	var (
 		nucladbdBin = flag.String("nucladbd", "../bin/nucladbd", "path to the nucladbd binary (default assumes running from bench/)")
 		qdrantBin   = flag.String("qdrant", "./.qdrant-bin/qdrant", "path to the qdrant binary")
-		dataDir     = flag.String("data", "./data/siftsmall", "path to the extracted siftsmall dataset")
+		dataDir     = flag.String("data", "./data/siftsmall", "path to an extracted SIFT dataset (./data/siftsmall or ./data/sift)")
 		topK        = flag.Int("top-k", 10, "k for recall@k")
 		iterations  = flag.Int("iterations", 5, "measured passes over the query set per ef; QPS is the median pass")
 		m           = flag.Int("m", 16, "HNSW M (bidirectional links per node)")
@@ -30,11 +30,7 @@ func main() {
 	)
 	flag.Parse()
 
-	base, err := bench.LoadFvecs(*dataDir + "/siftsmall_base.fvecs")
-	must(err)
-	queries, err := bench.LoadFvecs(*dataDir + "/siftsmall_query.fvecs")
-	must(err)
-	groundtruth, err := bench.LoadIvecs(*dataDir + "/siftsmall_groundtruth.ivecs")
+	base, queries, groundtruth, err := bench.LoadSIFT(*dataDir)
 	must(err)
 	dim := len(base[0])
 	log.Printf("compare: loaded %d base vectors, %d queries, dim=%d", len(base), len(queries), dim)
