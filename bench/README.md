@@ -75,6 +75,16 @@ Both are fetched by `download.sh` and are `.gitignore`d.
   in-process shortcut through NuclaDB's graph — the numbers reflect what a
   real client actually experiences, including (de)serialization and
   network round-trips.
+- **Qdrant is held to one segment.** Its default splits a collection into
+  several segments (5 on a 10-core machine), each its own HNSW graph, and
+  searches each one at the requested `ef` before merging. On SIFT-1M that
+  made its `ef=10` about five times NuclaDB's search work, so "same ef"
+  wasn't the same search. `default_segment_number` is set to 1 and the
+  harness checks Qdrant's telemetry for one indexed segment holding every
+  point (it also keeps an empty segment for new writes).
+- **Qdrant's upserts and searches go over gRPC** with its official Go
+  client, like NuclaDB's. Over REST/JSON it was 25-34% slower at 10K.
+  Collection setup and the index-progress poll still use REST.
 - **Qdrant's `full_scan_threshold` is explicitly forced to HNSW** (see
   `qdrant_backend.go`). Its default lets small collections silently fall
   back to exact brute-force search — undetected, that would have made
@@ -96,9 +106,6 @@ Both are fetched by `download.sh` and are `.gitignore`d.
   and tail latency, `cmd/loadtest` runs a closed-loop load generator (a
   pool of gRPC connections, N workers, fixed window, p50/p90/p99/max)
   against the same real `nucladbd`; results in `results-loadtest.md`.
-- Recall/QPS results at only 10,000 vectors converge close to 1.0 for both
-  engines by moderate `ef` — see `results.md`'s Notes section for why a
-  larger run (SIFT1M) would show a more separated tradeoff curve, and why
-  that wasn't run here (NuclaDB's fsync-per-write WAL makes a 1M-vector
-  build impractically slow in its current form — itself one of the
-  benchmark's most useful findings).
+- Recall at only 10,000 vectors converges close to 1.0 for both engines
+  by moderate `ef`, so `results.md` is a smoke test. `results-sift1m.md`
+  is the comparison to read.
