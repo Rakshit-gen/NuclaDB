@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // LoadFvecs reads the .fvecs format used by the texmex/SIFT corpus: a
@@ -59,4 +60,19 @@ func LoadIvecs(path string) ([][]int32, error) {
 		rows = append(rows, raw)
 	}
 	return rows, nil
+}
+
+// LoadSIFT loads a texmex SIFT corpus extracted into dir. The file prefix
+// is the directory's own name, so ./data/siftsmall (10K vectors) and
+// ./data/sift (SIFT-1M) both work: <dir>/<name>_base.fvecs and so on.
+func LoadSIFT(dir string) (base, queries [][]float32, groundtruth [][]int32, err error) {
+	prefix := filepath.Join(dir, filepath.Base(dir))
+	if base, err = LoadFvecs(prefix + "_base.fvecs"); err != nil {
+		return
+	}
+	if queries, err = LoadFvecs(prefix + "_query.fvecs"); err != nil {
+		return
+	}
+	groundtruth, err = LoadIvecs(prefix + "_groundtruth.ivecs")
+	return
 }
