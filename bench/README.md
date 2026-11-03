@@ -16,10 +16,24 @@ go run . -nucladbd=../../../bin/nucladbd -qdrant=../../.qdrant-bin/qdrant -data=
 
 This starts a real `nucladbd` and a real `qdrant` as subprocesses, loads
 the same 10,000-vector SIFT dataset into both over their own network APIs
-(gRPC for NuclaDB, REST for Qdrant), sweeps the same `ef` values, and
-measures recall@10 against the dataset's official groundtruth, QPS, and
-RSS memory for both. It writes `results.md` and prints the same tables to
-stdout.
+(gRPC for both), sweeps the same `ef` values, and measures recall@10
+against the dataset's official groundtruth, QPS, and RSS memory for both.
+It writes `results.md` (or the path given to `-out`) and prints the same
+tables to stdout.
+
+SIFT-1M (1M vectors, 10K queries, ~550MB extracted) is the same command
+pointed at the bigger set. It takes about 15 minutes on an M4 with builds
+capped at 4 threads:
+
+```sh
+SIFT1M=1 ./download.sh
+cd cmd/compare
+go run . -nucladbd=../../../bin/nucladbd -qdrant=../../.qdrant-bin/qdrant \
+  -data=../../data/sift -threads=4 -out=../../results-sift1m.md
+```
+
+`-threads` caps both engines' build threads (nucladbd's `GOMAXPROCS`,
+Qdrant's `max_indexing_threads`) so neither gets more cores than the other.
 
 ## Reproducing: NuclaDB single-node vs multi-node cluster
 
@@ -49,8 +63,8 @@ a sustained run) over a pool of gRPC connections. Writes
 
 ## What's not committed, and why
 
-- `data/` — the SIFT-small corpus (texmex.irisa.fr), a third-party
-  dataset, ~18MB extracted.
+- `data/` — the SIFT-small and SIFT-1M corpora (texmex.irisa.fr),
+  third-party datasets, ~18MB and ~550MB extracted.
 - `.qdrant-bin/` — a platform-specific Qdrant binary, 70MB+.
 
 Both are fetched by `download.sh` and are `.gitignore`d.
