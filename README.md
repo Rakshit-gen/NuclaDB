@@ -107,7 +107,7 @@ command: [`clients/python`](clients/python).
 
 NuclaDB against a real Qdrant 1.19 on SIFT-1M (1,000,000 vectors, 128
 dims, the standard 10,000 queries with their official groundtruth). Local
-numbers from an Apple M4 (10 cores, 16 GB), measured 2026-11-02, not
+numbers from an Apple M4 (10 cores, 16 GB), measured 2026-11-03, not
 production. Both engines run as their own server processes and are driven
 over gRPC, with the same HNSW settings (M=16, ef_construct=200), one
 graph each, and builds capped at 4 threads:
@@ -125,49 +125,54 @@ in brackets), p50/p95 are over all 50,000 measured queries.
 
 | ef | NuclaDB recall@10 | Qdrant recall@10 | NuclaDB QPS | Qdrant QPS | NuclaDB p50 / p95 | Qdrant p50 / p95 |
 |---|---|---|---|---|---|---|
-| 10 | 0.723 | 0.722 | 6429 (4367-6486) | 4568 (4233-4967) | 0.16 / 0.25 ms | 0.21 / 0.31 ms |
-| 20 | 0.852 | 0.850 | 3519 (3011-3580) | 3211 (3164-3327) | 0.30 / 0.41 ms | 0.30 / 0.42 ms |
-| 50 | 0.955 | 0.955 | 2029 (1911-2195) | 2356 (2351-2364) | 0.47 / 0.71 ms | 0.43 / 0.51 ms |
-| 100 | 0.986 | 0.987 | 1204 (1131-1208) | 1585 (1494-1606) | 0.86 / 1.11 ms | 0.65 / 0.79 ms |
-| 200 | 0.997 | 0.996 | 717 (674-720) | 967 (953-1045) | 1.44 / 1.82 ms | 1.04 / 1.37 ms |
+| 10 | 0.725 | 0.721 | 8368 (6115-9082) | 4672 (4586-4790) | 0.11 / 0.18 ms | 0.21 / 0.27 ms |
+| 20 | 0.853 | 0.850 | 7557 (4908-7877) | 3521 (3340-3670) | 0.13 / 0.23 ms | 0.29 / 0.35 ms |
+| 50 | 0.955 | 0.954 | 5259 (3988-5358) | 2390 (2381-2440) | 0.19 / 0.29 ms | 0.42 / 0.50 ms |
+| 100 | 0.986 | 0.987 | 2444 (2211-3456) | 1637 (1605-1677) | 0.37 / 0.53 ms | 0.62 / 0.75 ms |
+| 200 | 0.997 | 0.997 | 1475 (1461-1515) | 949 (943-974) | 0.67 / 0.82 ms | 1.07 / 1.35 ms |
 
 | Backend | Build time (1M vectors, 4 threads) |
 |---|---|
-| NuclaDB | 5m34s |
-| Qdrant | 3m29s |
+| NuclaDB | 2m42s |
+| Qdrant | 4m20s |
 
 What this shows: both build graphs of the same quality (recall matches at
-every ef). NuclaDB is faster at ef 10 and 20, and Qdrant is 16-35% faster
-from ef=50 up. Qdrant builds the index 1.6x faster. RSS isn't compared at
-this scale: Qdrant's drops by more than half after indexing (it pages
-vector storage out), so the two numbers don't measure the same thing.
+every ef), and NuclaDB now answers 1.5-2.2x more queries per second at
+every ef and builds the index 1.6x faster. Memory goes the other way:
+NuclaDB keeps every vector and link in RAM (1.1-1.6 GB RSS here), while
+Qdrant's RSS drops to about 0.67 GB after indexing because it pages vector
+storage out. Build times are rough: Qdrant's moved between 2m43s and 4m20s
+across runs on identical settings.
 
-The previous run (2026-11-01, before the storage change below) gave the
-same recall and QPS within run-to-run noise: NuclaDB 5818 / 2207 / 800 QPS
-at ef 10 / 50 / 200 against Qdrant's 4828 / 2231 / 969, with builds of
-5m53s and 2m43s. Qdrant's build time moved by 46s between the two runs on
-identical settings, so treat build times as rough.
+Earlier runs, kept for the record (same harness, but run under `nice -n
+15`, which on Apple Silicon tends to put both servers on efficiency cores):
 
-**Search path work, and the gap that's left.** A profile put about 70% of
-search in the L2 distance loop, waiting on memory: every vector was its
-own allocation behind a node pointer. Vectors now live in flat 8 MB
-blocks indexed by slot, the visited set and both heaps are reused across
-queries, and each node's unvisited neighbors are gathered and touched
-before scoring (a software prefetch). Layer 0 now keeps 2M links, as
-Qdrant does. On the same restored 1M graph, searched in-process on one
-thread, that cut per-query time 2.3-2.6x:
+| run | NuclaDB QPS at ef 10 / 100 / 200 | Qdrant QPS at ef 10 / 100 / 200 | builds (NuclaDB / Qdrant) |
+|---|---|---|---|
+| 2026-11-01 | 5818 / 1348 / 800 | 4828 / 1578 / 969 | 5m53s / 2m43s |
+| 2026-11-02 | 6429 / 1204 / 717 | 4568 / 1585 / 967 | 5m34s / 3m29s |
 
-| ef | before | after |
+Qdrant's own numbers barely moved between the niced runs and this one, so
+NuclaDB's jump comes from the search-path changes below, not from
+dropping `nice`.
+
+**What changed in the search path.** Measured in-process on SIFT-1M
+(`engine.Store.Search`, one query at a time, 4 threads for the build),
+each step against the one before it:
+
+| change | ef=100 search | build |
 |---|---|---|
-| 50 | 799 µs | 337 µs |
-| 100 | 1431 µs | 566 µs |
-| 200 | 2747 µs | 1060 µs |
+| vectors in flat 8 MB blocks, reused visited sets and heaps, NEON L2 kernel (2.5x faster than the unrolled Go loop at 128 dims), parallel batch linking | 497 µs | 3m53s |
+| layer-0 links in flat slot-indexed blocks: one memory access per neighbor list instead of three pointer hops | 335 µs | 3m07s |
+| prefetch every 128-byte cache line of each neighbor's vector before scoring, not just the first (measured on a graph restored from a snapshot, 337 µs before) | 274 µs | |
 
-That gain does not show up yet in the server numbers above, which barely
-moved. So the remaining cost is outside the graph code, somewhere in the
-gRPC and engine path of `nucladbd`. Server CPU profiles on macOS put most
-samples in thread wakeups, which says little. Finding it is the open item
-before NuclaDB can claim to match Qdrant at high ef.
+The same 100K-vector test at the commit before this work took 727 µs at
+ef=100; the first row's changes alone brought it to 325 µs. An earlier
+version of this README showed a 2.3-2.6x in-process gain whose
+before-numbers came from a one-thread run that doesn't agree with the old
+server's own results, so that table is withdrawn. Over gRPC each query
+still pays about 60-140 µs of loopback round trip on this machine (an
+empty RPC costs about 62 µs), which Qdrant pays too.
 
 Three settings would each have made this comparison unfair, and earlier
 versions of this README were affected by them:
@@ -201,7 +206,8 @@ reaches near-perfect recall, so treat it as a smoke test:
 | 100 | 0.998 | 0.998 | 7573 | 9312 |
 | 200 | 1.000 | 1.000 | 5641 | 7146 |
 
-Build: NuclaDB 562ms, Qdrant 685ms. NuclaDB's own build of this set went
+Build: NuclaDB 562ms, Qdrant 685ms (run 2026-11-02, before the NEON and
+link-layout changes). NuclaDB's own build of this set went
 from 43.9s to 3.2s by sharing one WAL fsync per batch instead of one per
 vector, then to about 0.4s through faster distance kernels, a slice-based
 graph layout and a parallel batch build (`hnsw.Graph.InsertBatch`). Full
