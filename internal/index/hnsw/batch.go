@@ -113,7 +113,7 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 					if len(found) > 0 {
 						entry = found[0].id
 					}
-					perLayer[l] = g.diverse(found, g.cfg.M)
+					perLayer[l] = g.diverse(found, g.maxLinks(l))
 				}
 				candidates[k] = perLayer
 
@@ -139,18 +139,14 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 			if l < len(candidates[k]) {
 				found = candidates[k][l]
 			}
-			nd.neighbors[l] = g.selectNeighbors(mergeClosest(found, mates[k][l], len(found)+len(mates[k][l])), g.cfg.M)
+			nd.neighbors[l] = g.selectNeighbors(mergeClosest(found, mates[k][l], len(found)+len(mates[k][l])), g.maxLinks(l))
 		}
 
 		g.mu.Lock()
 		g.place(slot, nd, false)
 		for l := range nd.neighbors {
-			mMax := g.cfg.M
-			if l == 0 {
-				mMax = g.cfg.M * 2
-			}
 			for _, nbr := range nd.neighbors[l] {
-				g.connect(nbr, slot, nd.vector, l, mMax)
+				g.connect(nbr, slot, nd.vector, l, g.maxLinks(l))
 			}
 		}
 		g.live++

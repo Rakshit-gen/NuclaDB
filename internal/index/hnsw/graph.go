@@ -305,7 +305,7 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 			candidates = filtered
 		}
 
-		nd.neighbors[l] = g.selectNeighbors(candidates, g.cfg.M)
+		nd.neighbors[l] = g.selectNeighbors(candidates, g.maxLinks(l))
 		if len(candidates) > 0 {
 			entry = candidates[0].id
 		}
@@ -321,12 +321,8 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 	g.place(slot, nd, existed)
 
 	for l := range nd.neighbors {
-		mMax := g.cfg.M
-		if l == 0 {
-			mMax = g.cfg.M * 2
-		}
 		for _, nbr := range nd.neighbors[l] {
-			g.connect(nbr, slot, vec, l, mMax)
+			g.connect(nbr, slot, vec, l, g.maxLinks(l))
 		}
 	}
 
@@ -344,6 +340,18 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 		// live.
 		g.entryPoint = slot
 	}
+}
+
+// maxLinks is the most links a node keeps at layer l: M above the base
+// layer, 2M at it. A new node picks up to this many too, as Qdrant does.
+// hnswlib picks only M at layer 0 and leaves the rest to back-links, which
+// on SIFT-1M left the median node with 20 of its 32 slots used and cost
+// about 0.1 recall@10 at ef=10.
+func (g *Graph) maxLinks(l int) int {
+	if l == 0 {
+		return 2 * g.cfg.M
+	}
+	return g.cfg.M
 }
 
 // place stores nd at slot: a new slot is appended, a reinsert replaces the
