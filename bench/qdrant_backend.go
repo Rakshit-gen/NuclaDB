@@ -163,17 +163,51 @@ func (b *QdrantBackend) waitIndexed(n int, timeout time.Duration) error {
 			return err
 		}
 		if info.Result.Status == "green" && info.Result.IndexedVectorsCount >= n {
-			return nil
+			return b.checkOneGraph(n)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	return fmt.Errorf("qdrant indexed %d of %d vectors within %s", info.Result.IndexedVectorsCount, n, timeout)
 }
 
-type qdrantSearchResponse struct {
-	Result []struct {
-		ID any `json:"id"`
-	} `json:"result"`
+// checkOneGraph confirms one indexed segment holds all n points. Qdrant
+// also keeps an empty appendable segment for new writes, so the plain
+// segments_count is 2 even when the data is in one graph.
+func (b *QdrantBackend) checkOneGraph(n int) error {
+	var t struct {
+		Result struct {
+			Collections struct {
+				Collections []struct {
+					Shards []struct {
+						Local struct {
+							Segments []struct {
+								Info struct {
+									NumPoints int `json:"num_points"`
+								} `json:"info"`
+							} `json:"segments"`
+						} `json:"local"`
+					} `json:"shards"`
+				} `json:"collections"`
+			} `json:"collections"`
+		} `json:"result"`
+	}
+	if err := b.doJSON(http.MethodGet, "/telemetry?details_level=10", nil, &t); err != nil {
+		return err
+	}
+	var withPoints []int
+	for _, c := range t.Result.Collections.Collections {
+		for _, sh := range c.Shards {
+			for _, seg := range sh.Local.Segments {
+				if seg.Info.NumPoints > 0 {
+					withPoints = append(withPoints, seg.Info.NumPoints)
+				}
+			}
+		}
+	}
+	if len(withPoints) != 1 || withPoints[0] != n {
+		return fmt.Errorf("qdrant points per non-empty segment = %v, want one segment of %d", withPoints, n)
+	}
+	return nil
 }
 
 func (b *QdrantBackend) Search(query []float32, topK, ef int) ([]uint64, error) {
