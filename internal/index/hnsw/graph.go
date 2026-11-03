@@ -72,9 +72,13 @@ func validateVector(v []float32, dim int) error {
 }
 
 type node struct {
-	id        uint64
-	level     int
-	neighbors [][]uint32 // neighbors[l] = neighbor slots at layer l
+	id    uint64
+	level int
+	// neighbors[l] = neighbor slots at layer l, for l >= 1. Layer 0 lives
+	// in Graph.links; neighbors[0] only stages a new node's picks until
+	// place copies them there. Read and write both through Graph.links
+	// and Graph.setLinks.
+	neighbors [][]uint32
 }
 
 // Graph is a concurrency-safe HNSW index.
@@ -106,6 +110,13 @@ type Graph struct {
 	data       [][]float32
 	blockShift uint
 	dead       []bool
+	// links0 holds every slot's layer-0 links in blocks of the same slot
+	// count as data: per slot, a count and then 2M slots. Layer 0 is where
+	// a search spends nearly all its time, and reading a neighbor list
+	// straight from here is one memory access instead of three pointer
+	// hops (node, then its [][]uint32, then the list).
+	links0     [][]uint32
+	linkStride int
 	slots      map[uint64]uint32 // id -> slot
 	entryPoint uint32
 	hasEntry   bool
@@ -140,6 +151,7 @@ func New(cfg Config) *Graph {
 		visitedFree: make(chan *visitedSet, 4*runtime.GOMAXPROCS(0)),
 		// The largest power-of-two vector count that fits in 8 MB.
 		blockShift: uint(bits.Len(uint(max(8<<20/(4*max(cfg.Dim, 1)), 1))) - 1),
+		linkStride: 1 + 2*cfg.M,
 	}
 	if cfg.Metric.Name() == "cosine" {
 		g.unit, g.dist = true, unitCosine
@@ -165,7 +177,7 @@ func (g *Graph) vec(slot uint32) []float32 {
 }
 
 // appendVec stores the vector for the next new slot, len(g.nodes) before
-// that node is appended. A block grows by append while it is small, so a
+// that node is appended, and an empty layer-0 link list for it. A block grows by append while it is small, so a
 // graph of a few vectors stays small.
 func (g *Graph) appendVec(vec []float32) {
 	bi := len(g.nodes) >> g.blockShift
@@ -173,6 +185,44 @@ func (g *Graph) appendVec(vec []float32) {
 		g.data = append(g.data, nil)
 	}
 	g.data[bi] = append(g.data[bi], vec...)
+	if bi == len(g.links0) {
+		g.links0 = append(g.links0, nil)
+	}
+	g.links0[bi] = append(g.links0[bi], make([]uint32, g.linkStride)...)
+}
+
+// links returns slot's neighbors at layer l (nil if slot doesn't reach l).
+// A layer-0 list aliases g.links0, with room to append up to 2M entries in
+// place; either way, store a changed list with setLinks.
+func (g *Graph) links(slot uint32, l int) []uint32 {
+	if l == 0 {
+		b := g.links0[slot>>g.blockShift]
+		i := int(slot&(1<<g.blockShift-1)) * g.linkStride
+		return b[i+1 : i+1+int(b[i]) : i+g.linkStride]
+	}
+	nd := g.nodes[slot]
+	if l >= len(nd.neighbors) {
+		return nil
+	}
+	return nd.neighbors[l]
+}
+
+// setLinks stores ids as slot's neighbors at layer l. At layer 0, ids must
+// hold at most 2M entries. Caller holds mu, or wmu before slot is placed.
+func (g *Graph) setLinks(slot uint32, l int, ids []uint32) {
+	if l == 0 {
+		b := g.links0[slot>>g.blockShift]
+		i := int(slot&(1<<g.blockShift-1)) * g.linkStride
+		b[i] = uint32(copy(b[i+1:i+g.linkStride], ids))
+		return
+	}
+	nd := g.nodes[slot]
+	if len(nd.neighbors) <= l {
+		grown := make([][]uint32, l+1)
+		copy(grown, nd.neighbors)
+		nd.neighbors = grown
+	}
+	nd.neighbors[l] = ids
 }
 
 // Config returns the graph's configuration with defaults filled in.
@@ -356,8 +406,8 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 	}
 	g.place(slot, nd, vec, existed)
 
-	for l := range nd.neighbors {
-		for _, nbr := range nd.neighbors[l] {
+	for l := 0; l <= level; l++ {
+		for _, nbr := range g.links(slot, l) {
 			g.addLinks(nbr, []uint32{slot}, l, g.maxLinks(l))
 		}
 	}
@@ -366,7 +416,7 @@ func (g *Graph) insertLocked(id uint64, vec []float32) {
 	case level > g.maxLevel:
 		g.maxLevel = level
 		g.entryPoint = slot
-	case len(nd.neighbors[0]) == 0:
+	case len(g.links(slot, 0)) == 0:
 		// No live node was found to connect to at the base layer — every
 		// node currently reachable from the entry point is tombstoned
 		// (searchLayer's results, which candidates comes from, excludes
@@ -390,54 +440,50 @@ func (g *Graph) maxLinks(l int) int {
 	return g.cfg.M
 }
 
-// place stores nd and its vector at slot: a new slot is appended, a
-// reinsert replaces the old node so every edge into the slot now reaches
-// nd. Caller holds mu.
+// place stores nd, its vector and its staged layer-0 links at slot: a new
+// slot is appended, a reinsert replaces the old node so every edge into
+// the slot now reaches nd. Caller holds mu.
 func (g *Graph) place(slot uint32, nd *node, vec []float32, existed bool) {
 	if existed {
 		g.nodes[slot] = nd
 		copy(g.vec(slot), vec)
 		g.dead[slot] = false
-		return
+	} else {
+		g.appendVec(vec)
+		g.nodes = append(g.nodes, nd)
+		g.dead = append(g.dead, false)
+		g.slots[nd.id] = slot
 	}
-	g.appendVec(vec)
-	g.nodes = append(g.nodes, nd)
-	g.dead = append(g.dead, false)
-	g.slots[nd.id] = slot
+	g.setLinks(slot, 0, nd.neighbors[0])
+	nd.neighbors[0] = nil
 }
 
 // addLinks adds edges nbrID -> from[i] at layer l, then prunes nbrID's
 // neighbor list back down to mMax with the diversity heuristic if they
 // pushed it over. Every node in from must already be placed.
 func (g *Graph) addLinks(nbrID uint32, from []uint32, l, mMax int) {
-	nbr := g.nodes[nbrID]
-	if len(nbr.neighbors) <= l {
-		grown := make([][]uint32, l+1)
-		copy(grown, nbr.neighbors)
-		nbr.neighbors = grown
-	}
+	cur := g.links(nbrID, l)
 	for _, newID := range from {
 		// A repeated reinsert of newID (unchanged vector) re-selects nbrID
 		// as a neighbor on every pass; without this check each pass would
 		// append another copy of the same edge, and since every copy sits
 		// at the same (shortest) distance, the pruning below keeps them all,
 		// eventually crowding out nbrID's real, more distant neighbors.
-		if !slices.Contains(nbr.neighbors[l], newID) {
-			nbr.neighbors[l] = append(nbr.neighbors[l], newID)
+		if !slices.Contains(cur, newID) {
+			cur = append(cur, newID)
 		}
 	}
-	if len(nbr.neighbors[l]) <= mMax {
-		return
+	if len(cur) > mMax {
+		// Over budget: re-pick nbr's links with the same heuristic Insert uses.
+		cands := make([]candidate, len(cur))
+		nbrVec := g.vec(nbrID)
+		for i, id := range cur {
+			cands[i] = candidate{id: id, dist: g.dist(nbrVec, g.vec(id))}
+		}
+		sort.Slice(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
+		cur = g.selectNeighbors(cands, mMax)
 	}
-
-	// Over budget: re-pick nbr's links with the same heuristic Insert uses.
-	cands := make([]candidate, len(nbr.neighbors[l]))
-	nbrVec := g.vec(nbrID)
-	for i, id := range nbr.neighbors[l] {
-		cands[i] = candidate{id: id, dist: g.dist(nbrVec, g.vec(id))}
-	}
-	sort.Slice(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
-	nbr.neighbors[l] = g.selectNeighbors(cands, mMax)
+	g.setLinks(nbrID, l, cur)
 }
 
 // greedyClosest walks from entry towards the single closest node to query
@@ -447,11 +493,7 @@ func (g *Graph) greedyClosest(entry uint32, entryDist float32, query []float32, 
 	improved := true
 	for improved {
 		improved = false
-		nd := g.nodes[best]
-		if l >= len(nd.neighbors) {
-			break
-		}
-		for _, nbrID := range nd.neighbors[l] {
+		for _, nbrID := range g.links(best, l) {
 			d := g.dist(query, g.vec(nbrID))
 			if d < bestDist {
 				bestDist = d
@@ -553,10 +595,6 @@ func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry u
 			break
 		}
 
-		nd := g.nodes[c.id]
-		if l >= len(nd.neighbors) {
-			continue
-		}
 		// Gather the unvisited neighbors and read one value from each
 		// vector before scoring any of them. Those reads miss cache
 		// independently, so the CPU fetches them in parallel instead of
@@ -564,7 +602,7 @@ func (g *Graph) searchLayerContext(ctx context.Context, query []float32, entry u
 		// software prefetch hnswlib does, which Go has no instruction for.
 		fresh := visited.fresh[:0]
 		var touch float32
-		for _, nbrID := range nd.neighbors[l] {
+		for _, nbrID := range g.links(c.id, l) {
 			if !visited.visit(nbrID) {
 				fresh = append(fresh, nbrID)
 				touch += g.vec(nbrID)[0]
@@ -654,7 +692,8 @@ func (g *Graph) Snapshot() (nodes []NodeState, entryPoint uint64, maxLevel int, 
 	nodes = make([]NodeState, 0, len(g.nodes))
 	for slot, nd := range g.nodes {
 		neighbors := make([][]uint64, len(nd.neighbors))
-		for l, ns := range nd.neighbors {
+		for l := range neighbors {
+			ns := g.links(uint32(slot), l)
 			ids := make([]uint64, len(ns))
 			for i, slot := range ns {
 				ids[i] = g.nodes[slot].id
@@ -709,6 +748,10 @@ func (g *Graph) Restore(nodes []NodeState, entryPoint uint64, maxLevel int, hasE
 			}
 		}
 		g.nodes[i].neighbors = neighbors
+		if len(neighbors) > 0 {
+			g.setLinks(uint32(i), 0, neighbors[0]) // keeps the first 2M
+			neighbors[0] = nil
+		}
 	}
 	g.entryPoint = g.slots[entryPoint]
 	g.maxLevel = maxLevel

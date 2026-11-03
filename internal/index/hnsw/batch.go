@@ -138,7 +138,7 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 			if l < len(candidates[k]) {
 				found = candidates[k][l]
 			}
-			nd.neighbors[l] = g.selectNeighbors(mergeClosest(found, mates[k][l], len(found)+len(mates[k][l])), g.maxLinks(l))
+			g.setLinks(base+uint32(k), l, g.selectNeighbors(mergeClosest(found, mates[k][l], len(found)+len(mates[k][l])), g.maxLinks(l)))
 		}
 	})
 
@@ -154,8 +154,8 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 	index := make(map[linkKey]int)
 	for k, nd := range nodes {
 		slot := base + uint32(k)
-		for l, nbrs := range nd.neighbors {
-			for _, nbr := range nbrs {
+		for l := 0; l <= nd.level; l++ {
+			for _, nbr := range g.links(slot, l) {
 				key := linkKey{nbr, l}
 				i, ok := index[key]
 				if !ok {
@@ -179,7 +179,7 @@ func (g *Graph) insertChunk(ids []uint64, vectors [][]float32, workers int) {
 		case nd.level > g.maxLevel:
 			g.maxLevel = nd.level
 			g.entryPoint = slot
-		case len(nd.neighbors[0]) == 0:
+		case len(g.links(slot, 0)) == 0:
 			g.entryPoint = slot // same reason as in insertLocked
 		}
 	}
