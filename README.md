@@ -144,6 +144,14 @@ Qdrant's RSS drops to about 0.67 GB after indexing because it pages vector
 storage out. Build times are rough: Qdrant's moved between 2m43s and 4m20s
 across runs on identical settings.
 
+Since that run (2026-11-07), vectors and layer-0 links live in mmap'd
+blocks outside the Go heap, and snapshots load one node at a time instead
+of decoding the whole graph first. Reopening the persisted 1M store from
+that run now sits at about 805 MB RSS after two GCs, down from about
+1.7-2.0 GB. The raw vectors and links alone are about 644 MB. This is a
+reopen measurement, not a rerun of the build-then-query compare above, so
+the 1.1-1.6 GB figure there stands until that compare is rerun.
+
 Earlier runs, kept for the record (same harness, but run under `nice -n
 15`, which on Apple Silicon tends to put both servers on efficiency cores):
 
