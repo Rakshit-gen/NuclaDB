@@ -133,6 +133,9 @@ type Graph struct {
 	dist func(a, b []float32) float32
 
 	visitedFree chan *visitedSet
+
+	restoreMark  []uint32 // only during a restore; see RestoreNode
+	restoreStamp uint32
 }
 
 // New creates an empty graph with the given configuration.
@@ -722,48 +725,81 @@ func (g *Graph) Snapshot() (nodes []NodeState, entryPoint uint64, maxLevel int, 
 	return nodes, entryPoint, g.maxLevel, g.hasEntry
 }
 
-// Restore rebuilds the graph directly from previously exported NodeState
-// records, bypassing Insert's graph-construction logic entirely. This is
-// only valid for loading a snapshot taken from an equivalently-configured
-// graph: it trusts the neighbor lists as-is rather than recomputing them.
-// Restore must be called on a freshly created, empty Graph.
-func (g *Graph) Restore(nodes []NodeState, entryPoint uint64, maxLevel int, hasEntry bool) {
-	g.wmu.Lock()
-	defer g.wmu.Unlock()
-	g.mu.Lock()
-	defer g.mu.Unlock()
+// BeginRestore, RestoreNode and EndRestore rebuild a fresh, empty graph
+// from a snapshot one node at a time, so a loader never needs every node's
+// state in memory at once. ids lists every node's id, in the order
+// RestoreNode will be called. The neighbor lists are trusted as-is rather
+// than recomputed, so this is only valid for a snapshot of an
+// equivalently-configured graph, and the graph must not be used by anyone
+// else until EndRestore returns. Each step reports false if the snapshot
+// is inconsistent: a repeated id here, a bad node in RestoreNode, or an
+// unknown entry point or missing nodes in EndRestore.
+func (g *Graph) BeginRestore(ids []uint64) bool {
+	for i, id := range ids {
+		if _, dup := g.slots[id]; dup {
+			return false
+		}
+		g.slots[id] = uint32(i)
+	}
+	g.restoreMark = make([]uint32, len(ids))
+	return true
+}
 
-	for _, ns := range nodes {
-		if g.unit {
-			normalize(ns.Vector) // no-op for snapshots written since cosine vectors were stored unit length
-		}
-		g.slots[ns.ID] = uint32(len(g.nodes))
-		g.appendVec(ns.Vector)
-		g.nodes = append(g.nodes, &node{id: ns.ID, level: ns.Level})
-		g.dead = append(g.dead, ns.Deleted)
-		if !ns.Deleted {
-			g.live++
-		}
+// RestoreNode appends ns as the next node. It may change ns.Vector, and
+// keeps no reference to ns, so the caller can reuse its buffers.
+func (g *Graph) RestoreNode(ns NodeState) bool {
+	slot := uint32(len(g.nodes))
+	if s, ok := g.slots[ns.ID]; !ok || s != slot || ns.Level < 0 || len(ns.Neighbors) != ns.Level+1 || len(ns.Vector) != g.cfg.Dim {
+		return false
 	}
-	for i, ns := range nodes {
-		neighbors := make([][]uint32, len(ns.Neighbors))
-		for l, ids := range ns.Neighbors {
-			neighbors[l] = make([]uint32, 0, len(ids))
-			for _, id := range ids {
-				if slot, ok := g.slots[id]; ok {
-					neighbors[l] = append(neighbors[l], slot)
-				}
+	if g.unit {
+		normalize(ns.Vector) // no-op for snapshots written since cosine vectors were stored unit length
+	}
+	nd := &node{id: ns.ID, level: ns.Level, neighbors: make([][]uint32, ns.Level+1)}
+	g.appendVec(ns.Vector)
+	g.nodes = append(g.nodes, nd)
+	g.dead = append(g.dead, ns.Deleted)
+	if !ns.Deleted {
+		g.live++
+	}
+	for l, ids := range ns.Neighbors {
+		// restoreMark[s] == stamp means s is already in this layer's list,
+		// so repeats are caught without a set per list.
+		g.restoreStamp++
+		out := make([]uint32, 0, len(ids))
+		for _, id := range ids {
+			s, ok := g.slots[id]
+			if !ok || s == slot || g.restoreMark[s] == g.restoreStamp {
+				return false
 			}
+			g.restoreMark[s] = g.restoreStamp
+			out = append(out, s)
 		}
-		g.nodes[i].neighbors = neighbors
-		if len(neighbors) > 0 {
-			g.setLinks(uint32(i), 0, neighbors[0]) // keeps the first 2M
-			neighbors[0] = nil
+		if l == 0 {
+			g.setLinks(slot, 0, out) // keeps the first 2M
+		} else {
+			nd.neighbors[l] = out
 		}
 	}
-	g.entryPoint = g.slots[entryPoint]
+	return true
+}
+
+// EndRestore sets the entry point and max level once every node is in.
+func (g *Graph) EndRestore(entryPoint uint64, maxLevel int, hasEntry bool) bool {
+	g.restoreMark = nil
+	if len(g.nodes) != len(g.slots) {
+		return false
+	}
+	if hasEntry {
+		slot, ok := g.slots[entryPoint]
+		if !ok {
+			return false
+		}
+		g.entryPoint = slot
+	}
 	g.maxLevel = maxLevel
 	g.hasEntry = hasEntry
+	return true
 }
 
 // Delete soft-deletes id: it is excluded from future Search results and

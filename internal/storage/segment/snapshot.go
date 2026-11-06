@@ -7,9 +7,9 @@
 //
 // Loading mmaps the file read-only rather than a buffered ReadFile, so
 // decoding walks the page-cache-backed mapping instead of first copying the
-// whole file into a heap []byte. Decoding still copies every vector and
-// neighbor list onto the heap, so the whole graph must fit in RAM; the mmap
-// only avoids holding a second full copy of the file while it loads.
+// whole file into a heap []byte. Nodes are decoded one at a time straight
+// into the graph, so the whole graph must fit in RAM but nothing else of
+// its size does.
 //
 // Format version 2 (magic "NUCLADB2") adds the vector dimension and metric
 // name to the header, checked against the caller's config on load, and a
@@ -196,6 +196,14 @@ func (c *cursor) need(n int) error {
 	return nil
 }
 
+func (c *cursor) skip(n int) error {
+	if err := c.need(n); err != nil {
+		return err
+	}
+	c.pos += n
+	return nil
+}
+
 func (c *cursor) byte() (byte, error) {
 	if err := c.need(1); err != nil {
 		return 0, err
@@ -223,25 +231,25 @@ func (c *cursor) uint64() (uint64, error) {
 	return v, nil
 }
 
-func (c *cursor) float32Slice(n uint32) ([]float32, error) {
+// float32Slice appends n float32s to out.
+func (c *cursor) float32Slice(out []float32, n uint32) ([]float32, error) {
 	if err := c.need(int(n) * 4); err != nil {
-		return nil, err
+		return out, err
 	}
-	out := make([]float32, n)
-	for i := range out {
-		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(c.data[c.pos : c.pos+4]))
+	for range n {
+		out = append(out, math.Float32frombits(binary.LittleEndian.Uint32(c.data[c.pos:c.pos+4])))
 		c.pos += 4
 	}
 	return out, nil
 }
 
-func (c *cursor) uint64Slice(n uint32) ([]uint64, error) {
+// uint64Slice appends n uint64s to out.
+func (c *cursor) uint64Slice(out []uint64, n uint32) ([]uint64, error) {
 	if err := c.need(int(n) * 8); err != nil {
-		return nil, err
+		return out, err
 	}
-	out := make([]uint64, n)
-	for i := range out {
-		out[i] = binary.LittleEndian.Uint64(c.data[c.pos : c.pos+8])
+	for range n {
+		out = append(out, binary.LittleEndian.Uint64(c.data[c.pos:c.pos+8]))
 		c.pos += 8
 	}
 	return out, nil
@@ -340,114 +348,131 @@ func Load(path string, cfg hnsw.Config) (*hnsw.Graph, uint64, error) {
 		}
 	}
 
-	nodes := make([]hnsw.NodeState, 0, min(nodeCount, uint64(len(c.data))))
+	maxLevel := int(int32(maxLevelRaw))
+	hasEntry := hasEntryByte == 1
+	if maxLevel < 0 || maxLevel > maxSnapshotLevel || hasEntry != (nodeCount > 0) {
+		return nil, 0, ErrInvalidFormat
+	}
+
+	// Two passes over the mapping: the first collects every id, so the
+	// second can resolve neighbor ids to slots as it hands each node to the
+	// graph. nd's buffers are reused from node to node, so at no point is
+	// there a second copy of the whole graph on the heap.
+	nodesAt := c.pos
+	ids := make([]uint64, 0, nodeCount)
 	for i := uint64(0); i < nodeCount; i++ {
-		nd, err := readNode(c)
+		id, dim, err := skipNode(c)
 		if err != nil {
 			return nil, 0, fmt.Errorf("segment: decoding node %d: %w", i, err)
 		}
-		if len(nd.Vector) != cfg.Dim {
-			return nil, 0, fmt.Errorf("%w: node %d has dim %d, config has %d", ErrConfigMismatch, nd.ID, len(nd.Vector), cfg.Dim)
+		if int(dim) != cfg.Dim {
+			return nil, 0, fmt.Errorf("%w: node %d has dim %d, config has %d", ErrConfigMismatch, id, dim, cfg.Dim)
 		}
-		nodes = append(nodes, nd)
+		ids = append(ids, id)
 	}
 	if c.pos != len(c.data) {
 		return nil, 0, ErrInvalidFormat
 	}
-	if err := validateGraphState(nodes, entryPoint, int(int32(maxLevelRaw)), hasEntryByte == 1); err != nil {
-		return nil, 0, err
-	}
 
 	g := hnsw.New(cfg)
-	g.Restore(nodes, entryPoint, int(int32(maxLevelRaw)), hasEntryByte == 1)
+	if !g.BeginRestore(ids) {
+		return nil, 0, ErrInvalidFormat
+	}
+	c.pos = nodesAt
+	var nd hnsw.NodeState
+	for range nodeCount {
+		if err := readNode(c, &nd); err != nil {
+			return nil, 0, err
+		}
+		if !g.RestoreNode(nd) {
+			return nil, 0, ErrInvalidFormat
+		}
+	}
+	if !g.EndRestore(entryPoint, maxLevel, hasEntry) {
+		return nil, 0, ErrInvalidFormat
+	}
 	return g, walSeq, nil
 }
 
-func validateGraphState(nodes []hnsw.NodeState, entryPoint uint64, maxLevel int, hasEntry bool) error {
-	if maxLevel < 0 || maxLevel > maxSnapshotLevel || hasEntry != (len(nodes) > 0) {
-		return ErrInvalidFormat
+// skipNode steps over the next node, returning its id and vector length.
+// readNode checks the rest when the node is decoded for real.
+func skipNode(c *cursor) (id uint64, dim uint32, err error) {
+	if id, err = c.uint64(); err != nil {
+		return 0, 0, err
 	}
-	seen := make(map[uint64]struct{}, len(nodes))
-	for _, nd := range nodes {
-		if nd.Level < 0 || nd.Level > maxSnapshotLevel || len(nd.Neighbors) != nd.Level+1 {
-			return ErrInvalidFormat
-		}
-		if _, duplicate := seen[nd.ID]; duplicate {
-			return ErrInvalidFormat
-		}
-		seen[nd.ID] = struct{}{}
+	if err = c.skip(4 + 1); err != nil { // level, deleted
+		return 0, 0, err
 	}
-	if hasEntry {
-		if _, ok := seen[entryPoint]; !ok {
-			return ErrInvalidFormat
-		}
+	if dim, err = c.uint32(); err != nil {
+		return 0, 0, err
 	}
-	for _, nd := range nodes {
-		for _, layer := range nd.Neighbors {
-			layerSeen := make(map[uint64]struct{}, len(layer))
-			for _, id := range layer {
-				if _, ok := seen[id]; !ok || id == nd.ID {
-					return ErrInvalidFormat
-				}
-				if _, duplicate := layerSeen[id]; duplicate {
-					return ErrInvalidFormat
-				}
-				layerSeen[id] = struct{}{}
-			}
+	if err = c.skip(int(dim) * 4); err != nil {
+		return 0, 0, err
+	}
+	levels, err := c.uint32()
+	if err != nil {
+		return 0, 0, err
+	}
+	if levels > maxSnapshotLevel+1 {
+		return 0, 0, ErrInvalidFormat
+	}
+	for range levels {
+		cnt, err := c.uint32()
+		if err != nil {
+			return 0, 0, err
+		}
+		if err = c.skip(int(cnt) * 8); err != nil {
+			return 0, 0, err
 		}
 	}
-	return nil
+	return id, dim, nil
 }
 
-func readNode(c *cursor) (hnsw.NodeState, error) {
+// readNode decodes the next node into nd, reusing nd's slices.
+func readNode(c *cursor, nd *hnsw.NodeState) error {
 	id, err := c.uint64()
 	if err != nil {
-		return hnsw.NodeState{}, err
+		return err
 	}
 	levelRaw, err := c.uint32()
 	if err != nil {
-		return hnsw.NodeState{}, err
+		return err
 	}
 	deletedByte, err := c.byte()
 	if err != nil {
-		return hnsw.NodeState{}, err
+		return err
 	}
 	if deletedByte > 1 {
-		return hnsw.NodeState{}, ErrInvalidFormat
+		return ErrInvalidFormat
 	}
 	dim, err := c.uint32()
 	if err != nil {
-		return hnsw.NodeState{}, err
+		return err
 	}
-	vector, err := c.float32Slice(dim)
-	if err != nil {
-		return hnsw.NodeState{}, err
+	if nd.Vector, err = c.float32Slice(nd.Vector[:0], dim); err != nil {
+		return err
 	}
 	numLevels, err := c.uint32()
 	if err != nil {
-		return hnsw.NodeState{}, err
+		return err
 	}
 	level := int(int32(levelRaw))
 	if level < 0 || level > maxSnapshotLevel || numLevels != uint32(level+1) {
-		return hnsw.NodeState{}, ErrInvalidFormat
+		return ErrInvalidFormat
 	}
-	neighbors := make([][]uint64, numLevels)
-	for l := uint32(0); l < numLevels; l++ {
+	for len(nd.Neighbors) < int(numLevels) {
+		nd.Neighbors = append(nd.Neighbors, nil)
+	}
+	nd.Neighbors = nd.Neighbors[:numLevels]
+	for l := range nd.Neighbors {
 		cnt, err := c.uint32()
 		if err != nil {
-			return hnsw.NodeState{}, err
+			return err
 		}
-		ids, err := c.uint64Slice(cnt)
-		if err != nil {
-			return hnsw.NodeState{}, err
+		if nd.Neighbors[l], err = c.uint64Slice(nd.Neighbors[l][:0], cnt); err != nil {
+			return err
 		}
-		neighbors[l] = ids
 	}
-	return hnsw.NodeState{
-		ID:        id,
-		Vector:    vector,
-		Level:     level,
-		Neighbors: neighbors,
-		Deleted:   deletedByte == 1,
-	}, nil
+	nd.ID, nd.Level, nd.Deleted = id, level, deletedByte == 1
+	return nil
 }

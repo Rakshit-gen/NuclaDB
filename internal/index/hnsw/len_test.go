@@ -32,7 +32,21 @@ func TestLenTracksInsertReinsertDelete(t *testing.T) {
 
 	nodes, ep, lvl, has := g.Snapshot()
 	r := New(Config{Dim: 2, Metric: L2(), Seed: 1})
-	r.Restore(nodes, ep, lvl, has)
+	ids := make([]uint64, len(nodes))
+	for i, nd := range nodes {
+		ids[i] = nd.ID
+	}
+	if !r.BeginRestore(ids) {
+		t.Fatal("BeginRestore rejected the snapshot")
+	}
+	for _, nd := range nodes {
+		if !r.RestoreNode(nd) {
+			t.Fatalf("RestoreNode rejected node %d", nd.ID)
+		}
+	}
+	if !r.EndRestore(ep, lvl, has) {
+		t.Fatal("EndRestore rejected the snapshot")
+	}
 	if r.Len() != 2 {
 		t.Fatalf("restored Len = %d, want 2", r.Len())
 	}
