@@ -117,6 +117,7 @@ type Graph struct {
 	// hops (node, then its [][]uint32, then the list).
 	links0     [][]uint32
 	linkStride int
+	mem        *arena            // backs data and links0
 	slots      map[uint64]uint32 // id -> slot
 	entryPoint uint32
 	hasEntry   bool
@@ -152,7 +153,9 @@ func New(cfg Config) *Graph {
 		// The largest power-of-two vector count that fits in 8 MB.
 		blockShift: uint(bits.Len(uint(max(8<<20/(4*max(cfg.Dim, 1)), 1))) - 1),
 		linkStride: 1 + 2*cfg.M,
+		mem:        new(arena),
 	}
+	runtime.AddCleanup(g, (*arena).free, g.mem)
 	if cfg.Metric.Name() == "cosine" {
 		g.unit, g.dist = true, unitCosine
 	}
@@ -177,18 +180,18 @@ func (g *Graph) vec(slot uint32) []float32 {
 }
 
 // appendVec stores the vector for the next new slot, len(g.nodes) before
-// that node is appended, and an empty layer-0 link list for it. A block grows by append while it is small, so a
-// graph of a few vectors stays small.
+// that node is appended, and an empty layer-0 link list for it. Each block
+// is allocated whole from g.mem; untouched pages of a mostly empty block
+// take no memory.
 func (g *Graph) appendVec(vec []float32) {
 	bi := len(g.nodes) >> g.blockShift
 	if bi == len(g.data) {
-		g.data = append(g.data, nil)
+		per := 1 << g.blockShift
+		g.data = append(g.data, g.mem.float32s(per*g.cfg.Dim))
+		g.links0 = append(g.links0, g.mem.uint32s(per*g.linkStride))
 	}
-	g.data[bi] = append(g.data[bi], vec...)
-	if bi == len(g.links0) {
-		g.links0 = append(g.links0, nil)
-	}
-	g.links0[bi] = append(g.links0[bi], make([]uint32, g.linkStride)...)
+	g.data[bi] = append(g.data[bi], vec...) // within capacity, never copies
+	g.links0[bi] = g.links0[bi][:len(g.links0[bi])+g.linkStride]
 }
 
 // links returns slot's neighbors at layer l (nil if slot doesn't reach l).
@@ -260,7 +263,9 @@ func (g *Graph) Compact() (*Graph, error) {
 	g.wmu.Unlock()
 
 	ng := New(g.cfg)
-	return ng, ng.InsertBatch(ids, vecs)
+	err := ng.InsertBatch(ids, vecs)
+	runtime.KeepAlive(g) // vecs point into g's blocks, which g's cleanup unmaps
+	return ng, err
 }
 
 // Get returns a copy of id's stored vector. Cosine graphs store vectors at
