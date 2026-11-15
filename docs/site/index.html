@@ -162,6 +162,7 @@
       <a href="#commands-search" class="sub">search</a>
       <a href="#commands-read" class="sub">get, list, count</a>
       <a href="#commands-tenants" class="sub">tenant admin</a>
+      <a href="#commands-keys" class="sub">API keys</a>
       <a href="#commands-delete" class="sub">delete</a>
       <a href="#errors">Errors you'll hit</a>
       <a href="#rest">REST equivalent</a>
@@ -279,7 +280,8 @@
       <p>
         A key lists the tenants it may touch (or <code>*</code> for all).
         Creating, listing, deleting and re-quota'ing tenants needs an admin
-        key.
+        key, and so does issuing more keys (see
+        <a href="#commands-keys">API keys</a>).
       </p>
     </section>
 
@@ -450,6 +452,27 @@ set quota for "t2"
 
 $ nucladb-cli delete-tenant -id=t2
 deleted tenant "t2"</code></pre>
+
+      <h3 id="commands-keys"><code>create-key</code>, <code>keys</code>, <code>revoke-key</code></h3>
+      <p>
+        Issue API keys from a running server. All three need an admin key,
+        and only work on a server that requires keys. From Python, use
+        <code>create_api_key</code>, <code>list_api_keys</code> and
+        <code>revoke_api_key</code>; over REST, <code>POST</code>,
+        <code>GET</code> and <code>DELETE /v1/keys</code>. The key is printed
+        once: the server keeps only a hash of it, so a lost key can't be
+        recovered, only revoked and replaced. <code>-ttl</code> makes it
+        expire on its own.
+      </p>
+      <pre><code>$ nucladb-cli create-key -name=ci -tenants=acme -ttl=720h
+nk_qjq1MNTM1fPS-8_RkskFSHd9N7U2aYSJ
+created key_ddd0ac962897ef9a; save the key above now, the server can't show it again
+
+$ nucladb-cli keys
+key_ddd0ac962897ef9a	name="ci"	tenants=acme	admin=false	created=2026-11-15T14:37:26Z	expires=2026-12-15T14:37:26Z
+
+$ nucladb-cli revoke-key -id=key_ddd0ac962897ef9a
+revoked key_ddd0ac962897ef9a</code></pre>
 
       <h3 id="commands-delete"><code>delete</code></h3>
       <p>

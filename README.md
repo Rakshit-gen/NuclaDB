@@ -308,6 +308,27 @@ listener to a non-loopback address without authentication is refused unless
 you explicitly pass `-allow-unauthenticated`. When authentication is enabled,
 `/metrics` requires an admin key; `/healthz` remains public for orchestrators.
 
+**Issuing keys.** On a server that requires keys, an admin key can issue
+more at runtime instead of editing the keys file:
+
+```
+nucladb-cli create-key -name=ci -tenants=acme -ttl=720h   # prints the key once
+nucladb-cli keys                                          # ids and details, never the keys
+nucladb-cli revoke-key -id=key_ddd0ac962897ef9a
+```
+
+The same is `POST`/`GET`/`DELETE /v1/keys` over REST and
+`create_api_key`/`list_api_keys`/`revoke_api_key` in Python. Issued keys
+look like `nk_` plus 32 random characters (192 bits) and work exactly like
+keys from the file: a list of tenants, optionally admin, optionally an
+expiry. The server stores only a SHA-256 of each one, in `api_keys.json`
+in the data dir (mode 0600), so a leaked data dir doesn't leak working
+keys and a lost key can only be revoked and replaced. Revoking takes
+effect on the next request. Deleting a tenant takes it off every key, so
+re-creating the tenant doesn't hand its data to old keys. The root key
+from `-api-keys` or `NUCLADB_API_KEY` comes from config, so the API can't
+revoke it and you can't lock yourself out.
+
 Other server limits worth knowing: `-max-message-bytes` (64 MiB) caps a
 gRPC message or REST body, `top_k` is capped at 1000, `ef_search` at
 10000, and `-tenant-idle-timeout` (30m) closes tenants nobody has used so
@@ -352,7 +373,10 @@ free tier, so the first request after idle may take ~30s to spin up).
 [render.com](https://render.com) (New → Blueprint), and it builds
 `Dockerfile` and deploys the REST/JSON API on Render's free web-service
 tier, with the public `/healthz` endpoint as the health check. Render generates
-the deployment's admin key as `NUCLADB_API_KEY`.
+the deployment's admin key as `NUCLADB_API_KEY`. The free tier has no
+persistent disk, so data and issued API keys are lost on each redeploy or
+restart; for anything that has to last, attach a Render disk at `/data`
+(the container's data dir; needs a paid plan).
 
 `docker-entrypoint.sh` binds the REST gateway to Render's dynamically
 assigned `$PORT` (Docker's exec-form `ENTRYPOINT` can't expand that
