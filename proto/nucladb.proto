@@ -30,6 +30,12 @@ service NuclaDB {
   rpc DeleteTenant(DeleteTenantRequest) returns (DeleteTenantResponse);
   rpc SetQuota(SetQuotaRequest) returns (SetQuotaResponse);
   rpc ListTenants(ListTenantsRequest) returns (ListTenantsResponse);
+
+  // API keys, all admin-only. Only works on a server that requires keys
+  // (-api-keys or NUCLADB_API_KEY).
+  rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse);
+  rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse);
+  rpc RevokeAPIKey(RevokeAPIKeyRequest) returns (RevokeAPIKeyResponse);
 }
 
 enum DistanceMetric {
@@ -199,3 +205,38 @@ message TenantInfo {
 message ListTenantsResponse {
   repeated TenantInfo tenants = 1;
 }
+
+// A non-admin key needs at least one tenant ("*" for all). An admin key
+// with no tenants gets "*".
+message CreateAPIKeyRequest {
+  string name = 1;
+  repeated string tenants = 2;
+  bool admin = 3;
+}
+
+// APIKeyInfo describes an issued key. The key itself is never in it.
+message APIKeyInfo {
+  string id = 1;
+  string name = 2;
+  repeated string tenants = 3;
+  bool admin = 4;
+  int64 created_unix = 5;
+}
+
+// key is returned only here; the server keeps just a hash of it.
+message CreateAPIKeyResponse {
+  string key = 1;
+  APIKeyInfo info = 2;
+}
+
+message ListAPIKeysRequest {}
+
+message ListAPIKeysResponse {
+  repeated APIKeyInfo keys = 1;
+}
+
+message RevokeAPIKeyRequest {
+  string id = 1;
+}
+
+message RevokeAPIKeyResponse {}

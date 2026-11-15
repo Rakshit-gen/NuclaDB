@@ -1622,6 +1622,358 @@ func (x *ListTenantsResponse) GetTenants() []*TenantInfo {
 	return nil
 }
 
+// A non-admin key needs at least one tenant ("*" for all). An admin key
+// with no tenants gets "*".
+type CreateAPIKeyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Tenants       []string               `protobuf:"bytes,2,rep,name=tenants,proto3" json:"tenants,omitempty"`
+	Admin         bool                   `protobuf:"varint,3,opt,name=admin,proto3" json:"admin,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateAPIKeyRequest) Reset() {
+	*x = CreateAPIKeyRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAPIKeyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAPIKeyRequest) ProtoMessage() {}
+
+func (x *CreateAPIKeyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateAPIKeyRequest.ProtoReflect.Descriptor instead.
+func (*CreateAPIKeyRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *CreateAPIKeyRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateAPIKeyRequest) GetTenants() []string {
+	if x != nil {
+		return x.Tenants
+	}
+	return nil
+}
+
+func (x *CreateAPIKeyRequest) GetAdmin() bool {
+	if x != nil {
+		return x.Admin
+	}
+	return false
+}
+
+// APIKeyInfo describes an issued key. The key itself is never in it.
+type APIKeyInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Tenants       []string               `protobuf:"bytes,3,rep,name=tenants,proto3" json:"tenants,omitempty"`
+	Admin         bool                   `protobuf:"varint,4,opt,name=admin,proto3" json:"admin,omitempty"`
+	CreatedUnix   int64                  `protobuf:"varint,5,opt,name=created_unix,json=createdUnix,proto3" json:"created_unix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *APIKeyInfo) Reset() {
+	*x = APIKeyInfo{}
+	mi := &file_proto_nucladb_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *APIKeyInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*APIKeyInfo) ProtoMessage() {}
+
+func (x *APIKeyInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use APIKeyInfo.ProtoReflect.Descriptor instead.
+func (*APIKeyInfo) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *APIKeyInfo) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *APIKeyInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *APIKeyInfo) GetTenants() []string {
+	if x != nil {
+		return x.Tenants
+	}
+	return nil
+}
+
+func (x *APIKeyInfo) GetAdmin() bool {
+	if x != nil {
+		return x.Admin
+	}
+	return false
+}
+
+func (x *APIKeyInfo) GetCreatedUnix() int64 {
+	if x != nil {
+		return x.CreatedUnix
+	}
+	return 0
+}
+
+// key is returned only here; the server keeps just a hash of it.
+type CreateAPIKeyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Info          *APIKeyInfo            `protobuf:"bytes,2,opt,name=info,proto3" json:"info,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateAPIKeyResponse) Reset() {
+	*x = CreateAPIKeyResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAPIKeyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAPIKeyResponse) ProtoMessage() {}
+
+func (x *CreateAPIKeyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateAPIKeyResponse.ProtoReflect.Descriptor instead.
+func (*CreateAPIKeyResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *CreateAPIKeyResponse) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *CreateAPIKeyResponse) GetInfo() *APIKeyInfo {
+	if x != nil {
+		return x.Info
+	}
+	return nil
+}
+
+type ListAPIKeysRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAPIKeysRequest) Reset() {
+	*x = ListAPIKeysRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAPIKeysRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAPIKeysRequest) ProtoMessage() {}
+
+func (x *ListAPIKeysRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAPIKeysRequest.ProtoReflect.Descriptor instead.
+func (*ListAPIKeysRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{32}
+}
+
+type ListAPIKeysResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Keys          []*APIKeyInfo          `protobuf:"bytes,1,rep,name=keys,proto3" json:"keys,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAPIKeysResponse) Reset() {
+	*x = ListAPIKeysResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAPIKeysResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAPIKeysResponse) ProtoMessage() {}
+
+func (x *ListAPIKeysResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAPIKeysResponse.ProtoReflect.Descriptor instead.
+func (*ListAPIKeysResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ListAPIKeysResponse) GetKeys() []*APIKeyInfo {
+	if x != nil {
+		return x.Keys
+	}
+	return nil
+}
+
+type RevokeAPIKeyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeAPIKeyRequest) Reset() {
+	*x = RevokeAPIKeyRequest{}
+	mi := &file_proto_nucladb_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeAPIKeyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeAPIKeyRequest) ProtoMessage() {}
+
+func (x *RevokeAPIKeyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeAPIKeyRequest.ProtoReflect.Descriptor instead.
+func (*RevokeAPIKeyRequest) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *RevokeAPIKeyRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type RevokeAPIKeyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeAPIKeyResponse) Reset() {
+	*x = RevokeAPIKeyResponse{}
+	mi := &file_proto_nucladb_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeAPIKeyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeAPIKeyResponse) ProtoMessage() {}
+
+func (x *RevokeAPIKeyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_nucladb_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeAPIKeyResponse.ProtoReflect.Descriptor instead.
+func (*RevokeAPIKeyResponse) Descriptor() ([]byte, []int) {
+	return file_proto_nucladb_proto_rawDescGZIP(), []int{35}
+}
+
 var File_proto_nucladb_proto protoreflect.FileDescriptor
 
 const file_proto_nucladb_proto_rawDesc = "" +
@@ -1722,7 +2074,27 @@ const file_proto_nucladb_proto_rawDesc = "" +
 	"\x03dim\x18\x04 \x01(\x05R\x03dim\x122\n" +
 	"\x06metric\x18\x05 \x01(\x0e2\x1a.nucladb.v1.DistanceMetricR\x06metric\"G\n" +
 	"\x13ListTenantsResponse\x120\n" +
-	"\atenants\x18\x01 \x03(\v2\x16.nucladb.v1.TenantInfoR\atenants*~\n" +
+	"\atenants\x18\x01 \x03(\v2\x16.nucladb.v1.TenantInfoR\atenants\"Y\n" +
+	"\x13CreateAPIKeyRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\atenants\x18\x02 \x03(\tR\atenants\x12\x14\n" +
+	"\x05admin\x18\x03 \x01(\bR\x05admin\"\x83\x01\n" +
+	"\n" +
+	"APIKeyInfo\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\atenants\x18\x03 \x03(\tR\atenants\x12\x14\n" +
+	"\x05admin\x18\x04 \x01(\bR\x05admin\x12!\n" +
+	"\fcreated_unix\x18\x05 \x01(\x03R\vcreatedUnix\"T\n" +
+	"\x14CreateAPIKeyResponse\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
+	"\x04info\x18\x02 \x01(\v2\x16.nucladb.v1.APIKeyInfoR\x04info\"\x14\n" +
+	"\x12ListAPIKeysRequest\"A\n" +
+	"\x13ListAPIKeysResponse\x12*\n" +
+	"\x04keys\x18\x01 \x03(\v2\x16.nucladb.v1.APIKeyInfoR\x04keys\"%\n" +
+	"\x13RevokeAPIKeyRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x16\n" +
+	"\x14RevokeAPIKeyResponse*~\n" +
 	"\x0eDistanceMetric\x12\x1f\n" +
 	"\x1bDISTANCE_METRIC_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16DISTANCE_METRIC_COSINE\x10\x01\x12\x16\n" +
@@ -1737,7 +2109,7 @@ const file_proto_nucladb_proto_rawDesc = "" +
 	"\rFILTER_OP_GTE\x10\x05\x12\x10\n" +
 	"\fFILTER_OP_LT\x10\x06\x12\x11\n" +
 	"\rFILTER_OP_LTE\x10\a\x12\x14\n" +
-	"\x10FILTER_OP_EXISTS\x10\b2\xe3\x06\n" +
+	"\x10FILTER_OP_EXISTS\x10\b2\xd9\b\n" +
 	"\aNuclaDB\x12Q\n" +
 	"\fCreateTenant\x12\x1f.nucladb.v1.CreateTenantRequest\x1a .nucladb.v1.CreateTenantResponse\x12?\n" +
 	"\x06Insert\x12\x19.nucladb.v1.InsertRequest\x1a\x1a.nucladb.v1.InsertResponse\x12N\n" +
@@ -1750,7 +2122,10 @@ const file_proto_nucladb_proto_rawDesc = "" +
 	"\x0eUpdateMetadata\x12!.nucladb.v1.UpdateMetadataRequest\x1a\".nucladb.v1.UpdateMetadataResponse\x12Q\n" +
 	"\fDeleteTenant\x12\x1f.nucladb.v1.DeleteTenantRequest\x1a .nucladb.v1.DeleteTenantResponse\x12E\n" +
 	"\bSetQuota\x12\x1b.nucladb.v1.SetQuotaRequest\x1a\x1c.nucladb.v1.SetQuotaResponse\x12N\n" +
-	"\vListTenants\x12\x1e.nucladb.v1.ListTenantsRequest\x1a\x1f.nucladb.v1.ListTenantsResponseB0Z.github.com/Rakshit-gen/nucladb/proto/nucladbv1b\x06proto3"
+	"\vListTenants\x12\x1e.nucladb.v1.ListTenantsRequest\x1a\x1f.nucladb.v1.ListTenantsResponse\x12Q\n" +
+	"\fCreateAPIKey\x12\x1f.nucladb.v1.CreateAPIKeyRequest\x1a .nucladb.v1.CreateAPIKeyResponse\x12N\n" +
+	"\vListAPIKeys\x12\x1e.nucladb.v1.ListAPIKeysRequest\x1a\x1f.nucladb.v1.ListAPIKeysResponse\x12Q\n" +
+	"\fRevokeAPIKey\x12\x1f.nucladb.v1.RevokeAPIKeyRequest\x1a .nucladb.v1.RevokeAPIKeyResponseB0Z.github.com/Rakshit-gen/nucladb/proto/nucladbv1b\x06proto3"
 
 var (
 	file_proto_nucladb_proto_rawDescOnce sync.Once
@@ -1765,7 +2140,7 @@ func file_proto_nucladb_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_nucladb_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_proto_nucladb_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_proto_nucladb_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
 var file_proto_nucladb_proto_goTypes = []any{
 	(DistanceMetric)(0),            // 0: nucladb.v1.DistanceMetric
 	(FilterOp)(0),                  // 1: nucladb.v1.FilterOp
@@ -1798,56 +2173,71 @@ var file_proto_nucladb_proto_goTypes = []any{
 	(*ListTenantsRequest)(nil),     // 28: nucladb.v1.ListTenantsRequest
 	(*TenantInfo)(nil),             // 29: nucladb.v1.TenantInfo
 	(*ListTenantsResponse)(nil),    // 30: nucladb.v1.ListTenantsResponse
-	nil,                            // 31: nucladb.v1.Vector.MetadataEntry
-	nil,                            // 32: nucladb.v1.ScoredVector.MetadataEntry
-	nil,                            // 33: nucladb.v1.UpdateMetadataRequest.MetadataEntry
+	(*CreateAPIKeyRequest)(nil),    // 31: nucladb.v1.CreateAPIKeyRequest
+	(*APIKeyInfo)(nil),             // 32: nucladb.v1.APIKeyInfo
+	(*CreateAPIKeyResponse)(nil),   // 33: nucladb.v1.CreateAPIKeyResponse
+	(*ListAPIKeysRequest)(nil),     // 34: nucladb.v1.ListAPIKeysRequest
+	(*ListAPIKeysResponse)(nil),    // 35: nucladb.v1.ListAPIKeysResponse
+	(*RevokeAPIKeyRequest)(nil),    // 36: nucladb.v1.RevokeAPIKeyRequest
+	(*RevokeAPIKeyResponse)(nil),   // 37: nucladb.v1.RevokeAPIKeyResponse
+	nil,                            // 38: nucladb.v1.Vector.MetadataEntry
+	nil,                            // 39: nucladb.v1.ScoredVector.MetadataEntry
+	nil,                            // 40: nucladb.v1.UpdateMetadataRequest.MetadataEntry
 }
 var file_proto_nucladb_proto_depIdxs = []int32{
 	2,  // 0: nucladb.v1.CreateTenantRequest.quota:type_name -> nucladb.v1.TenantQuota
 	0,  // 1: nucladb.v1.CreateTenantRequest.metric:type_name -> nucladb.v1.DistanceMetric
-	31, // 2: nucladb.v1.Vector.metadata:type_name -> nucladb.v1.Vector.MetadataEntry
+	38, // 2: nucladb.v1.Vector.metadata:type_name -> nucladb.v1.Vector.MetadataEntry
 	5,  // 3: nucladb.v1.InsertRequest.vector:type_name -> nucladb.v1.Vector
 	5,  // 4: nucladb.v1.BatchUpsertRequest.vectors:type_name -> nucladb.v1.Vector
 	1,  // 5: nucladb.v1.MetadataFilter.op:type_name -> nucladb.v1.FilterOp
 	0,  // 6: nucladb.v1.SearchRequest.metric:type_name -> nucladb.v1.DistanceMetric
 	12, // 7: nucladb.v1.SearchRequest.filters:type_name -> nucladb.v1.MetadataFilter
-	32, // 8: nucladb.v1.ScoredVector.metadata:type_name -> nucladb.v1.ScoredVector.MetadataEntry
+	39, // 8: nucladb.v1.ScoredVector.metadata:type_name -> nucladb.v1.ScoredVector.MetadataEntry
 	14, // 9: nucladb.v1.SearchResponse.matches:type_name -> nucladb.v1.ScoredVector
 	5,  // 10: nucladb.v1.GetResponse.vector:type_name -> nucladb.v1.Vector
-	33, // 11: nucladb.v1.UpdateMetadataRequest.metadata:type_name -> nucladb.v1.UpdateMetadataRequest.MetadataEntry
+	40, // 11: nucladb.v1.UpdateMetadataRequest.metadata:type_name -> nucladb.v1.UpdateMetadataRequest.MetadataEntry
 	2,  // 12: nucladb.v1.SetQuotaRequest.quota:type_name -> nucladb.v1.TenantQuota
 	2,  // 13: nucladb.v1.TenantInfo.quota:type_name -> nucladb.v1.TenantQuota
 	0,  // 14: nucladb.v1.TenantInfo.metric:type_name -> nucladb.v1.DistanceMetric
 	29, // 15: nucladb.v1.ListTenantsResponse.tenants:type_name -> nucladb.v1.TenantInfo
-	3,  // 16: nucladb.v1.NuclaDB.CreateTenant:input_type -> nucladb.v1.CreateTenantRequest
-	6,  // 17: nucladb.v1.NuclaDB.Insert:input_type -> nucladb.v1.InsertRequest
-	8,  // 18: nucladb.v1.NuclaDB.BatchUpsert:input_type -> nucladb.v1.BatchUpsertRequest
-	10, // 19: nucladb.v1.NuclaDB.Delete:input_type -> nucladb.v1.DeleteRequest
-	13, // 20: nucladb.v1.NuclaDB.Search:input_type -> nucladb.v1.SearchRequest
-	16, // 21: nucladb.v1.NuclaDB.Get:input_type -> nucladb.v1.GetRequest
-	18, // 22: nucladb.v1.NuclaDB.List:input_type -> nucladb.v1.ListRequest
-	20, // 23: nucladb.v1.NuclaDB.Count:input_type -> nucladb.v1.CountRequest
-	22, // 24: nucladb.v1.NuclaDB.UpdateMetadata:input_type -> nucladb.v1.UpdateMetadataRequest
-	24, // 25: nucladb.v1.NuclaDB.DeleteTenant:input_type -> nucladb.v1.DeleteTenantRequest
-	26, // 26: nucladb.v1.NuclaDB.SetQuota:input_type -> nucladb.v1.SetQuotaRequest
-	28, // 27: nucladb.v1.NuclaDB.ListTenants:input_type -> nucladb.v1.ListTenantsRequest
-	4,  // 28: nucladb.v1.NuclaDB.CreateTenant:output_type -> nucladb.v1.CreateTenantResponse
-	7,  // 29: nucladb.v1.NuclaDB.Insert:output_type -> nucladb.v1.InsertResponse
-	9,  // 30: nucladb.v1.NuclaDB.BatchUpsert:output_type -> nucladb.v1.BatchUpsertResponse
-	11, // 31: nucladb.v1.NuclaDB.Delete:output_type -> nucladb.v1.DeleteResponse
-	15, // 32: nucladb.v1.NuclaDB.Search:output_type -> nucladb.v1.SearchResponse
-	17, // 33: nucladb.v1.NuclaDB.Get:output_type -> nucladb.v1.GetResponse
-	19, // 34: nucladb.v1.NuclaDB.List:output_type -> nucladb.v1.ListResponse
-	21, // 35: nucladb.v1.NuclaDB.Count:output_type -> nucladb.v1.CountResponse
-	23, // 36: nucladb.v1.NuclaDB.UpdateMetadata:output_type -> nucladb.v1.UpdateMetadataResponse
-	25, // 37: nucladb.v1.NuclaDB.DeleteTenant:output_type -> nucladb.v1.DeleteTenantResponse
-	27, // 38: nucladb.v1.NuclaDB.SetQuota:output_type -> nucladb.v1.SetQuotaResponse
-	30, // 39: nucladb.v1.NuclaDB.ListTenants:output_type -> nucladb.v1.ListTenantsResponse
-	28, // [28:40] is the sub-list for method output_type
-	16, // [16:28] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	32, // 16: nucladb.v1.CreateAPIKeyResponse.info:type_name -> nucladb.v1.APIKeyInfo
+	32, // 17: nucladb.v1.ListAPIKeysResponse.keys:type_name -> nucladb.v1.APIKeyInfo
+	3,  // 18: nucladb.v1.NuclaDB.CreateTenant:input_type -> nucladb.v1.CreateTenantRequest
+	6,  // 19: nucladb.v1.NuclaDB.Insert:input_type -> nucladb.v1.InsertRequest
+	8,  // 20: nucladb.v1.NuclaDB.BatchUpsert:input_type -> nucladb.v1.BatchUpsertRequest
+	10, // 21: nucladb.v1.NuclaDB.Delete:input_type -> nucladb.v1.DeleteRequest
+	13, // 22: nucladb.v1.NuclaDB.Search:input_type -> nucladb.v1.SearchRequest
+	16, // 23: nucladb.v1.NuclaDB.Get:input_type -> nucladb.v1.GetRequest
+	18, // 24: nucladb.v1.NuclaDB.List:input_type -> nucladb.v1.ListRequest
+	20, // 25: nucladb.v1.NuclaDB.Count:input_type -> nucladb.v1.CountRequest
+	22, // 26: nucladb.v1.NuclaDB.UpdateMetadata:input_type -> nucladb.v1.UpdateMetadataRequest
+	24, // 27: nucladb.v1.NuclaDB.DeleteTenant:input_type -> nucladb.v1.DeleteTenantRequest
+	26, // 28: nucladb.v1.NuclaDB.SetQuota:input_type -> nucladb.v1.SetQuotaRequest
+	28, // 29: nucladb.v1.NuclaDB.ListTenants:input_type -> nucladb.v1.ListTenantsRequest
+	31, // 30: nucladb.v1.NuclaDB.CreateAPIKey:input_type -> nucladb.v1.CreateAPIKeyRequest
+	34, // 31: nucladb.v1.NuclaDB.ListAPIKeys:input_type -> nucladb.v1.ListAPIKeysRequest
+	36, // 32: nucladb.v1.NuclaDB.RevokeAPIKey:input_type -> nucladb.v1.RevokeAPIKeyRequest
+	4,  // 33: nucladb.v1.NuclaDB.CreateTenant:output_type -> nucladb.v1.CreateTenantResponse
+	7,  // 34: nucladb.v1.NuclaDB.Insert:output_type -> nucladb.v1.InsertResponse
+	9,  // 35: nucladb.v1.NuclaDB.BatchUpsert:output_type -> nucladb.v1.BatchUpsertResponse
+	11, // 36: nucladb.v1.NuclaDB.Delete:output_type -> nucladb.v1.DeleteResponse
+	15, // 37: nucladb.v1.NuclaDB.Search:output_type -> nucladb.v1.SearchResponse
+	17, // 38: nucladb.v1.NuclaDB.Get:output_type -> nucladb.v1.GetResponse
+	19, // 39: nucladb.v1.NuclaDB.List:output_type -> nucladb.v1.ListResponse
+	21, // 40: nucladb.v1.NuclaDB.Count:output_type -> nucladb.v1.CountResponse
+	23, // 41: nucladb.v1.NuclaDB.UpdateMetadata:output_type -> nucladb.v1.UpdateMetadataResponse
+	25, // 42: nucladb.v1.NuclaDB.DeleteTenant:output_type -> nucladb.v1.DeleteTenantResponse
+	27, // 43: nucladb.v1.NuclaDB.SetQuota:output_type -> nucladb.v1.SetQuotaResponse
+	30, // 44: nucladb.v1.NuclaDB.ListTenants:output_type -> nucladb.v1.ListTenantsResponse
+	33, // 45: nucladb.v1.NuclaDB.CreateAPIKey:output_type -> nucladb.v1.CreateAPIKeyResponse
+	35, // 46: nucladb.v1.NuclaDB.ListAPIKeys:output_type -> nucladb.v1.ListAPIKeysResponse
+	37, // 47: nucladb.v1.NuclaDB.RevokeAPIKey:output_type -> nucladb.v1.RevokeAPIKeyResponse
+	33, // [33:48] is the sub-list for method output_type
+	18, // [18:33] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_proto_nucladb_proto_init() }
@@ -1861,7 +2251,7 @@ func file_proto_nucladb_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_nucladb_proto_rawDesc), len(file_proto_nucladb_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   32,
+			NumMessages:   39,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

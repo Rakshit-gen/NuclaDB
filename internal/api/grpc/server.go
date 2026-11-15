@@ -8,6 +8,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"log"
 	"slices"
 	"strconv"
 
@@ -314,6 +315,11 @@ func (s *Server) DeleteTenant(ctx context.Context, req *pb.DeleteTenantRequest) 
 	if err := s.store.DeleteTenant(req.GetTenantId()); err != nil {
 		return nil, toStatus(err)
 	}
+	if s.keys != nil {
+		if err := s.keys.DropTenant(req.GetTenantId()); err != nil {
+			return nil, status.Errorf(codes.Internal, "tenant deleted, but updating its API keys failed: %v", err)
+		}
+	}
 	return &pb.DeleteTenantResponse{}, nil
 }
 
@@ -354,6 +360,65 @@ func (s *Server) ListTenants(ctx context.Context, req *pb.ListTenantsRequest) (*
 
 // toStatus maps engine and store sentinel errors (wrapped or not) to gRPC
 // codes. Anything unrecognized is an internal error.
+// keysOn rejects key management on a server that doesn't require keys:
+// any key it issued would protect nothing.
+func (s *Server) keysOn() error {
+	if s.keys == nil {
+		return status.Error(codes.FailedPrecondition, "this server doesn't require API keys; start it with -api-keys or NUCLADB_API_KEY")
+	}
+	return nil
+}
+
+func keyInfo(is auth.Issued) *pb.APIKeyInfo {
+	return &pb.APIKeyInfo{Id: is.ID, Name: is.Name, Tenants: is.Tenants, Admin: is.Admin, CreatedUnix: is.Created.Unix()}
+}
+
+func (s *Server) CreateAPIKey(ctx context.Context, req *pb.CreateAPIKeyRequest) (*pb.CreateAPIKeyResponse, error) {
+	if err := s.keysOn(); err != nil {
+		return nil, err
+	}
+	if err := s.allow(ctx, "", true); err != nil {
+		return nil, err
+	}
+	key, is, err := s.keys.Issue(req.GetName(), req.GetTenants(), req.GetAdmin())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	log.Printf("nucladbd: issued API key %s (name %q, tenants %v, admin %v)", is.ID, is.Name, is.Tenants, is.Admin)
+	return &pb.CreateAPIKeyResponse{Key: key, Info: keyInfo(is)}, nil
+}
+
+func (s *Server) ListAPIKeys(ctx context.Context, req *pb.ListAPIKeysRequest) (*pb.ListAPIKeysResponse, error) {
+	if err := s.keysOn(); err != nil {
+		return nil, err
+	}
+	if err := s.allow(ctx, "", true); err != nil {
+		return nil, err
+	}
+	resp := &pb.ListAPIKeysResponse{}
+	for _, is := range s.keys.List() {
+		resp.Keys = append(resp.Keys, keyInfo(is))
+	}
+	return resp, nil
+}
+
+func (s *Server) RevokeAPIKey(ctx context.Context, req *pb.RevokeAPIKeyRequest) (*pb.RevokeAPIKeyResponse, error) {
+	if err := s.keysOn(); err != nil {
+		return nil, err
+	}
+	if err := s.allow(ctx, "", true); err != nil {
+		return nil, err
+	}
+	switch err := s.keys.Revoke(req.GetId()); {
+	case errors.Is(err, auth.ErrUnknownKeyID):
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	log.Printf("nucladbd: revoked API key %s", req.GetId())
+	return &pb.RevokeAPIKeyResponse{}, nil
+}
+
 func toStatus(err error) error {
 	if err == nil {
 		return nil
