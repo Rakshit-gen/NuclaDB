@@ -43,6 +43,9 @@ type Handler struct {
 //	GET    /v1/tenants        -> ListTenants
 //	DELETE /v1/tenants/{id}   -> DeleteTenant
 //	PUT    /v1/tenants/{id}/quota -> SetQuota
+//	POST   /v1/keys           -> CreateAPIKey
+//	GET    /v1/keys           -> ListAPIKeys
+//	DELETE /v1/keys/{id}      -> RevokeAPIKey
 //	GET    /docs              -> CLI documentation page (docs/site/index.html)
 //
 // Every route except tenant creation accepts an optional tenant_id (JSON
@@ -63,6 +66,9 @@ func New(svc pb.NuclaDBServer, maxBodyBytes int64) *Handler {
 	h.mux.HandleFunc("GET /v1/tenants", h.listTenants)
 	h.mux.HandleFunc("DELETE /v1/tenants/{id}", h.deleteTenant)
 	h.mux.HandleFunc("PUT /v1/tenants/{id}/quota", h.setQuota)
+	h.mux.HandleFunc("POST /v1/keys", h.createKey)
+	h.mux.HandleFunc("GET /v1/keys", h.listKeys)
+	h.mux.HandleFunc("DELETE /v1/keys/{id}", h.revokeKey)
 	h.mux.HandleFunc("GET /docs", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(site.Index)
@@ -260,6 +266,29 @@ func (h *Handler) setQuota(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, resp, err)
 }
 
+func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name    string   `json:"name"`
+		Tenants []string `json:"tenants"`
+		Admin   bool     `json:"admin"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	resp, err := h.svc.CreateAPIKey(r.Context(), &pb.CreateAPIKeyRequest{Name: body.Name, Tenants: body.Tenants, Admin: body.Admin})
+	writeResult(w, resp, err)
+}
+
+func (h *Handler) listKeys(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.svc.ListAPIKeys(r.Context(), &pb.ListAPIKeysRequest{})
+	writeResult(w, resp, err)
+}
+
+func (h *Handler) revokeKey(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.svc.RevokeAPIKey(r.Context(), &pb.RevokeAPIKeyRequest{Id: r.PathValue("id")})
+	writeResult(w, resp, err)
+}
+
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -290,7 +319,7 @@ func writeResult(w http.ResponseWriter, resp any, err error) {
 
 func statusCodeFor(err error) int {
 	switch status.Code(err) {
-	case codes.InvalidArgument:
+	case codes.InvalidArgument, codes.FailedPrecondition:
 		return http.StatusBadRequest
 	case codes.NotFound:
 		return http.StatusNotFound

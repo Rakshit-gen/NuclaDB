@@ -239,3 +239,73 @@ func TestRESTAPIKeys(t *testing.T) {
 		t.Fatalf("user key on another tenant: %d, want 403", code)
 	}
 }
+
+func TestRESTIssuedKeys(t *testing.T) {
+	dir := t.TempDir()
+	store, err := engine.OpenStore(dir, hnsw.Config{Dim: 4, Metric: hnsw.L2(), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	svc := grpcapi.New(store)
+	keys, err := auth.New([]auth.Key{{Key: "admin-key-0123456789", Tenants: []string{"*"}, Admin: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keys.IssuedFrom(filepath.Join(dir, "api_keys.json")); err != nil {
+		t.Fatal(err)
+	}
+	svc.RequireKeys(keys)
+	h := New(svc, 1<<20)
+
+	call := func(method, path, key string, body any, out any) int {
+		var buf bytes.Buffer
+		if body != nil {
+			json.NewEncoder(&buf).Encode(body)
+		}
+		req := httptest.NewRequest(method, path, &buf)
+		req.Header.Set("X-API-Key", key)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if out != nil {
+			json.NewDecoder(rec.Body).Decode(out)
+		}
+		return rec.Code
+	}
+	const admin = "admin-key-0123456789"
+
+	var created struct {
+		Key  string `json:"key"`
+		Info struct {
+			ID string `json:"id"`
+		} `json:"info"`
+	}
+	if code := call("POST", "/v1/keys", admin, map[string]any{"name": "ci", "tenants": []string{"default"}}, &created); code != 200 || created.Key == "" {
+		t.Fatalf("create: %d %+v", code, created)
+	}
+	vec := map[string]any{"id": "1", "values": []float32{1, 0, 0, 0}}
+	if code := call("POST", "/v1/vectors", created.Key, vec, nil); code != 200 {
+		t.Fatalf("issued key insert: %d", code)
+	}
+	if code := call("GET", "/v1/keys", created.Key, nil, nil); code != 403 {
+		t.Fatalf("issued key listing keys: %d, want 403", code)
+	}
+	var list struct {
+		Keys []map[string]any `json:"keys"`
+	}
+	if code := call("GET", "/v1/keys", admin, nil, &list); code != 200 || len(list.Keys) != 1 {
+		t.Fatalf("list: %d %+v", code, list)
+	}
+	if _, leaked := list.Keys[0]["key"]; leaked {
+		t.Fatal("list returned a key")
+	}
+	if code := call("DELETE", "/v1/keys/"+created.Info.ID, admin, nil, nil); code != 200 {
+		t.Fatalf("revoke: %d", code)
+	}
+	if code := call("POST", "/v1/vectors", created.Key, vec, nil); code != 401 {
+		t.Fatalf("revoked key insert: %d, want 401", code)
+	}
+	if code := call("DELETE", "/v1/keys/"+created.Info.ID, admin, nil, nil); code != 404 {
+		t.Fatalf("second revoke: %d, want 404", code)
+	}
+}
