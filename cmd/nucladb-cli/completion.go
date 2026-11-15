@@ -10,7 +10,7 @@ import (
 const bashCompletion = `_nucladb_cli() {
   local cur cmds
   cur="${COMP_WORDS[COMP_CWORD]}"
-  cmds="quickstart create-tenant tenants set-quota delete-tenant insert batch-upsert get update-metadata list count search delete ping completion"
+  cmds="quickstart create-tenant tenants set-quota delete-tenant create-key keys revoke-key insert batch-upsert get update-metadata list count search delete ping completion"
   if [ "$COMP_CWORD" -eq 1 ]; then
     COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )
     return
@@ -20,6 +20,9 @@ const bashCompletion = `_nucladb_cli() {
     tenants)       COMPREPLY=( $(compgen -W "-json" -- "$cur") ) ;;
     set-quota)     COMPREPLY=( $(compgen -W "-id -max-vectors -max-qps" -- "$cur") ) ;;
     delete-tenant) COMPREPLY=( $(compgen -W "-id" -- "$cur") ) ;;
+    create-key)    COMPREPLY=( $(compgen -W "-name -tenants -admin -ttl -json" -- "$cur") ) ;;
+    keys)          COMPREPLY=( $(compgen -W "-json" -- "$cur") ) ;;
+    revoke-key)    COMPREPLY=( $(compgen -W "-id" -- "$cur") ) ;;
     get)           COMPREPLY=( $(compgen -W "-id -tenant -json" -- "$cur") ) ;;
     update-metadata) COMPREPLY=( $(compgen -W "-id -tenant -meta" -- "$cur") ) ;;
     list)          COMPREPLY=( $(compgen -W "-tenant -page-size" -- "$cur") ) ;;
@@ -43,6 +46,9 @@ complete -c nucladb-cli -n "__fish_use_subcommand" -a create-tenant -d "Provisio
 complete -c nucladb-cli -n "__fish_use_subcommand" -a tenants -d "List tenants"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a set-quota -d "Change a tenant's quota"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a delete-tenant -d "Drop a tenant and its data"
+complete -c nucladb-cli -n "__fish_use_subcommand" -a create-key -d "Issue an API key"
+complete -c nucladb-cli -n "__fish_use_subcommand" -a keys -d "List issued API keys"
+complete -c nucladb-cli -n "__fish_use_subcommand" -a revoke-key -d "Revoke an API key"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a insert -d "Insert or update a vector"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a get -d "Read one vector"
 complete -c nucladb-cli -n "__fish_use_subcommand" -a update-metadata -d "Replace a vector's metadata"
@@ -57,6 +63,9 @@ complete -c nucladb-cli -n "__fish_seen_subcommand_from create-tenant" -l id -l 
 complete -c nucladb-cli -n "__fish_seen_subcommand_from tenants" -l json
 complete -c nucladb-cli -n "__fish_seen_subcommand_from set-quota" -l id -l max-vectors -l max-qps
 complete -c nucladb-cli -n "__fish_seen_subcommand_from delete-tenant" -l id
+complete -c nucladb-cli -n "__fish_seen_subcommand_from create-key" -l name -l tenants -l admin -l ttl -l json
+complete -c nucladb-cli -n "__fish_seen_subcommand_from keys" -l json
+complete -c nucladb-cli -n "__fish_seen_subcommand_from revoke-key" -l id
 complete -c nucladb-cli -n "__fish_seen_subcommand_from get" -l id -l tenant -l json
 complete -c nucladb-cli -n "__fish_seen_subcommand_from update-metadata" -l id -l tenant -l meta
 complete -c nucladb-cli -n "__fish_seen_subcommand_from list" -l tenant -l page-size

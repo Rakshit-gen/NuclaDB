@@ -188,7 +188,41 @@ deleted tenant "t2"
 ```
 
 `delete-tenant` removes the tenant's files. The `default` tenant can't be
-deleted.
+deleted. It also takes the tenant off every issued API key, and deletes
+keys left with no tenants, so re-creating a tenant of the same name doesn't
+hand its data to old keys.
+
+## `create-key`, `keys`, `revoke-key`
+
+Issue API keys from a running server instead of editing a keys file. All
+three need an admin key, and only work on a server that requires keys
+(`-api-keys` or `NUCLADB_API_KEY`).
+
+| Flag       | Description                                                          |
+|------------|----------------------------------------------------------------------|
+| `-name`    | Label shown by `keys`                                                |
+| `-tenants` | Comma-separated tenants the key may use, `*` for all (required unless `-admin`) |
+| `-admin`   | Admin key: can manage tenants and keys                               |
+| `-ttl`     | Expire after this long, like `720h` (default: never)                 |
+
+```
+$ nucladb-cli create-key -name=ci -tenants=acme -ttl=720h
+nk_qjq1MNTM1fPS-8_RkskFSHd9N7U2aYSJ
+created key_ddd0ac962897ef9a; save the key above now, the server can't show it again
+
+$ nucladb-cli keys
+key_ddd0ac962897ef9a	name="ci"	tenants=acme	admin=false	created=2026-11-15T14:37:26Z	expires=2026-12-15T14:37:26Z
+
+$ nucladb-cli revoke-key -id=key_ddd0ac962897ef9a
+revoked key_ddd0ac962897ef9a
+```
+
+The key goes to stdout and the note to stderr, so
+`KEY=$(nucladb-cli create-key ...)` captures just the key. The server keeps
+only a SHA-256 of each key, in `api_keys.json` in its data dir, so a lost
+key can't be recovered: revoke it and create another. Revoking takes effect
+on the next request. To rotate a key, create the new one, switch your app
+to it, then revoke the old one.
 
 ## `delete`
 
@@ -238,6 +272,9 @@ POST   /v1/tenants               (CreateTenant)
 GET    /v1/tenants               (ListTenants)
 DELETE /v1/tenants/{id}          (DeleteTenant)
 PUT    /v1/tenants/{id}/quota    (SetQuota)
+POST   /v1/keys                  (CreateAPIKey: name, tenants, admin, ttl_seconds)
+GET    /v1/keys                  (ListAPIKeys)
+DELETE /v1/keys/{id}             (RevokeAPIKey)
 POST   /v1/vectors               (Insert)
 POST   /v1/vectors:batch         (BatchUpsert)
 GET    /v1/vectors/{id}          (Get)

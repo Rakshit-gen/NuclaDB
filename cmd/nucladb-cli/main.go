@@ -67,6 +67,12 @@ func main() {
 		err = runDeleteTenant(addr, args)
 	case "set-quota":
 		err = runSetQuota(addr, args)
+	case "create-key":
+		err = runCreateKey(addr, args)
+	case "keys":
+		err = runKeys(addr, args)
+	case "revoke-key":
+		err = runRevokeKey(addr, args)
 	case "ping":
 		err = runPing(addr, args)
 	case "quickstart":
@@ -106,6 +112,9 @@ Commands:
   tenants          List tenants with their usage and settings
   set-quota        Change a tenant's storage/rate quota
   delete-tenant    Drop a tenant and all its data
+  create-key       Issue an API key (admin key needed); prints it once
+  keys             List issued API keys (never the keys themselves)
+  revoke-key       Revoke an issued API key by id
   insert           Insert or update a single vector
   batch-upsert     Insert or update many vectors from a JSON file
   get              Read one vector and its metadata
