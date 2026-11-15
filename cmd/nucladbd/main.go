@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -47,7 +48,7 @@ func main() {
 		maxMessage     = flag.Int("max-message-bytes", 64<<20, "largest gRPC message or REST body accepted, in bytes")
 		exactFilter    = flag.Int("exact-filter-limit", engine.DefaultExactFilterLimit, "filters matching at most this many vectors are answered by scoring every match")
 		idleTimeout    = flag.Duration("tenant-idle-timeout", 30*time.Minute, "close tenants unused for this long (0 keeps them open)")
-		apiKeys        = flag.String("api-keys", "", "JSON file of API keys (see internal/auth); without it every request is allowed")
+		apiKeys        = flag.String("api-keys", "", "JSON file of API keys (see internal/auth); without it or NUCLADB_API_KEY every request is allowed and keys can't be issued")
 		allowUnauth    = flag.Bool("allow-unauthenticated", false, "explicitly allow an unauthenticated non-loopback listener")
 		tlsCert        = flag.String("tls-cert", "", "TLS certificate file; with -tls-key, serves gRPC and REST over TLS")
 		tlsKey         = flag.String("tls-key", "", "TLS private key file")
@@ -110,6 +111,10 @@ func main() {
 		}
 		if err != nil {
 			log.Fatalf("nucladbd: %v", err)
+		}
+		// Keys issued through the API live next to the tenants, as hashes.
+		if err := configuredKeys.IssuedFrom(filepath.Join(*dataDir, "api_keys.json")); err != nil {
+			log.Fatalf("nucladbd: loading issued API keys: %v", err)
 		}
 		svc.RequireKeys(configuredKeys)
 	} else {
