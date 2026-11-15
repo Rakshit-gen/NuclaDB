@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAllow(t *testing.T) {
@@ -53,20 +54,20 @@ func TestIssuedKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := k.Issue("x", []string{"acme"}, false); err == nil {
+	if _, _, err := k.Issue("x", []string{"acme"}, false, 0); err == nil {
 		t.Fatal("Issue worked before IssuedFrom")
 	}
 	if err := k.IssuedFrom(path); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := k.Issue("x", nil, false); err == nil {
+	if _, _, err := k.Issue("x", nil, false, 0); err == nil {
 		t.Fatal("issued a non-admin key with no tenants")
 	}
-	acme, is, err := k.Issue("ci", []string{"acme"}, false)
+	acme, is, err := k.Issue("ci", []string{"acme"}, false, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	admin, _, err := k.Issue("ops", nil, true)
+	admin, _, err := k.Issue("ops", nil, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,11 +110,11 @@ func TestIssuedKeys(t *testing.T) {
 	allow(k3, acme, "acme", false, ErrNoKey)
 	allow(k3, admin, "", true, nil)
 
-	both, _, err := k3.Issue("both", []string{"acme", "globex"}, false)
+	both, _, err := k3.Issue("both", []string{"acme", "globex"}, false, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	only, _, _ := k3.Issue("only", []string{"acme"}, false)
+	only, _, _ := k3.Issue("only", []string{"acme"}, false, 0)
 	if err := k3.DropTenant("acme"); err != nil {
 		t.Fatal(err)
 	}
@@ -121,4 +122,17 @@ func TestIssuedKeys(t *testing.T) {
 	allow(k3, both, "globex", false, nil)
 	allow(k3, only, "acme", false, ErrNoKey)
 	allow(k3, admin, "acme", false, nil) // "*" keys are untouched
+
+	short, _, err := k3.Issue("short", []string{"globex"}, false, time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	allow(k3, short, "globex", false, ErrNoKey)
+	if _, _, err := k3.Issue("", []string{"globex"}, false, -time.Second); err == nil {
+		t.Fatal("negative ttl accepted")
+	}
+	if _, _, err := k3.Issue(strings.Repeat("n", MaxKeyNameLen+1), []string{"globex"}, false, 0); err == nil {
+		t.Fatal("over-long name accepted")
+	}
 }

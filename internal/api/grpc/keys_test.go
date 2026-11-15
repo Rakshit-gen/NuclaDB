@@ -87,6 +87,19 @@ func TestAPIKeyLifecycle(t *testing.T) {
 	if _, err := c.CreateAPIKey(ctx(rootKey), &pb.CreateAPIKeyRequest{}); code(err) != codes.InvalidArgument {
 		t.Fatalf("key with no tenants: got %v", err)
 	}
+	if _, err := c.CreateAPIKey(ctx(rootKey), &pb.CreateAPIKeyRequest{Tenants: []string{"acme"}, TtlSeconds: -1}); code(err) != codes.InvalidArgument {
+		t.Fatalf("negative ttl: got %v", err)
+	}
+	expiring, err := c.CreateAPIKey(ctx(rootKey), &pb.CreateAPIKeyRequest{Tenants: []string{"acme"}, TtlSeconds: 3600})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := expiring.GetInfo().GetExpiresUnix() - expiring.GetInfo().GetCreatedUnix(); got != 3600 {
+		t.Fatalf("expires - created = %d, want 3600", got)
+	}
+	if _, err := c.RevokeAPIKey(ctx(rootKey), &pb.RevokeAPIKeyRequest{Id: expiring.GetInfo().GetId()}); err != nil {
+		t.Fatal(err)
+	}
 
 	list, err := c.ListAPIKeys(ctx(rootKey), &pb.ListAPIKeysRequest{})
 	if err != nil || len(list.GetKeys()) != 1 || list.GetKeys()[0].GetId() != id {

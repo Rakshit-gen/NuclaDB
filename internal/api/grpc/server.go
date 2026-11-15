@@ -11,6 +11,7 @@ import (
 	"log"
 	"slices"
 	"strconv"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -370,7 +371,11 @@ func (s *Server) keysOn() error {
 }
 
 func keyInfo(is auth.Issued) *pb.APIKeyInfo {
-	return &pb.APIKeyInfo{Id: is.ID, Name: is.Name, Tenants: is.Tenants, Admin: is.Admin, CreatedUnix: is.Created.Unix()}
+	info := &pb.APIKeyInfo{Id: is.ID, Name: is.Name, Tenants: is.Tenants, Admin: is.Admin, CreatedUnix: is.Created.Unix()}
+	if !is.Expires.IsZero() {
+		info.ExpiresUnix = is.Expires.Unix()
+	}
+	return info
 }
 
 func (s *Server) CreateAPIKey(ctx context.Context, req *pb.CreateAPIKeyRequest) (*pb.CreateAPIKeyResponse, error) {
@@ -380,11 +385,18 @@ func (s *Server) CreateAPIKey(ctx context.Context, req *pb.CreateAPIKeyRequest) 
 	if err := s.allow(ctx, "", true); err != nil {
 		return nil, err
 	}
-	key, is, err := s.keys.Issue(req.GetName(), req.GetTenants(), req.GetAdmin())
+	if req.GetTtlSeconds() < 0 || req.GetTtlSeconds() > int64(auth.MaxKeyTTL/time.Second) {
+		return nil, status.Error(codes.InvalidArgument, "ttl_seconds must be between 0 (never expires) and 10 years")
+	}
+	key, is, err := s.keys.Issue(req.GetName(), req.GetTenants(), req.GetAdmin(), time.Duration(req.GetTtlSeconds())*time.Second)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	log.Printf("nucladbd: issued API key %s (name %q, tenants %v, admin %v)", is.ID, is.Name, is.Tenants, is.Admin)
+	expires := "never"
+	if !is.Expires.IsZero() {
+		expires = is.Expires.Format(time.RFC3339)
+	}
+	log.Printf("nucladbd: issued API key %s (name %q, tenants %v, admin %v, expires %s)", is.ID, is.Name, is.Tenants, is.Admin, expires)
 	return &pb.CreateAPIKeyResponse{Key: key, Info: keyInfo(is)}, nil
 }
 

@@ -1623,12 +1623,13 @@ func (x *ListTenantsResponse) GetTenants() []*TenantInfo {
 }
 
 // A non-admin key needs at least one tenant ("*" for all). An admin key
-// with no tenants gets "*".
+// with no tenants gets "*". ttl_seconds 0 means the key never expires.
 type CreateAPIKeyRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Tenants       []string               `protobuf:"bytes,2,rep,name=tenants,proto3" json:"tenants,omitempty"`
 	Admin         bool                   `protobuf:"varint,3,opt,name=admin,proto3" json:"admin,omitempty"`
+	TtlSeconds    int64                  `protobuf:"varint,4,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1684,6 +1685,13 @@ func (x *CreateAPIKeyRequest) GetAdmin() bool {
 	return false
 }
 
+func (x *CreateAPIKeyRequest) GetTtlSeconds() int64 {
+	if x != nil {
+		return x.TtlSeconds
+	}
+	return 0
+}
+
 // APIKeyInfo describes an issued key. The key itself is never in it.
 type APIKeyInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1692,6 +1700,7 @@ type APIKeyInfo struct {
 	Tenants       []string               `protobuf:"bytes,3,rep,name=tenants,proto3" json:"tenants,omitempty"`
 	Admin         bool                   `protobuf:"varint,4,opt,name=admin,proto3" json:"admin,omitempty"`
 	CreatedUnix   int64                  `protobuf:"varint,5,opt,name=created_unix,json=createdUnix,proto3" json:"created_unix,omitempty"`
+	ExpiresUnix   int64                  `protobuf:"varint,6,opt,name=expires_unix,json=expiresUnix,proto3" json:"expires_unix,omitempty"` // 0: never
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1757,6 +1766,13 @@ func (x *APIKeyInfo) GetAdmin() bool {
 func (x *APIKeyInfo) GetCreatedUnix() int64 {
 	if x != nil {
 		return x.CreatedUnix
+	}
+	return 0
+}
+
+func (x *APIKeyInfo) GetExpiresUnix() int64 {
+	if x != nil {
+		return x.ExpiresUnix
 	}
 	return 0
 }
@@ -2074,18 +2090,21 @@ const file_proto_nucladb_proto_rawDesc = "" +
 	"\x03dim\x18\x04 \x01(\x05R\x03dim\x122\n" +
 	"\x06metric\x18\x05 \x01(\x0e2\x1a.nucladb.v1.DistanceMetricR\x06metric\"G\n" +
 	"\x13ListTenantsResponse\x120\n" +
-	"\atenants\x18\x01 \x03(\v2\x16.nucladb.v1.TenantInfoR\atenants\"Y\n" +
+	"\atenants\x18\x01 \x03(\v2\x16.nucladb.v1.TenantInfoR\atenants\"z\n" +
 	"\x13CreateAPIKeyRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\atenants\x18\x02 \x03(\tR\atenants\x12\x14\n" +
-	"\x05admin\x18\x03 \x01(\bR\x05admin\"\x83\x01\n" +
+	"\x05admin\x18\x03 \x01(\bR\x05admin\x12\x1f\n" +
+	"\vttl_seconds\x18\x04 \x01(\x03R\n" +
+	"ttlSeconds\"\xa6\x01\n" +
 	"\n" +
 	"APIKeyInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
 	"\atenants\x18\x03 \x03(\tR\atenants\x12\x14\n" +
 	"\x05admin\x18\x04 \x01(\bR\x05admin\x12!\n" +
-	"\fcreated_unix\x18\x05 \x01(\x03R\vcreatedUnix\"T\n" +
+	"\fcreated_unix\x18\x05 \x01(\x03R\vcreatedUnix\x12!\n" +
+	"\fexpires_unix\x18\x06 \x01(\x03R\vexpiresUnix\"T\n" +
 	"\x14CreateAPIKeyResponse\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
 	"\x04info\x18\x02 \x01(\v2\x16.nucladb.v1.APIKeyInfoR\x04info\"\x14\n" +

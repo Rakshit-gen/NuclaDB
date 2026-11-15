@@ -271,11 +271,12 @@ func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
 		Name    string   `json:"name"`
 		Tenants []string `json:"tenants"`
 		Admin   bool     `json:"admin"`
+		TTL     int64    `json:"ttl_seconds"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	resp, err := h.svc.CreateAPIKey(r.Context(), &pb.CreateAPIKeyRequest{Name: body.Name, Tenants: body.Tenants, Admin: body.Admin})
+	resp, err := h.svc.CreateAPIKey(r.Context(), &pb.CreateAPIKeyRequest{Name: body.Name, Tenants: body.Tenants, Admin: body.Admin, TtlSeconds: body.TTL})
 	writeResult(w, resp, err)
 }
 

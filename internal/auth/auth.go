@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -96,7 +97,7 @@ func (k *Keys) Allow(ctx context.Context, tenant string, admin bool) error {
 		k.mu.RLock()
 		is, ok := k.issued[hashKey(given)]
 		k.mu.RUnlock()
-		if ok {
+		if ok && !is.expired(time.Now()) {
 			found = &Key{Tenants: is.Tenants, Admin: is.Admin}
 		}
 	}

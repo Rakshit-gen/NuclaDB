@@ -30,7 +30,20 @@ type Issued struct {
 	Tenants []string  `json:"tenants"`
 	Admin   bool      `json:"admin"`
 	Created time.Time `json:"created"`
+	Expires time.Time `json:"expires,omitzero"` // zero: never
 }
+
+func (is Issued) expired(now time.Time) bool {
+	return !is.Expires.IsZero() && !now.Before(is.Expires)
+}
+
+// Limits on what Issue accepts, so the keys file stays small.
+const (
+	MaxKeyNameLen    = 128
+	MaxKeyTenants    = 256
+	MaxKeyTTL        = 10 * 365 * 24 * time.Hour
+	maxTenantNameLen = 256
+)
 
 // IssuedFrom loads keys issued earlier from path, if it exists, and makes
 // Issue and Revoke save there. Call it once, before serving.
@@ -57,13 +70,23 @@ func (k *Keys) IssuedFrom(path string) error {
 }
 
 // Issue creates a key for tenants (or for every tenant, as an admin key)
-// and returns it. It is the only time the key is available.
-func (k *Keys) Issue(name string, tenants []string, admin bool) (string, Issued, error) {
-	if !admin && len(tenants) == 0 {
+// that stops working after ttl (0: never), and returns it. It is the only
+// time the key is available.
+func (k *Keys) Issue(name string, tenants []string, admin bool, ttl time.Duration) (string, Issued, error) {
+	switch {
+	case !admin && len(tenants) == 0:
 		return "", Issued{}, errors.New("auth: a non-admin key needs at least one tenant")
+	case len(name) > MaxKeyNameLen:
+		return "", Issued{}, fmt.Errorf("auth: key name is over %d bytes", MaxKeyNameLen)
+	case len(tenants) > MaxKeyTenants:
+		return "", Issued{}, fmt.Errorf("auth: a key can list at most %d tenants", MaxKeyTenants)
+	case ttl < 0 || ttl > MaxKeyTTL:
+		return "", Issued{}, errors.New("auth: ttl must be between 0 (never expires) and 10 years")
 	}
-	if slices.Contains(tenants, "") {
-		return "", Issued{}, errors.New("auth: empty tenant name")
+	for _, t := range tenants {
+		if t == "" || len(t) > maxTenantNameLen {
+			return "", Issued{}, errors.New("auth: tenant names must be 1 to 256 bytes")
+		}
 	}
 	if admin && len(tenants) == 0 {
 		tenants = []string{"*"}
@@ -81,6 +104,9 @@ func (k *Keys) Issue(name string, tenants []string, admin bool) (string, Issued,
 		Tenants: slices.Clone(tenants),
 		Admin:   admin,
 		Created: time.Now().UTC().Truncate(time.Second),
+	}
+	if ttl > 0 {
+		is.Expires = is.Created.Add(ttl)
 	}
 
 	k.mu.Lock()

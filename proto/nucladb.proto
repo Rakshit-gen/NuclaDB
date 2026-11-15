@@ -207,11 +207,12 @@ message ListTenantsResponse {
 }
 
 // A non-admin key needs at least one tenant ("*" for all). An admin key
-// with no tenants gets "*".
+// with no tenants gets "*". ttl_seconds 0 means the key never expires.
 message CreateAPIKeyRequest {
   string name = 1;
   repeated string tenants = 2;
   bool admin = 3;
+  int64 ttl_seconds = 4;
 }
 
 // APIKeyInfo describes an issued key. The key itself is never in it.
@@ -221,6 +222,7 @@ message APIKeyInfo {
   repeated string tenants = 3;
   bool admin = 4;
   int64 created_unix = 5;
+  int64 expires_unix = 6; // 0: never
 }
 
 // key is returned only here; the server keeps just a hash of it.
