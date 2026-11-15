@@ -26,11 +26,69 @@ class DistanceMetric(IntEnum):
     DOT = pb.DISTANCE_METRIC_DOT
 
 
+_FILTER_OPS = {
+    "eq": pb.FILTER_OP_EQ,
+    "ne": pb.FILTER_OP_NE,
+    "in": pb.FILTER_OP_IN,
+    "not_in": pb.FILTER_OP_NOT_IN,
+    "gt": pb.FILTER_OP_GT,
+    "gte": pb.FILTER_OP_GTE,
+    "lt": pb.FILTER_OP_LT,
+    "lte": pb.FILTER_OP_LTE,
+    "exists": pb.FILTER_OP_EXISTS,
+}
+
+
+@dataclass
+class Tenant:
+    id: str
+    vector_count: int
+    max_vectors: int
+    max_qps: float
+    dim: int
+    metric: DistanceMetric
+
+
+@dataclass
+class APIKey:
+    """An issued API key's details. The key itself is only ever returned
+    by create_api_key."""
+
+    id: str
+    name: str
+    tenants: list[str]
+    admin: bool
+    created_unix: int
+    expires_unix: int  # 0: never
+
+
+def _api_key(k) -> APIKey:
+    return APIKey(
+        id=k.id,
+        name=k.name,
+        tenants=list(k.tenants),
+        admin=k.admin,
+        created_unix=k.created_unix,
+        expires_unix=k.expires_unix,
+    )
+
+
 @dataclass
 class ScoredVector:
     id: str
     score: float
     metadata: dict[str, str]
+
+
+class _APIKey(grpc.UnaryUnaryClientInterceptor):
+    """Adds the API key to every call."""
+
+    def __init__(self, key: str):
+        self._metadata = (("authorization", "Bearer " + key),)
+
+    def intercept_unary_unary(self, continuation, details, request):
+        details = details._replace(metadata=tuple(details.metadata or ()) + self._metadata)
+        return continuation(details, request)
 
 
 class Client:
@@ -41,10 +99,18 @@ class Client:
             db.search([0.1, 0.2, 0.3], top_k=5)
     """
 
-    def __init__(self, address: str, tenant_id: str = ""):
+    def __init__(
+        self, address: str, tenant_id: str = "", api_key: str = "", tls: bool = False
+    ):
         self.tenant_id = tenant_id
-        self.channel = grpc.insecure_channel(address)
-        self._stub = pb_grpc.NuclaDBStub(self.channel)
+        if tls:
+            self.channel = grpc.secure_channel(address, grpc.ssl_channel_credentials())
+        else:
+            self.channel = grpc.insecure_channel(address)
+        channel = self.channel
+        if api_key:
+            channel = grpc.intercept_channel(channel, _APIKey(api_key))
+        self._stub = pb_grpc.NuclaDBStub(channel)
 
     def __enter__(self) -> "Client":
         return self
@@ -56,14 +122,70 @@ class Client:
         self.channel.close()
 
     def create_tenant(
-        self, tenant_id: str, max_vectors: int = 0, max_qps: float = 0
+        self,
+        tenant_id: str,
+        max_vectors: int = 0,
+        max_qps: float = 0,
+        dim: int = 0,
+        metric: DistanceMetric = DistanceMetric.UNSPECIFIED,
     ) -> None:
+        """dim and metric default to the server's -dim and -metric."""
         self._stub.CreateTenant(
             pb.CreateTenantRequest(
                 tenant_id=tenant_id,
                 quota=pb.TenantQuota(max_vectors=max_vectors, max_qps=max_qps),
+                dim=dim,
+                metric=int(metric),
             )
         )
+
+    def list_tenants(self) -> list[Tenant]:
+        resp = self._stub.ListTenants(pb.ListTenantsRequest())
+        return [
+            Tenant(
+                id=t.tenant_id,
+                vector_count=t.vector_count,
+                max_vectors=t.quota.max_vectors,
+                max_qps=t.quota.max_qps,
+                dim=t.dim,
+                metric=DistanceMetric(t.metric),
+            )
+            for t in resp.tenants
+        ]
+
+    def delete_tenant(self, tenant_id: str) -> None:
+        self._stub.DeleteTenant(pb.DeleteTenantRequest(tenant_id=tenant_id))
+
+    def set_quota(self, tenant_id: str, max_vectors: int = 0, max_qps: float = 0) -> None:
+        self._stub.SetQuota(
+            pb.SetQuotaRequest(
+                tenant_id=tenant_id,
+                quota=pb.TenantQuota(max_vectors=max_vectors, max_qps=max_qps),
+            )
+        )
+
+    def create_api_key(
+        self,
+        tenants: list[str] | None = None,
+        name: str = "",
+        admin: bool = False,
+        ttl_seconds: int = 0,
+    ) -> tuple[str, APIKey]:
+        """Issues a key (needs an admin key) and returns it with its details.
+        This is the only time the key is available; the server keeps a hash.
+        ttl_seconds 0 means it never expires."""
+        resp = self._stub.CreateAPIKey(
+            pb.CreateAPIKeyRequest(
+                name=name, tenants=tenants or [], admin=admin, ttl_seconds=ttl_seconds
+            )
+        )
+        return resp.key, _api_key(resp.info)
+
+    def list_api_keys(self) -> list[APIKey]:
+        return [_api_key(k) for k in self._stub.ListAPIKeys(pb.ListAPIKeysRequest()).keys]
+
+    def revoke_api_key(self, id: str) -> None:
+        self._stub.RevokeAPIKey(pb.RevokeAPIKeyRequest(id=id))
 
     def insert(
         self, id: str, vector: list[float], metadata: dict[str, str] | None = None
@@ -93,6 +215,37 @@ class Client:
         )
         return resp.deleted
 
+    def get(self, id: str) -> tuple[list[float], dict[str, str]] | None:
+        """Returns (vector, metadata), or None if id isn't stored."""
+        try:
+            resp = self._stub.Get(pb.GetRequest(id=id, tenant_id=self.tenant_id))
+        except grpc.RpcError as e:
+            if e.code() == grpc.StatusCode.NOT_FOUND:
+                return None
+            raise
+        return list(resp.vector.values), dict(resp.vector.metadata)
+
+    def update_metadata(self, id: str, metadata: dict[str, str]) -> None:
+        """Replaces id's metadata without touching its vector."""
+        self._stub.UpdateMetadata(
+            pb.UpdateMetadataRequest(id=id, metadata=metadata, tenant_id=self.tenant_id)
+        )
+
+    def list(self, page_size: int = 0) -> Iterable[str]:
+        """Yields every stored id, fetching a page at a time."""
+        token = ""
+        while True:
+            resp = self._stub.List(
+                pb.ListRequest(tenant_id=self.tenant_id, page_token=token, page_size=page_size)
+            )
+            yield from resp.ids
+            token = resp.next_page_token
+            if not token:
+                return
+
+    def count(self) -> int:
+        return self._stub.Count(pb.CountRequest(tenant_id=self.tenant_id)).count
+
     def search(
         self,
         query: list[float],
@@ -100,17 +253,30 @@ class Client:
         metric: DistanceMetric = DistanceMetric.UNSPECIFIED,
         ef_search: int = 0,
         filters: dict[str, str] | None = None,
+        where: Iterable[tuple] = (),
     ) -> list[ScoredVector]:
+        """filters are key=value matches. where takes (key, op) or
+        (key, op, value) tuples, op one of eq, ne, in, not_in, gt, gte, lt,
+        lte, exists; value is a list for in and not_in. Every filter has
+        to match."""
+        clauses = [pb.MetadataFilter(key=k, value=v) for k, v in (filters or {}).items()]
+        for key, op, *rest in where:
+            if op not in _FILTER_OPS:
+                raise ValueError(f"unknown filter op {op!r}")
+            value = rest[0] if rest else None
+            clause = pb.MetadataFilter(key=key, op=_FILTER_OPS[op])
+            if isinstance(value, (list, tuple)):
+                clause.values.extend(str(v) for v in value)
+            elif value is not None:
+                clause.value = str(value)
+            clauses.append(clause)
         resp = self._stub.Search(
             pb.SearchRequest(
                 query=query,
                 top_k=top_k,
                 metric=int(metric),
                 ef_search=ef_search,
-                filters=[
-                    pb.MetadataFilter(key=k, value=v)
-                    for k, v in (filters or {}).items()
-                ],
+                filters=clauses,
                 tenant_id=self.tenant_id,
             )
         )

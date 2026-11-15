@@ -107,6 +107,21 @@ class NuclaDBStub:
                 request_serializer=nucladb__pb2.ListTenantsRequest.SerializeToString,
                 response_deserializer=nucladb__pb2.ListTenantsResponse.FromString,
                 _registered_method=True)
+        self.CreateAPIKey = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/CreateAPIKey',
+                request_serializer=nucladb__pb2.CreateAPIKeyRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.CreateAPIKeyResponse.FromString,
+                _registered_method=True)
+        self.ListAPIKeys = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/ListAPIKeys',
+                request_serializer=nucladb__pb2.ListAPIKeysRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.ListAPIKeysResponse.FromString,
+                _registered_method=True)
+        self.RevokeAPIKey = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/RevokeAPIKey',
+                request_serializer=nucladb__pb2.RevokeAPIKeyRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.RevokeAPIKeyResponse.FromString,
+                _registered_method=True)
 
 
 class NuclaDBServicer:
@@ -197,6 +212,26 @@ class NuclaDBServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def CreateAPIKey(self, request, context):
+        """API keys, all admin-only. Only works on a server that requires keys
+        (-api-keys or NUCLADB_API_KEY).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListAPIKeys(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RevokeAPIKey(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_NuclaDBServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -259,6 +294,21 @@ def add_NuclaDBServicer_to_server(servicer, server):
                     servicer.ListTenants,
                     request_deserializer=nucladb__pb2.ListTenantsRequest.FromString,
                     response_serializer=nucladb__pb2.ListTenantsResponse.SerializeToString,
+            ),
+            'CreateAPIKey': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateAPIKey,
+                    request_deserializer=nucladb__pb2.CreateAPIKeyRequest.FromString,
+                    response_serializer=nucladb__pb2.CreateAPIKeyResponse.SerializeToString,
+            ),
+            'ListAPIKeys': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListAPIKeys,
+                    request_deserializer=nucladb__pb2.ListAPIKeysRequest.FromString,
+                    response_serializer=nucladb__pb2.ListAPIKeysResponse.SerializeToString,
+            ),
+            'RevokeAPIKey': grpc.unary_unary_rpc_method_handler(
+                    servicer.RevokeAPIKey,
+                    request_deserializer=nucladb__pb2.RevokeAPIKeyRequest.FromString,
+                    response_serializer=nucladb__pb2.RevokeAPIKeyResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -598,6 +648,87 @@ class NuclaDB:
             '/nucladb.v1.NuclaDB/ListTenants',
             nucladb__pb2.ListTenantsRequest.SerializeToString,
             nucladb__pb2.ListTenantsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateAPIKey(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/CreateAPIKey',
+            nucladb__pb2.CreateAPIKeyRequest.SerializeToString,
+            nucladb__pb2.CreateAPIKeyResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListAPIKeys(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/ListAPIKeys',
+            nucladb__pb2.ListAPIKeysRequest.SerializeToString,
+            nucladb__pb2.ListAPIKeysResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RevokeAPIKey(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/RevokeAPIKey',
+            nucladb__pb2.RevokeAPIKeyRequest.SerializeToString,
+            nucladb__pb2.RevokeAPIKeyResponse.FromString,
             options,
             channel_credentials,
             insecure,

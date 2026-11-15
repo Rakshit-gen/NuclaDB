@@ -12,6 +12,8 @@ import sys
 import tempfile
 import time
 
+import grpc
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from nucladb import Client, DistanceMetric  # noqa: E402
 
@@ -35,6 +37,48 @@ def wait_ready(client: Client, timeout: float = 5.0) -> None:
             last_err = e
             time.sleep(0.05)
     raise RuntimeError(f"server never became ready: {last_err}")
+
+
+def check_api_keys(bin_path: str, tmp: str) -> None:
+    """Issue, use and revoke a key on a server that requires keys."""
+    root = "root-key-0123456789abcdef"
+    grpc_port = free_port()
+    proc = subprocess.Popen(
+        [
+            bin_path,
+            "-data-dir", os.path.join(tmp, "keyed"),
+            "-grpc-addr", f"127.0.0.1:{grpc_port}",
+            "-http-addr", f"127.0.0.1:{free_port()}",
+            "-dim", "4",
+        ],
+        env={**os.environ, "NUCLADB_API_KEY": root},
+    )
+    try:
+        addr = f"127.0.0.1:{grpc_port}"
+        with Client(addr, api_key=root) as admin:
+            wait_ready(admin)
+            admin.create_tenant("acme")
+            key, info = admin.create_api_key(["acme"], name="ci", ttl_seconds=3600)
+            assert key.startswith("nk_") and info.expires_unix - info.created_unix == 3600, info
+            assert [k.id for k in admin.list_api_keys()] == [info.id]
+
+            with Client(addr, tenant_id="acme", api_key=key) as user:
+                user.insert("1", [1, 0, 0, 0])
+                try:
+                    user.list_api_keys()
+                    raise AssertionError("a tenant key listed keys")
+                except grpc.RpcError as e:
+                    assert e.code() == grpc.StatusCode.PERMISSION_DENIED, e
+
+                admin.revoke_api_key(info.id)
+                try:
+                    user.insert("2", [1, 0, 0, 0])
+                    raise AssertionError("a revoked key still worked")
+                except grpc.RpcError as e:
+                    assert e.code() == grpc.StatusCode.UNAUTHENTICATED, e
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
 
 
 def main() -> None:
@@ -102,12 +146,14 @@ def main() -> None:
                 after_delete = db.search([1, 0, 0, 0], top_k=10)
                 assert "1" not in [r.id for r in after_delete], after_delete
 
-            print("OK: insert, batch_upsert, search, filters, get, update_metadata, "
-                  "list, count, tenant admin and delete all verified against a "
-                  "real nucladbd subprocess")
         finally:
             proc.terminate()
             proc.wait(timeout=5)
+
+        check_api_keys(bin_path, tmp)
+        print("OK: insert, batch_upsert, search, filters, get, update_metadata, "
+              "list, count, tenant admin, delete and API keys all verified "
+              "against a real nucladbd subprocess")
 
 
 if __name__ == "__main__":

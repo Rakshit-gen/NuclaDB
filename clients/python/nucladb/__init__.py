@@ -1,3 +1,3 @@
-from .client import Client, DistanceMetric, ScoredVector, Tenant
+from .client import APIKey, Client, DistanceMetric, ScoredVector, Tenant
 
-__all__ = ["Client", "DistanceMetric", "ScoredVector", "Tenant"]
+__all__ = ["APIKey", "Client", "DistanceMetric", "ScoredVector", "Tenant"]

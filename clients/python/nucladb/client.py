@@ -50,6 +50,30 @@ class Tenant:
 
 
 @dataclass
+class APIKey:
+    """An issued API key's details. The key itself is only ever returned
+    by create_api_key."""
+
+    id: str
+    name: str
+    tenants: list[str]
+    admin: bool
+    created_unix: int
+    expires_unix: int  # 0: never
+
+
+def _api_key(k) -> APIKey:
+    return APIKey(
+        id=k.id,
+        name=k.name,
+        tenants=list(k.tenants),
+        admin=k.admin,
+        created_unix=k.created_unix,
+        expires_unix=k.expires_unix,
+    )
+
+
+@dataclass
 class ScoredVector:
     id: str
     score: float
@@ -139,6 +163,29 @@ class Client:
                 quota=pb.TenantQuota(max_vectors=max_vectors, max_qps=max_qps),
             )
         )
+
+    def create_api_key(
+        self,
+        tenants: list[str] | None = None,
+        name: str = "",
+        admin: bool = False,
+        ttl_seconds: int = 0,
+    ) -> tuple[str, APIKey]:
+        """Issues a key (needs an admin key) and returns it with its details.
+        This is the only time the key is available; the server keeps a hash.
+        ttl_seconds 0 means it never expires."""
+        resp = self._stub.CreateAPIKey(
+            pb.CreateAPIKeyRequest(
+                name=name, tenants=tenants or [], admin=admin, ttl_seconds=ttl_seconds
+            )
+        )
+        return resp.key, _api_key(resp.info)
+
+    def list_api_keys(self) -> list[APIKey]:
+        return [_api_key(k) for k in self._stub.ListAPIKeys(pb.ListAPIKeysRequest()).keys]
+
+    def revoke_api_key(self, id: str) -> None:
+        self._stub.RevokeAPIKey(pb.RevokeAPIKeyRequest(id=id))
 
     def insert(
         self, id: str, vector: list[float], metadata: dict[str, str] | None = None

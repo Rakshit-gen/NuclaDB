@@ -5,7 +5,7 @@ import warnings
 
 from . import nucladb_pb2 as nucladb__pb2
 
-GRPC_GENERATED_VERSION = '1.83.0'
+GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -38,7 +38,7 @@ class NuclaDBStub:
 
     REST is exposed separately via a hand-written gateway in
     internal/api/gateway rather than google.api.http annotations, to avoid
-    vendoring the full googleapis proto tree for five routes.
+    vendoring the full googleapis proto tree.
     """
 
     def __init__(self, channel):
@@ -72,6 +72,56 @@ class NuclaDBStub:
                 request_serializer=nucladb__pb2.SearchRequest.SerializeToString,
                 response_deserializer=nucladb__pb2.SearchResponse.FromString,
                 _registered_method=True)
+        self.Get = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/Get',
+                request_serializer=nucladb__pb2.GetRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.GetResponse.FromString,
+                _registered_method=True)
+        self.List = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/List',
+                request_serializer=nucladb__pb2.ListRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.ListResponse.FromString,
+                _registered_method=True)
+        self.Count = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/Count',
+                request_serializer=nucladb__pb2.CountRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.CountResponse.FromString,
+                _registered_method=True)
+        self.UpdateMetadata = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/UpdateMetadata',
+                request_serializer=nucladb__pb2.UpdateMetadataRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.UpdateMetadataResponse.FromString,
+                _registered_method=True)
+        self.DeleteTenant = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/DeleteTenant',
+                request_serializer=nucladb__pb2.DeleteTenantRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.DeleteTenantResponse.FromString,
+                _registered_method=True)
+        self.SetQuota = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/SetQuota',
+                request_serializer=nucladb__pb2.SetQuotaRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.SetQuotaResponse.FromString,
+                _registered_method=True)
+        self.ListTenants = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/ListTenants',
+                request_serializer=nucladb__pb2.ListTenantsRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.ListTenantsResponse.FromString,
+                _registered_method=True)
+        self.CreateAPIKey = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/CreateAPIKey',
+                request_serializer=nucladb__pb2.CreateAPIKeyRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.CreateAPIKeyResponse.FromString,
+                _registered_method=True)
+        self.ListAPIKeys = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/ListAPIKeys',
+                request_serializer=nucladb__pb2.ListAPIKeysRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.ListAPIKeysResponse.FromString,
+                _registered_method=True)
+        self.RevokeAPIKey = channel.unary_unary(
+                '/nucladb.v1.NuclaDB/RevokeAPIKey',
+                request_serializer=nucladb__pb2.RevokeAPIKeyRequest.SerializeToString,
+                response_deserializer=nucladb__pb2.RevokeAPIKeyResponse.FromString,
+                _registered_method=True)
 
 
 class NuclaDBServicer:
@@ -87,7 +137,7 @@ class NuclaDBServicer:
 
     REST is exposed separately via a hand-written gateway in
     internal/api/gateway rather than google.api.http annotations, to avoid
-    vendoring the full googleapis proto tree for five routes.
+    vendoring the full googleapis proto tree.
     """
 
     def CreateTenant(self, request, context):
@@ -115,6 +165,68 @@ class NuclaDBServicer:
         raise NotImplementedError('Method not implemented!')
 
     def Search(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Get(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def List(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Count(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateMetadata(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteTenant(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetQuota(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListTenants(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateAPIKey(self, request, context):
+        """API keys, all admin-only. Only works on a server that requires keys
+        (-api-keys or NUCLADB_API_KEY).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListAPIKeys(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RevokeAPIKey(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -148,6 +260,56 @@ def add_NuclaDBServicer_to_server(servicer, server):
                     request_deserializer=nucladb__pb2.SearchRequest.FromString,
                     response_serializer=nucladb__pb2.SearchResponse.SerializeToString,
             ),
+            'Get': grpc.unary_unary_rpc_method_handler(
+                    servicer.Get,
+                    request_deserializer=nucladb__pb2.GetRequest.FromString,
+                    response_serializer=nucladb__pb2.GetResponse.SerializeToString,
+            ),
+            'List': grpc.unary_unary_rpc_method_handler(
+                    servicer.List,
+                    request_deserializer=nucladb__pb2.ListRequest.FromString,
+                    response_serializer=nucladb__pb2.ListResponse.SerializeToString,
+            ),
+            'Count': grpc.unary_unary_rpc_method_handler(
+                    servicer.Count,
+                    request_deserializer=nucladb__pb2.CountRequest.FromString,
+                    response_serializer=nucladb__pb2.CountResponse.SerializeToString,
+            ),
+            'UpdateMetadata': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateMetadata,
+                    request_deserializer=nucladb__pb2.UpdateMetadataRequest.FromString,
+                    response_serializer=nucladb__pb2.UpdateMetadataResponse.SerializeToString,
+            ),
+            'DeleteTenant': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteTenant,
+                    request_deserializer=nucladb__pb2.DeleteTenantRequest.FromString,
+                    response_serializer=nucladb__pb2.DeleteTenantResponse.SerializeToString,
+            ),
+            'SetQuota': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetQuota,
+                    request_deserializer=nucladb__pb2.SetQuotaRequest.FromString,
+                    response_serializer=nucladb__pb2.SetQuotaResponse.SerializeToString,
+            ),
+            'ListTenants': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListTenants,
+                    request_deserializer=nucladb__pb2.ListTenantsRequest.FromString,
+                    response_serializer=nucladb__pb2.ListTenantsResponse.SerializeToString,
+            ),
+            'CreateAPIKey': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateAPIKey,
+                    request_deserializer=nucladb__pb2.CreateAPIKeyRequest.FromString,
+                    response_serializer=nucladb__pb2.CreateAPIKeyResponse.SerializeToString,
+            ),
+            'ListAPIKeys': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListAPIKeys,
+                    request_deserializer=nucladb__pb2.ListAPIKeysRequest.FromString,
+                    response_serializer=nucladb__pb2.ListAPIKeysResponse.SerializeToString,
+            ),
+            'RevokeAPIKey': grpc.unary_unary_rpc_method_handler(
+                    servicer.RevokeAPIKey,
+                    request_deserializer=nucladb__pb2.RevokeAPIKeyRequest.FromString,
+                    response_serializer=nucladb__pb2.RevokeAPIKeyResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'nucladb.v1.NuclaDB', rpc_method_handlers)
@@ -169,7 +331,7 @@ class NuclaDB:
 
     REST is exposed separately via a hand-written gateway in
     internal/api/gateway rather than google.api.http annotations, to avoid
-    vendoring the full googleapis proto tree for five routes.
+    vendoring the full googleapis proto tree.
     """
 
     @staticmethod
@@ -297,6 +459,276 @@ class NuclaDB:
             '/nucladb.v1.NuclaDB/Search',
             nucladb__pb2.SearchRequest.SerializeToString,
             nucladb__pb2.SearchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Get(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/Get',
+            nucladb__pb2.GetRequest.SerializeToString,
+            nucladb__pb2.GetResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def List(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/List',
+            nucladb__pb2.ListRequest.SerializeToString,
+            nucladb__pb2.ListResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Count(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/Count',
+            nucladb__pb2.CountRequest.SerializeToString,
+            nucladb__pb2.CountResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateMetadata(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/UpdateMetadata',
+            nucladb__pb2.UpdateMetadataRequest.SerializeToString,
+            nucladb__pb2.UpdateMetadataResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteTenant(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/DeleteTenant',
+            nucladb__pb2.DeleteTenantRequest.SerializeToString,
+            nucladb__pb2.DeleteTenantResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetQuota(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/SetQuota',
+            nucladb__pb2.SetQuotaRequest.SerializeToString,
+            nucladb__pb2.SetQuotaResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListTenants(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/ListTenants',
+            nucladb__pb2.ListTenantsRequest.SerializeToString,
+            nucladb__pb2.ListTenantsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateAPIKey(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/CreateAPIKey',
+            nucladb__pb2.CreateAPIKeyRequest.SerializeToString,
+            nucladb__pb2.CreateAPIKeyResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListAPIKeys(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/ListAPIKeys',
+            nucladb__pb2.ListAPIKeysRequest.SerializeToString,
+            nucladb__pb2.ListAPIKeysResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RevokeAPIKey(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nucladb.v1.NuclaDB/RevokeAPIKey',
+            nucladb__pb2.RevokeAPIKeyRequest.SerializeToString,
+            nucladb__pb2.RevokeAPIKeyResponse.FromString,
             options,
             channel_credentials,
             insecure,

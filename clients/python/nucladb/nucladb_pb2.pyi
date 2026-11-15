@@ -281,3 +281,59 @@ class ListTenantsResponse(_message.Message):
     TENANTS_FIELD_NUMBER: _ClassVar[int]
     tenants: _containers.RepeatedCompositeFieldContainer[TenantInfo]
     def __init__(self, tenants: _Optional[_Iterable[_Union[TenantInfo, _Mapping]]] = ...) -> None: ...
+
+class CreateAPIKeyRequest(_message.Message):
+    __slots__ = ("name", "tenants", "admin", "ttl_seconds")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    TENANTS_FIELD_NUMBER: _ClassVar[int]
+    ADMIN_FIELD_NUMBER: _ClassVar[int]
+    TTL_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    tenants: _containers.RepeatedScalarFieldContainer[str]
+    admin: bool
+    ttl_seconds: int
+    def __init__(self, name: _Optional[str] = ..., tenants: _Optional[_Iterable[str]] = ..., admin: _Optional[bool] = ..., ttl_seconds: _Optional[int] = ...) -> None: ...
+
+class APIKeyInfo(_message.Message):
+    __slots__ = ("id", "name", "tenants", "admin", "created_unix", "expires_unix")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    TENANTS_FIELD_NUMBER: _ClassVar[int]
+    ADMIN_FIELD_NUMBER: _ClassVar[int]
+    CREATED_UNIX_FIELD_NUMBER: _ClassVar[int]
+    EXPIRES_UNIX_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    name: str
+    tenants: _containers.RepeatedScalarFieldContainer[str]
+    admin: bool
+    created_unix: int
+    expires_unix: int
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., tenants: _Optional[_Iterable[str]] = ..., admin: _Optional[bool] = ..., created_unix: _Optional[int] = ..., expires_unix: _Optional[int] = ...) -> None: ...
+
+class CreateAPIKeyResponse(_message.Message):
+    __slots__ = ("key", "info")
+    KEY_FIELD_NUMBER: _ClassVar[int]
+    INFO_FIELD_NUMBER: _ClassVar[int]
+    key: str
+    info: APIKeyInfo
+    def __init__(self, key: _Optional[str] = ..., info: _Optional[_Union[APIKeyInfo, _Mapping]] = ...) -> None: ...
+
+class ListAPIKeysRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ListAPIKeysResponse(_message.Message):
+    __slots__ = ("keys",)
+    KEYS_FIELD_NUMBER: _ClassVar[int]
+    keys: _containers.RepeatedCompositeFieldContainer[APIKeyInfo]
+    def __init__(self, keys: _Optional[_Iterable[_Union[APIKeyInfo, _Mapping]]] = ...) -> None: ...
+
+class RevokeAPIKeyRequest(_message.Message):
+    __slots__ = ("id",)
+    ID_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    def __init__(self, id: _Optional[str] = ...) -> None: ...
+
+class RevokeAPIKeyResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...

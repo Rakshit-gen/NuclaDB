@@ -61,7 +61,15 @@ with Client("localhost:9090") as db:
     db.set_quota("acme", max_qps=50)
     db.list_tenants()
     db.delete_tenant("acme")
+
+    # API keys (needs an admin key; the server must require keys)
+    key, info = db.create_api_key(["acme"], name="ci", ttl_seconds=30 * 86400)
+    db.list_api_keys()                          # ids and details, never the keys
+    db.revoke_api_key(info.id)
 ```
+
+`create_api_key` is the only time a key is returned; the server stores a
+hash of it.
 
 `Client(address, tenant_id="", api_key="", tls=False)`: `tenant_id` scopes
 every data call, `api_key` is sent as a bearer token, `tls=True` connects

@@ -13,10 +13,31 @@ class DistanceMetric(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DISTANCE_METRIC_COSINE: _ClassVar[DistanceMetric]
     DISTANCE_METRIC_L2: _ClassVar[DistanceMetric]
     DISTANCE_METRIC_DOT: _ClassVar[DistanceMetric]
+
+class FilterOp(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    FILTER_OP_EQ: _ClassVar[FilterOp]
+    FILTER_OP_NE: _ClassVar[FilterOp]
+    FILTER_OP_IN: _ClassVar[FilterOp]
+    FILTER_OP_NOT_IN: _ClassVar[FilterOp]
+    FILTER_OP_GT: _ClassVar[FilterOp]
+    FILTER_OP_GTE: _ClassVar[FilterOp]
+    FILTER_OP_LT: _ClassVar[FilterOp]
+    FILTER_OP_LTE: _ClassVar[FilterOp]
+    FILTER_OP_EXISTS: _ClassVar[FilterOp]
 DISTANCE_METRIC_UNSPECIFIED: DistanceMetric
 DISTANCE_METRIC_COSINE: DistanceMetric
 DISTANCE_METRIC_L2: DistanceMetric
 DISTANCE_METRIC_DOT: DistanceMetric
+FILTER_OP_EQ: FilterOp
+FILTER_OP_NE: FilterOp
+FILTER_OP_IN: FilterOp
+FILTER_OP_NOT_IN: FilterOp
+FILTER_OP_GT: FilterOp
+FILTER_OP_GTE: FilterOp
+FILTER_OP_LT: FilterOp
+FILTER_OP_LTE: FilterOp
+FILTER_OP_EXISTS: FilterOp
 
 class TenantQuota(_message.Message):
     __slots__ = ("max_vectors", "max_qps")
@@ -27,12 +48,16 @@ class TenantQuota(_message.Message):
     def __init__(self, max_vectors: _Optional[int] = ..., max_qps: _Optional[float] = ...) -> None: ...
 
 class CreateTenantRequest(_message.Message):
-    __slots__ = ("tenant_id", "quota")
+    __slots__ = ("tenant_id", "quota", "dim", "metric")
     TENANT_ID_FIELD_NUMBER: _ClassVar[int]
     QUOTA_FIELD_NUMBER: _ClassVar[int]
+    DIM_FIELD_NUMBER: _ClassVar[int]
+    METRIC_FIELD_NUMBER: _ClassVar[int]
     tenant_id: str
     quota: TenantQuota
-    def __init__(self, tenant_id: _Optional[str] = ..., quota: _Optional[_Union[TenantQuota, _Mapping]] = ...) -> None: ...
+    dim: int
+    metric: DistanceMetric
+    def __init__(self, tenant_id: _Optional[str] = ..., quota: _Optional[_Union[TenantQuota, _Mapping]] = ..., dim: _Optional[int] = ..., metric: _Optional[_Union[DistanceMetric, str]] = ...) -> None: ...
 
 class CreateTenantResponse(_message.Message):
     __slots__ = ()
@@ -96,12 +121,16 @@ class DeleteResponse(_message.Message):
     def __init__(self, deleted: _Optional[bool] = ...) -> None: ...
 
 class MetadataFilter(_message.Message):
-    __slots__ = ("key", "value")
+    __slots__ = ("key", "value", "op", "values")
     KEY_FIELD_NUMBER: _ClassVar[int]
     VALUE_FIELD_NUMBER: _ClassVar[int]
+    OP_FIELD_NUMBER: _ClassVar[int]
+    VALUES_FIELD_NUMBER: _ClassVar[int]
     key: str
     value: str
-    def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    op: FilterOp
+    values: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ..., op: _Optional[_Union[FilterOp, str]] = ..., values: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class SearchRequest(_message.Message):
     __slots__ = ("query", "top_k", "metric", "ef_search", "filters", "tenant_id")
@@ -141,3 +170,170 @@ class SearchResponse(_message.Message):
     MATCHES_FIELD_NUMBER: _ClassVar[int]
     matches: _containers.RepeatedCompositeFieldContainer[ScoredVector]
     def __init__(self, matches: _Optional[_Iterable[_Union[ScoredVector, _Mapping]]] = ...) -> None: ...
+
+class GetRequest(_message.Message):
+    __slots__ = ("id", "tenant_id")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    tenant_id: str
+    def __init__(self, id: _Optional[str] = ..., tenant_id: _Optional[str] = ...) -> None: ...
+
+class GetResponse(_message.Message):
+    __slots__ = ("vector",)
+    VECTOR_FIELD_NUMBER: _ClassVar[int]
+    vector: Vector
+    def __init__(self, vector: _Optional[_Union[Vector, _Mapping]] = ...) -> None: ...
+
+class ListRequest(_message.Message):
+    __slots__ = ("tenant_id", "page_token", "page_size")
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    PAGE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    tenant_id: str
+    page_token: str
+    page_size: int
+    def __init__(self, tenant_id: _Optional[str] = ..., page_token: _Optional[str] = ..., page_size: _Optional[int] = ...) -> None: ...
+
+class ListResponse(_message.Message):
+    __slots__ = ("ids", "next_page_token")
+    IDS_FIELD_NUMBER: _ClassVar[int]
+    NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    ids: _containers.RepeatedScalarFieldContainer[str]
+    next_page_token: str
+    def __init__(self, ids: _Optional[_Iterable[str]] = ..., next_page_token: _Optional[str] = ...) -> None: ...
+
+class CountRequest(_message.Message):
+    __slots__ = ("tenant_id",)
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    tenant_id: str
+    def __init__(self, tenant_id: _Optional[str] = ...) -> None: ...
+
+class CountResponse(_message.Message):
+    __slots__ = ("count",)
+    COUNT_FIELD_NUMBER: _ClassVar[int]
+    count: int
+    def __init__(self, count: _Optional[int] = ...) -> None: ...
+
+class UpdateMetadataRequest(_message.Message):
+    __slots__ = ("id", "metadata", "tenant_id")
+    class MetadataEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    ID_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    metadata: _containers.ScalarMap[str, str]
+    tenant_id: str
+    def __init__(self, id: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., tenant_id: _Optional[str] = ...) -> None: ...
+
+class UpdateMetadataResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class DeleteTenantRequest(_message.Message):
+    __slots__ = ("tenant_id",)
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    tenant_id: str
+    def __init__(self, tenant_id: _Optional[str] = ...) -> None: ...
+
+class DeleteTenantResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class SetQuotaRequest(_message.Message):
+    __slots__ = ("tenant_id", "quota")
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    QUOTA_FIELD_NUMBER: _ClassVar[int]
+    tenant_id: str
+    quota: TenantQuota
+    def __init__(self, tenant_id: _Optional[str] = ..., quota: _Optional[_Union[TenantQuota, _Mapping]] = ...) -> None: ...
+
+class SetQuotaResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ListTenantsRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class TenantInfo(_message.Message):
+    __slots__ = ("tenant_id", "vector_count", "quota", "dim", "metric")
+    TENANT_ID_FIELD_NUMBER: _ClassVar[int]
+    VECTOR_COUNT_FIELD_NUMBER: _ClassVar[int]
+    QUOTA_FIELD_NUMBER: _ClassVar[int]
+    DIM_FIELD_NUMBER: _ClassVar[int]
+    METRIC_FIELD_NUMBER: _ClassVar[int]
+    tenant_id: str
+    vector_count: int
+    quota: TenantQuota
+    dim: int
+    metric: DistanceMetric
+    def __init__(self, tenant_id: _Optional[str] = ..., vector_count: _Optional[int] = ..., quota: _Optional[_Union[TenantQuota, _Mapping]] = ..., dim: _Optional[int] = ..., metric: _Optional[_Union[DistanceMetric, str]] = ...) -> None: ...
+
+class ListTenantsResponse(_message.Message):
+    __slots__ = ("tenants",)
+    TENANTS_FIELD_NUMBER: _ClassVar[int]
+    tenants: _containers.RepeatedCompositeFieldContainer[TenantInfo]
+    def __init__(self, tenants: _Optional[_Iterable[_Union[TenantInfo, _Mapping]]] = ...) -> None: ...
+
+class CreateAPIKeyRequest(_message.Message):
+    __slots__ = ("name", "tenants", "admin", "ttl_seconds")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    TENANTS_FIELD_NUMBER: _ClassVar[int]
+    ADMIN_FIELD_NUMBER: _ClassVar[int]
+    TTL_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    tenants: _containers.RepeatedScalarFieldContainer[str]
+    admin: bool
+    ttl_seconds: int
+    def __init__(self, name: _Optional[str] = ..., tenants: _Optional[_Iterable[str]] = ..., admin: _Optional[bool] = ..., ttl_seconds: _Optional[int] = ...) -> None: ...
+
+class APIKeyInfo(_message.Message):
+    __slots__ = ("id", "name", "tenants", "admin", "created_unix", "expires_unix")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    TENANTS_FIELD_NUMBER: _ClassVar[int]
+    ADMIN_FIELD_NUMBER: _ClassVar[int]
+    CREATED_UNIX_FIELD_NUMBER: _ClassVar[int]
+    EXPIRES_UNIX_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    name: str
+    tenants: _containers.RepeatedScalarFieldContainer[str]
+    admin: bool
+    created_unix: int
+    expires_unix: int
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., tenants: _Optional[_Iterable[str]] = ..., admin: _Optional[bool] = ..., created_unix: _Optional[int] = ..., expires_unix: _Optional[int] = ...) -> None: ...
+
+class CreateAPIKeyResponse(_message.Message):
+    __slots__ = ("key", "info")
+    KEY_FIELD_NUMBER: _ClassVar[int]
+    INFO_FIELD_NUMBER: _ClassVar[int]
+    key: str
+    info: APIKeyInfo
+    def __init__(self, key: _Optional[str] = ..., info: _Optional[_Union[APIKeyInfo, _Mapping]] = ...) -> None: ...
+
+class ListAPIKeysRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ListAPIKeysResponse(_message.Message):
+    __slots__ = ("keys",)
+    KEYS_FIELD_NUMBER: _ClassVar[int]
+    keys: _containers.RepeatedCompositeFieldContainer[APIKeyInfo]
+    def __init__(self, keys: _Optional[_Iterable[_Union[APIKeyInfo, _Mapping]]] = ...) -> None: ...
+
+class RevokeAPIKeyRequest(_message.Message):
+    __slots__ = ("id",)
+    ID_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    def __init__(self, id: _Optional[str] = ...) -> None: ...
+
+class RevokeAPIKeyResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
