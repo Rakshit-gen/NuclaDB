@@ -1,6 +1,7 @@
 // Package auth checks API keys. Each key is allowed a list of tenants ("*"
 // for all of them) and may be an admin key, which is needed to create,
-// delete and re-quota tenants.
+// delete and re-quota tenants and to issue keys. Keys come from the keys
+// file or NUCLADB_API_KEY, or are issued at runtime (see Issue).
 package auth
 
 import (
@@ -12,6 +13,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -29,8 +31,14 @@ type Key struct {
 	Admin   bool     `json:"admin"`
 }
 
-// Keys is the loaded keys file.
-type Keys struct{ keys []Key }
+// Keys is the loaded keys file plus any issued keys.
+type Keys struct {
+	keys []Key // from the keys file; never changes
+
+	mu     sync.RWMutex
+	path   string            // where issued keys are saved
+	issued map[string]Issued // by Issued.Hash; nil until IssuedFrom
+}
 
 // Load reads a JSON array of Key from path.
 func Load(path string) (*Keys, error) {
@@ -71,6 +79,9 @@ func New(keys []Key) (*Keys, error) {
 // admin is set. An empty tenant is the default tenant.
 func (k *Keys) Allow(ctx context.Context, tenant string, admin bool) error {
 	given, _ := ctx.Value(ctxKey{}).(string)
+	if given == "" {
+		return ErrNoKey
+	}
 	var found *Key
 	for i := range k.keys {
 		// Compare every key in constant time so timing doesn't leak how
@@ -79,7 +90,17 @@ func (k *Keys) Allow(ctx context.Context, tenant string, admin bool) error {
 			found = &k.keys[i]
 		}
 	}
-	if given == "" || found == nil {
+	if found == nil {
+		// Issued keys are looked up by hash, which leaks nothing useful
+		// about the key through timing.
+		k.mu.RLock()
+		is, ok := k.issued[hashKey(given)]
+		k.mu.RUnlock()
+		if ok {
+			found = &Key{Tenants: is.Tenants, Admin: is.Admin}
+		}
+	}
+	if found == nil {
 		return ErrNoKey
 	}
 	if admin && !found.Admin {
