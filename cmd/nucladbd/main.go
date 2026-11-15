@@ -112,8 +112,23 @@ func main() {
 		if err != nil {
 			log.Fatalf("nucladbd: %v", err)
 		}
-		// Keys issued through the API live next to the tenants, as hashes.
-		if err := configuredKeys.IssuedFrom(filepath.Join(*dataDir, "api_keys.json")); err != nil {
+		// Keys issued through the API are kept as hashes next to the tenants,
+		// or in a bucket for hosts whose disk doesn't outlast a deploy.
+		var issued auth.Store = auth.FileStore(filepath.Join(*dataDir, "api_keys.json"))
+		if u := os.Getenv("NUCLADB_KEYS_S3_URL"); u != "" {
+			region := os.Getenv("NUCLADB_KEYS_S3_REGION")
+			if region == "" {
+				region = "auto"
+			}
+			issued = &auth.S3Store{
+				URL:       u,
+				Region:    region,
+				AccessKey: os.Getenv("NUCLADB_KEYS_S3_ACCESS_KEY_ID"),
+				SecretKey: os.Getenv("NUCLADB_KEYS_S3_SECRET_ACCESS_KEY"),
+			}
+			log.Printf("nucladbd: issued API keys are kept at %s", u)
+		}
+		if err := configuredKeys.IssuedIn(issued); err != nil {
 			log.Fatalf("nucladbd: loading issued API keys: %v", err)
 		}
 		svc.RequireKeys(configuredKeys)
