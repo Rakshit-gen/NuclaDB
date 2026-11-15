@@ -219,7 +219,8 @@ revoked key_ddd0ac962897ef9a
 
 The key goes to stdout and the note to stderr, so
 `KEY=$(nucladb-cli create-key ...)` captures just the key. The server keeps
-only a SHA-256 of each key, in `api_keys.json` in its data dir, so a lost
+only a SHA-256 of each key, in `api_keys.json` in its data dir (or in a
+bucket, with `NUCLADB_KEYS_S3_URL`; see the README), so a lost
 key can't be recovered: revoke it and create another. Revoking takes effect
 on the next request. To rotate a key, create the new one, switch your app
 to it, then revoke the old one.

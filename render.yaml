@@ -8,3 +8,11 @@ services:
     envVars:
       - key: NUCLADB_API_KEY
         generateValue: true
+      # Issued API keys go to this bucket object, so they survive redeploys
+      # (the free tier has no disk). Leave empty to keep them on local disk.
+      - key: NUCLADB_KEYS_S3_URL
+        sync: false
+      - key: NUCLADB_KEYS_S3_ACCESS_KEY_ID
+        sync: false
+      - key: NUCLADB_KEYS_S3_SECRET_ACCESS_KEY
+        sync: false

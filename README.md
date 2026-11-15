@@ -329,6 +329,21 @@ re-creating the tenant doesn't hand its data to old keys. The root key
 from `-api-keys` or `NUCLADB_API_KEY` comes from config, so the API can't
 revoke it and you can't lock yourself out.
 
+On a host whose disk doesn't outlast a deploy, keep the issued keys in an
+S3-compatible bucket instead (Cloudflare R2's free tier is plenty; AWS S3
+and Backblaze B2 work too) by setting:
+
+| Variable | Value |
+|---|---|
+| `NUCLADB_KEYS_S3_URL` | the object, path-style: `https://<account>.r2.cloudflarestorage.com/<bucket>/api_keys.json` |
+| `NUCLADB_KEYS_S3_ACCESS_KEY_ID` | an access key allowed to read and write that bucket |
+| `NUCLADB_KEYS_S3_SECRET_ACCESS_KEY` | its secret |
+| `NUCLADB_KEYS_S3_REGION` | `auto` for R2 (the default), the bucket's region for S3 |
+
+The object holds the same hash-only list as the file. If the bucket can't
+be read at startup, nucladbd exits instead of starting with no keys and
+overwriting the list on the next issue.
+
 Other server limits worth knowing: `-max-message-bytes` (64 MiB) caps a
 gRPC message or REST body, `top_k` is capped at 1000, `ef_search` at
 10000, and `-tenant-idle-timeout` (30m) closes tenants nobody has used so
@@ -374,9 +389,11 @@ free tier, so the first request after idle may take ~30s to spin up).
 `Dockerfile` and deploys the REST/JSON API on Render's free web-service
 tier, with the public `/healthz` endpoint as the health check. Render generates
 the deployment's admin key as `NUCLADB_API_KEY`. The free tier has no
-persistent disk, so data and issued API keys are lost on each redeploy or
-restart; for anything that has to last, attach a Render disk at `/data`
-(the container's data dir; needs a paid plan).
+persistent disk, so stored vectors are lost on each redeploy or restart;
+for those to last, attach a Render disk at `/data` (the container's data
+dir; needs a paid plan). Issued API keys survive if you fill in the
+`NUCLADB_KEYS_S3_*` variables (see API keys above) with a free R2 bucket;
+the Blueprint asks for them.
 
 `docker-entrypoint.sh` binds the REST gateway to Render's dynamically
 assigned `$PORT` (Docker's exec-form `ENTRYPOINT` can't expand that
