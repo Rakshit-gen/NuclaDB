@@ -45,27 +45,41 @@ const (
 	maxTenantNameLen = 256
 )
 
-// IssuedFrom loads keys issued earlier from path, if it exists, and makes
-// Issue and Revoke save there. Call it once, before serving.
+// Store holds the issued keys file. Load returns nil, nil if there isn't
+// one yet.
+type Store interface {
+	Load() ([]byte, error)
+	Save([]byte) error
+}
+
+// IssuedFrom is IssuedIn with the keys kept in a file at path.
 func (k *Keys) IssuedFrom(path string) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.path = path
-	k.issued = make(map[string]Issued)
-	b, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+	return k.IssuedIn(FileStore(path))
+}
+
+// IssuedIn loads keys issued earlier from store and makes Issue and Revoke
+// save there. Call it once, before serving.
+func (k *Keys) IssuedIn(store Store) error {
+	b, err := store.Load()
 	if err != nil {
 		return err
 	}
-	var list []Issued
-	if err := json.Unmarshal(b, &list); err != nil {
-		return fmt.Errorf("auth: %s: %w", path, err)
+	issued := make(map[string]Issued)
+	if b != nil {
+		var list []Issued
+		if err := json.Unmarshal(b, &list); err != nil {
+			return fmt.Errorf("auth: issued keys: %w", err)
+		}
+		for _, is := range list {
+			issued[is.Hash] = is
+		}
 	}
-	for _, is := range list {
-		k.issued[is.Hash] = is
-	}
+	k.wmu.Lock()
+	defer k.wmu.Unlock()
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.store = store
+	k.issued = issued
 	return nil
 }
 
@@ -109,14 +123,14 @@ func (k *Keys) Issue(name string, tenants []string, admin bool, ttl time.Duratio
 		is.Expires = is.Created.Add(ttl)
 	}
 
-	k.mu.Lock()
-	defer k.mu.Unlock()
+	k.wmu.Lock()
+	defer k.wmu.Unlock()
 	if k.issued == nil {
 		return "", Issued{}, errors.New("auth: issued keys aren't enabled")
 	}
-	k.issued[hash] = is
-	if err := k.saveLocked(); err != nil {
-		delete(k.issued, hash)
+	next := maps.Clone(k.issued)
+	next[hash] = is
+	if err := k.commit(next); err != nil {
 		return "", Issued{}, err
 	}
 	return key, is, nil
@@ -124,16 +138,13 @@ func (k *Keys) Issue(name string, tenants []string, admin bool, ttl time.Duratio
 
 // Revoke deletes the issued key named id. It stops working immediately.
 func (k *Keys) Revoke(id string) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
+	k.wmu.Lock()
+	defer k.wmu.Unlock()
 	for hash, is := range k.issued {
 		if is.ID == id {
-			delete(k.issued, hash)
-			if err := k.saveLocked(); err != nil {
-				k.issued[hash] = is
-				return err
-			}
-			return nil
+			next := maps.Clone(k.issued)
+			delete(next, hash)
+			return k.commit(next)
 		}
 	}
 	return ErrUnknownKeyID
@@ -143,42 +154,38 @@ func (k *Keys) Revoke(id string) error {
 // none, so a tenant later re-created under the same name doesn't inherit
 // keys meant for the old one.
 func (k *Keys) DropTenant(tenant string) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	before := maps.Clone(k.issued)
+	k.wmu.Lock()
+	defer k.wmu.Unlock()
+	next := maps.Clone(k.issued)
 	changed := false
-	for hash, is := range k.issued {
+	for hash, is := range next {
 		if !slices.Contains(is.Tenants, tenant) {
 			continue
 		}
 		changed = true
 		is.Tenants = slices.DeleteFunc(slices.Clone(is.Tenants), func(t string) bool { return t == tenant })
 		if len(is.Tenants) == 0 {
-			delete(k.issued, hash)
+			delete(next, hash)
 		} else {
-			k.issued[hash] = is
+			next[hash] = is
 		}
 	}
 	if !changed {
 		return nil
 	}
-	if err := k.saveLocked(); err != nil {
-		k.issued = before
-		return err
-	}
-	return nil
+	return k.commit(next)
 }
 
 // List returns every issued key, oldest first.
 func (k *Keys) List() []Issued {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-	return k.sortedLocked()
+	return sorted(k.issued)
 }
 
-func (k *Keys) sortedLocked() []Issued {
-	list := make([]Issued, 0, len(k.issued))
-	for _, is := range k.issued {
+func sorted(issued map[string]Issued) []Issued {
+	list := make([]Issued, 0, len(issued))
+	for _, is := range issued {
 		list = append(list, is)
 	}
 	slices.SortFunc(list, func(a, b Issued) int {
@@ -190,14 +197,37 @@ func (k *Keys) sortedLocked() []Issued {
 	return list
 }
 
-// saveLocked writes every issued key to a temp file and renames it over
-// k.path, so a crash leaves either the old list or the new one.
-func (k *Keys) saveLocked() error {
-	b, err := json.MarshalIndent(k.sortedLocked(), "", "  ")
+// commit saves next and then makes it the live set, so a failed save
+// changes nothing. Caller holds wmu.
+func (k *Keys) commit(next map[string]Issued) error {
+	b, err := json.MarshalIndent(sorted(next), "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := k.path + ".tmp"
+	if err := k.store.Save(b); err != nil {
+		return err
+	}
+	k.mu.Lock()
+	k.issued = next
+	k.mu.Unlock()
+	return nil
+}
+
+// FileStore keeps issued keys in a file, readable only by its owner.
+type FileStore string
+
+func (path FileStore) Load() ([]byte, error) {
+	b, err := os.ReadFile(string(path))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return b, err
+}
+
+// Save writes to a temp file and renames it over path, so a crash leaves
+// either the old list or the new one.
+func (path FileStore) Save(b []byte) error {
+	tmp := string(path) + ".tmp"
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
@@ -213,10 +243,10 @@ func (k *Keys) saveLocked() error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, k.path); err != nil {
+	if err := os.Rename(tmp, string(path)); err != nil {
 		return err
 	}
-	d, err := os.Open(filepath.Dir(k.path))
+	d, err := os.Open(filepath.Dir(string(path)))
 	if err != nil {
 		return err
 	}

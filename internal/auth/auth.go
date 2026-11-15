@@ -36,9 +36,12 @@ type Key struct {
 type Keys struct {
 	keys []Key // from the keys file; never changes
 
+	// Writers (Issue, Revoke, DropTenant) hold wmu while they save, and mu
+	// only to swap in the new map, so checks never wait on a slow save.
+	wmu    sync.Mutex
 	mu     sync.RWMutex
-	path   string            // where issued keys are saved
-	issued map[string]Issued // by Issued.Hash; nil until IssuedFrom
+	store  Store             // where issued keys are saved
+	issued map[string]Issued // by Issued.Hash; nil until IssuedIn
 }
 
 // Load reads a JSON array of Key from path.
