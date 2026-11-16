@@ -9,6 +9,7 @@ surface from the reference implementation's own side.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Iterable
@@ -80,15 +81,24 @@ class ScoredVector:
     metadata: dict[str, str]
 
 
-class _APIKey(grpc.UnaryUnaryClientInterceptor):
-    """Adds the API key to every call."""
+class _Defaults(grpc.UnaryUnaryClientInterceptor):
+    """Adds the API key, if any, and a deadline to every call."""
 
-    def __init__(self, key: str):
-        self._metadata = (("authorization", "Bearer " + key),)
+    def __init__(self, key: str, timeout: float | None):
+        self._metadata = (("authorization", "Bearer " + key),) if key else ()
+        self._timeout = timeout
 
     def intercept_unary_unary(self, continuation, details, request):
-        details = details._replace(metadata=tuple(details.metadata or ()) + self._metadata)
+        details = details._replace(
+            metadata=tuple(details.metadata or ()) + self._metadata,
+            timeout=details.timeout if details.timeout is not None else self._timeout,
+        )
         return continuation(details, request)
+
+
+def _is_local(address: str) -> bool:
+    host = address.rsplit(":", 1)[0].strip("[]")
+    return host in ("localhost", "127.0.0.1", "::1") or address.startswith("unix:")
 
 
 class Client:
@@ -100,16 +110,26 @@ class Client:
     """
 
     def __init__(
-        self, address: str, tenant_id: str = "", api_key: str = "", tls: bool = False
+        self,
+        address: str,
+        tenant_id: str = "",
+        api_key: str = "",
+        tls: bool = False,
+        timeout: float | None = 30,
     ):
+        """timeout is each call's deadline in seconds; None waits forever."""
         self.tenant_id = tenant_id
         if tls:
             self.channel = grpc.secure_channel(address, grpc.ssl_channel_credentials())
         else:
+            if api_key and not _is_local(address):
+                warnings.warn(
+                    f"sending an API key to {address} without TLS; anyone on the path can read it. "
+                    "Pass tls=True (or set NUCLADB_TLS=1).",
+                    stacklevel=2,
+                )
             self.channel = grpc.insecure_channel(address)
-        channel = self.channel
-        if api_key:
-            channel = grpc.intercept_channel(channel, _APIKey(api_key))
+        channel = grpc.intercept_channel(self.channel, _Defaults(api_key, timeout))
         self._stub = pb_grpc.NuclaDBStub(channel)
 
     def __enter__(self) -> "Client":
