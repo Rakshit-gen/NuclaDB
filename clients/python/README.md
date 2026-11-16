@@ -71,9 +71,11 @@ with Client("localhost:9090") as db:
 `create_api_key` is the only time a key is returned; the server stores a
 hash of it.
 
-`Client(address, tenant_id="", api_key="", tls=False)`: `tenant_id` scopes
-every data call, `api_key` is sent as a bearer token, `tls=True` connects
-with the system's root certificates.
+`Client(address, tenant_id="", api_key="", tls=False, timeout=30)`:
+`tenant_id` scopes every data call, `api_key` is sent as a bearer token,
+`tls=True` connects with the system's root certificates, and `timeout` is
+each call's deadline in seconds (`None` waits forever). A key sent without
+TLS to anything but localhost logs a warning.
 
 ## MCP server
 
