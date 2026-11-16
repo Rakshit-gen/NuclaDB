@@ -330,7 +330,8 @@ func (s *Server) DeleteTenant(ctx context.Context, req *pb.DeleteTenantRequest) 
 	}
 	if s.keys != nil {
 		if err := s.keys.DropTenant(req.GetTenantId()); err != nil {
-			return nil, status.Errorf(codes.Internal, "tenant deleted, but updating its API keys failed: %v", err)
+			log.Printf("nucladbd: tenant %q deleted, but dropping it from API keys failed: %v", req.GetTenantId(), err)
+			return nil, status.Error(codes.Internal, "tenant deleted, but updating its API keys failed; see the server log")
 		}
 	}
 	return &pb.DeleteTenantResponse{}, nil
@@ -402,7 +403,7 @@ func (s *Server) CreateAPIKey(ctx context.Context, req *pb.CreateAPIKeyRequest) 
 	}
 	key, is, err := s.keys.Issue(req.GetName(), req.GetTenants(), req.GetAdmin(), time.Duration(req.GetTtlSeconds())*time.Second)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, keyStoreStatus(err, codes.InvalidArgument)
 	}
 	expires := "never"
 	if !is.Expires.IsZero() {
@@ -437,10 +438,20 @@ func (s *Server) RevokeAPIKey(ctx context.Context, req *pb.RevokeAPIKeyRequest) 
 	case errors.Is(err, auth.ErrUnknownKeyID):
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, keyStoreStatus(err, codes.Internal)
 	}
 	log.Printf("nucladbd: revoked API key %s", req.GetId())
 	return &pb.RevokeAPIKeyResponse{}, nil
+}
+
+// keyStoreStatus logs a failed save of the issued key list and hides its
+// detail from the caller; other errors keep their message under code.
+func keyStoreStatus(err error, code codes.Code) error {
+	if errors.Is(err, auth.ErrSave) {
+		log.Printf("nucladbd: %v", err)
+		return status.Error(codes.Unavailable, "saving API keys failed; see the server log")
+	}
+	return status.Error(code, err.Error())
 }
 
 func toStatus(err error) error {

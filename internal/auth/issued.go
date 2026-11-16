@@ -19,6 +19,11 @@ import (
 // ErrUnknownKeyID is returned by Revoke for an id that isn't issued.
 var ErrUnknownKeyID = errors.New("auth: no issued key with that id")
 
+// ErrSave wraps a failure to save the issued key list. Its detail (a file
+// path, or a storage bucket's error body) is for the server log, not the
+// caller.
+var ErrSave = errors.New("auth: saving issued keys failed")
+
 // Issued describes a key handed out by Issue. Only a SHA-256 of the key is
 // kept, so the key itself can't be read back from the server or its disk:
 // whoever asked for it gets it once. The keys are 192 random bits, so a
@@ -205,7 +210,7 @@ func (k *Keys) commit(next map[string]Issued) error {
 		return err
 	}
 	if err := k.store.Save(b); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrSave, err)
 	}
 	k.mu.Lock()
 	k.issued = next
