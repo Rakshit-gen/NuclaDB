@@ -2,8 +2,9 @@ services:
   nucladbd:
     build: .
     ports:
-      - "9090:9090" # gRPC
-      - "8080:8080" # REST + /metrics
+      # Published on this machine only, since auth is off below.
+      - "127.0.0.1:9090:9090" # gRPC
+      - "127.0.0.1:8080:8080" # REST + /metrics
     volumes:
       - nucladb-data:/data
     environment:
