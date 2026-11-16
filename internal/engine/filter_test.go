@@ -185,4 +185,10 @@ func TestFilterOps(t *testing.T) {
 	if _, err := e.Search(make([]float32, 8), 1, 0, []Filter{{Key: "price", Op: OpGt, Values: []string{"cheap"}}}); !errors.Is(err, ErrBadFilter) {
 		t.Fatalf("non-numeric gt: got %v, want ErrBadFilter", err)
 	}
+	if _, err := e.Search(make([]float32, 8), 1, 0, []Filter{{Key: "tier", Op: OpIn, Values: make([]string, MaxFilterValues+1)}}); !errors.Is(err, ErrBadFilter) {
+		t.Fatalf("too many in values: got %v, want ErrBadFilter", err)
+	}
+	if _, err := e.Search(make([]float32, 8), 1, 0, make([]Filter, MaxFilters+1)); !errors.Is(err, ErrBadFilter) {
+		t.Fatalf("too many filters: got %v, want ErrBadFilter", err)
+	}
 }

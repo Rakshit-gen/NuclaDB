@@ -866,6 +866,9 @@ func (e *Engine) SearchContext(ctx context.Context, query []float32, topK, ef in
 	if err := validateFiniteVector(query, e.cfg.Dim); err != nil {
 		return nil, err
 	}
+	if len(filters) > MaxFilters {
+		return nil, fmt.Errorf("%w: at most %d filters per search", ErrBadFilter, MaxFilters)
+	}
 	for _, f := range filters {
 		if err := f.validate(); err != nil {
 			return nil, err

@@ -37,6 +37,12 @@ func Eq(key, value string) Filter { return Filter{Key: key, Op: OpEq, Values: []
 // a non-numeric value on a numeric comparison.
 var ErrBadFilter = errors.New("engine: bad filter")
 
+// MaxFilters and MaxFilterValues bound the work one search's filter can ask for.
+const (
+	MaxFilters      = 32
+	MaxFilterValues = 1024
+)
+
 func (f Filter) validate() error {
 	switch f.Op {
 	case OpEq, OpNe:
@@ -44,8 +50,8 @@ func (f Filter) validate() error {
 			return fmt.Errorf("%w: %q needs exactly one value", ErrBadFilter, f.Key)
 		}
 	case OpIn, OpNotIn:
-		if len(f.Values) == 0 {
-			return fmt.Errorf("%w: %q needs at least one value", ErrBadFilter, f.Key)
+		if len(f.Values) == 0 || len(f.Values) > MaxFilterValues {
+			return fmt.Errorf("%w: %q needs 1 to %d values", ErrBadFilter, f.Key, MaxFilterValues)
 		}
 	case OpGt, OpGte, OpLt, OpLte:
 		if len(f.Values) != 1 {
