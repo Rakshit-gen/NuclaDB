@@ -6,6 +6,9 @@ reaches the server.
 
     pip install './clients/python[mcp]'
     nucladb-mcp
+
+NUCLADB_ADDR reaches a server over gRPC. NUCLADB_URL reaches one over
+REST instead, which is how a hosted server like the console's is reached.
 """
 from __future__ import annotations
 
@@ -20,6 +23,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 
 from .client import Client, DistanceMetric
+from .rest import RestClient, RestError
 
 # texts in, one vector per text out
 Embedder = Callable[[list[str]], list[list[float]]]
@@ -49,13 +53,18 @@ def _rpc() -> Iterator[None]:
     try:
         yield
     except grpc.RpcError as e:
-        msg = f"nucladb: {e.code().name}: {e.details()}"
-        if "dimension mismatch" in (e.details() or ""):
-            msg += " (the tenant's dim has to equal the embedding model's output size)"
-        raise ToolError(msg) from e
+        raise ToolError(_explain(f"nucladb: {e.code().name}: {e.details()}")) from e
+    except RestError as e:
+        raise ToolError(_explain(f"nucladb: {e}")) from e
 
 
-def build(db: Client, embed: Embedder) -> MCPServer:
+def _explain(msg: str) -> str:
+    if "dimension mismatch" in msg:
+        msg += " (the tenant's dim has to equal the embedding model's output size)"
+    return msg
+
+
+def build(db: Client | RestClient, embed: Embedder) -> MCPServer:
     server = MCPServer(
         "nucladb",
         instructions="Long-term text memory backed by a NuclaDB vector index.",
@@ -142,38 +151,66 @@ def sentence_transformer(model_name: str) -> Embedder:
     return lambda texts: model.encode(texts, normalize_embeddings=True).tolist()
 
 
-def check_tenant(db: Client, dim: int) -> None:
+def _refused(e: Exception) -> bool:
+    if isinstance(e, grpc.RpcError):
+        return e.code() in (grpc.StatusCode.PERMISSION_DENIED, grpc.StatusCode.UNAUTHENTICATED)
+    return isinstance(e, RestError) and e.status in (401, 403)
+
+
+def _mismatch(name: str, have: int, dim: int) -> SystemExit:
+    return SystemExit(
+        f"nucladb-mcp: tenant {name!r} holds {have}-dim vectors but the "
+        f"embedding model makes {dim}-dim ones; use a tenant made for {dim}-dim "
+        f"vectors (with an admin key, set NUCLADB_TENANT to a new name and it "
+        f"will be created to fit)"
+    )
+
+
+def check_tenant(db: Client | RestClient, dim: int) -> None:
     """Fail at startup, not on the agent's first add, when the tenant was
     made for vectors of a different size than the model produces. A tenant
     that doesn't exist yet is created to fit the model."""
+    name = db.tenant_id or "default"
     try:
         tenants = {t.id: t for t in db.list_tenants()}
-    except grpc.RpcError as e:
-        # listing tenants is an admin call; a tenant-scoped key just skips the check
-        if e.code() in (grpc.StatusCode.PERMISSION_DENIED, grpc.StatusCode.UNAUTHENTICATED):
-            return
-        raise
-    name = db.tenant_id or "default"
+    except (grpc.RpcError, RestError) as e:
+        if not _refused(e):
+            raise
+        # Listing tenants is an admin call. With a tenant-scoped key, one
+        # search with a vector of the model's size shows whether it fits.
+        try:
+            db.search([1.0] + [0.0] * (dim - 1), top_k=1)
+        except (grpc.RpcError, RestError) as e:
+            detail = e.details() if isinstance(e, grpc.RpcError) else e.message
+            if "dimension mismatch" in (detail or ""):
+                raise SystemExit(
+                    f"nucladb-mcp: tenant {name!r} wasn't made for the embedding model's "
+                    f"{dim}-dim vectors; use a tenant created with dim {dim}"
+                ) from None
+            raise
+        return
     tenant = tenants.get(name)
     if tenant is None:
         db.create_tenant(name, dim=dim, metric=DistanceMetric.COSINE)
         return
     if tenant.dim != dim:
-        raise SystemExit(
-            f"nucladb-mcp: tenant {name!r} holds {tenant.dim}-dim vectors but the "
-            f"embedding model makes {dim}-dim ones; set NUCLADB_TENANT to a new name "
-            f"and it will be created to fit"
-        )
+        raise _mismatch(name, tenant.dim, dim)
 
 
 def main() -> None:
     embed = sentence_transformer(os.environ.get("NUCLADB_MCP_MODEL", DEFAULT_MODEL))
-    with Client(
-        os.environ.get("NUCLADB_ADDR", "localhost:9090"),
-        tenant_id=os.environ.get("NUCLADB_TENANT", ""),
-        api_key=os.environ.get("NUCLADB_API_KEY", ""),
-        tls=os.environ.get("NUCLADB_TLS") == "1",
-    ) as db:
+    tenant = os.environ.get("NUCLADB_TENANT", "")
+    key = os.environ.get("NUCLADB_API_KEY", "")
+    if url := os.environ.get("NUCLADB_URL"):
+        db = RestClient(url, tenant_id=tenant, api_key=key)
+    else:
+        db = Client(
+            os.environ.get("NUCLADB_ADDR", "localhost:9090"),
+            tenant_id=tenant,
+            api_key=key,
+            tls=os.environ.get("NUCLADB_TLS") == "1",
+        )
+    with db:
         check_tenant(db, len(embed(["dimension probe"])[0]))
         build(db, embed).run("stdio")
 

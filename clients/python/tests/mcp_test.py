@@ -9,11 +9,12 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError  # noqa: E402
 
-from nucladb import Client, DistanceMetric  # noqa: E402
+from nucladb import Client, DistanceMetric, RestClient, RestError  # noqa: E402
 from nucladb.mcp_server import build, check_tenant  # noqa: E402
 from smoke_test import REPO_ROOT, free_port, wait_ready  # noqa: E402
 
@@ -137,6 +138,73 @@ def main() -> None:
         finally:
             proc.terminate()
             proc.wait(timeout=5)
+
+        check_rest(bin_path, tmp)
+
+
+def check_rest(bin_path: str, tmp: str) -> None:
+    """The console's setup: a server that requires keys, reached over REST,
+    a tenant limited to 10 requests/s, and a key scoped to that tenant."""
+    root = "root-key-0123456789abcdef"
+    http_port = free_port()
+    proc = subprocess.Popen(
+        [
+            bin_path,
+            "-data-dir", os.path.join(tmp, "rest-data"),
+            "-grpc-addr", f"127.0.0.1:{free_port()}",
+            "-http-addr", f"127.0.0.1:{http_port}",
+            "-dim", "4",
+        ],
+        env={**os.environ, "NUCLADB_API_KEY": root},
+    )
+    url = f"http://127.0.0.1:{http_port}"
+    try:
+        admin = RestClient(url, api_key=root)
+        deadline = time.time() + 5
+        while True:
+            try:
+                admin.list_tenants()
+                break
+            except RestError:
+                if time.time() > deadline:
+                    raise
+                time.sleep(0.05)
+        admin.create_tenant("hosted", max_qps=10, dim=4, metric=DistanceMetric.COSINE)
+        key = admin._call("POST", "/v1/keys", {"name": "mcp", "tenants": ["hosted"]})["key"]
+
+        db = RestClient(url, tenant_id="hosted", api_key=key)
+        check_tenant(db, len(WORDS))  # scoped key: falls back to a probe search
+        try:
+            check_tenant(db, 384)
+        except SystemExit as e:
+            assert "dim 384" in str(e), e
+        else:
+            raise AssertionError("check_tenant accepted a 384-dim model for a 4-dim tenant over REST")
+
+        server = build(db, embed)
+        # 25 texts against a 10/s tenant: sent 10 at a time, waiting out 429s
+        texts = [f"note {i} about a cat" for i in range(24)] + ["my car needs new tyres"]
+        ids = call(server, "add_texts", texts=texts)
+        assert len(set(ids)) == 25, ids
+        time.sleep(1.1)
+        assert call(server, "count") == 25
+        top = call(server, "search", query="car", top_k=1)
+        assert [m["text"] for m in top] == ["my car needs new tyres"], top
+        assert call(server, "get", id=ids[0])["text"] == texts[0]
+        assert call(server, "delete", id=ids[0]) is True
+        assert call(server, "get", id=ids[0]) is None
+
+        short = build(db, lambda texts: [v[:3] for v in embed(texts)])
+        msg = fails(short, "add_texts", texts=["cat"])
+        assert "HTTP 400" in msg and "embedding model" in msg, msg
+
+        other = RestClient(url, tenant_id="default", api_key=key)
+        assert "HTTP 403" in fails(build(other, embed), "count")
+        print("OK: REST transport with a scoped key, 10/s tenant batching and 429 retries, "
+              "size probe and error passthrough verified against a real nucladbd subprocess")
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
 
 
 if __name__ == "__main__":
