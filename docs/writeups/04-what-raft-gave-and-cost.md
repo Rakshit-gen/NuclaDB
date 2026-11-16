@@ -75,7 +75,7 @@ replication mechanism, which is deliberately not Raft, for latency), and
 it doesn't make the query path faster (that's a property of sharding
 itself, not of how shard ownership is tracked). Reporting the async
 failover window as a real, sometimes-triggered outcome rather than a
-theoretical footnote — and the 22-42% QPS cost as a measured range
+theoretical footnote — and the 38-45% QPS cost as a measured range
 instead of a single rounded number — is the point: both are the actual
 price of this design, not a hedge against a design that might have a
 price.
