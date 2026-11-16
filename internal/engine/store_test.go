@@ -203,7 +203,7 @@ func TestStoreInvalidTenantIDRejected(t *testing.T) {
 	}
 	defer s.Close()
 
-	for _, bad := range []string{"../escape", "a/b", ".", ".."} {
+	for _, bad := range []string{"../escape", "a/b", ".", "..", ".hidden", "*", "api_keys.json"} {
 		if err := s.CreateTenant(bad, Quota{}); err != ErrInvalidTenantID {
 			t.Fatalf("tenant id %q: expected ErrInvalidTenantID, got %v", bad, err)
 		}

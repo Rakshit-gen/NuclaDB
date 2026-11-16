@@ -29,7 +29,7 @@ var (
 	ErrQuotaExceeded   = errors.New("engine: tenant storage quota exceeded")
 	ErrRateLimited     = errors.New("engine: tenant request rate limit exceeded")
 	ErrBatchTooLarge   = errors.New("engine: batch is larger than the tenant's rate limit allows in one request")
-	ErrInvalidTenantID = errors.New("engine: tenant_id must be 1-128 characters without path separators or control characters")
+	ErrInvalidTenantID = errors.New("engine: tenant_id must be 1-128 characters, not start with a dot, and have no path separators or control characters")
 	ErrDefaultTenant   = errors.New("engine: the default tenant can't be deleted")
 	ErrInvalidQuota    = errors.New("engine: quota values must be finite and non-negative")
 	ErrStoreClosed     = errors.New("engine: store is closed")
@@ -207,7 +207,10 @@ func isTenantDir(dir string) bool {
 }
 
 func validTenantID(id string) bool {
-	if id == "" || len(id) > 128 || id == "." || id == ".." || filepath.Base(id) != id {
+	// A leading dot would collide with temp and .deleted- directories, "*"
+	// is the all-tenants wildcard in API keys, and api_keys.json is the
+	// issued key list kept in the same data directory.
+	if id == "" || len(id) > 128 || strings.HasPrefix(id, ".") || id == "*" || id == "api_keys.json" || filepath.Base(id) != id {
 		return false
 	}
 	for _, r := range id {
