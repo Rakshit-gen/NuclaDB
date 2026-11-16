@@ -182,7 +182,7 @@ func needsSnapshot(e *engine.Engine, fromSeq uint64, hasSum bool, sum uint32) (b
 	if err != nil {
 		return false, fmt.Errorf("replication: read record %d: %w", fromSeq, err)
 	}
-	// ponytail: a record either side can't compare (rotated out by a
+	// Known limit: a record either side can't compare (rotated out by a
 	// snapshot) counts as diverged, so a follower reconnecting right after
 	// a snapshot pays a full resync. Carry the snapshot's last checksum if
 	// that gets expensive.

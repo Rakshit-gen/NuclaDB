@@ -448,7 +448,7 @@ func (e *Engine) LastSeq() uint64 {
 // RecordSum returns the WAL checksum of the record numbered seq, if it is
 // still in this Engine's WAL. Replication compares it between leader and
 // follower to catch two logs that agree on length but not on content.
-// ponytail: scans the WAL from the start, fine at connect time; keep a
+// Known limit: scans the WAL from the start, fine at connect time; keep a
 // seq -> offset index if reconnects over large WALs get slow.
 func (e *Engine) RecordSum(seq uint64) (sum uint32, found bool, err error) {
 	return wal.SumAt(e.WALPath(), seq)
@@ -1064,7 +1064,7 @@ func (e *Engine) Snapshot() error {
 }
 
 // snapshotLocked is Snapshot. Caller holds snapMu, not mu.
-// ponytail: the copy under mu is O(vectors); copy-on-write graph pages if
+// Known limit: the copy under mu is O(vectors); copy-on-write graph pages if
 // that pause starts to matter for very large tenants.
 func (e *Engine) snapshotLocked() error {
 	e.mu.Lock()
@@ -1161,7 +1161,7 @@ func copyTail(src, dst string, offset int64) error {
 
 // compactLocked rebuilds the graph without its deleted nodes once they
 // outnumber the live ones. Caller holds e.mu.
-// ponytail: a full rebuild with writes blocked, fine while rebuilds take
+// Known limit: a full rebuild with writes blocked, fine while rebuilds take
 // well under a second; an incremental repair (hnswlib's markDelete plus
 // slot reuse) if they stop being rare or quick.
 func (e *Engine) compactLocked() error {
@@ -1253,7 +1253,7 @@ func validateFiniteVector(v []float32, dim int) error {
 
 // List returns up to limit stored ids that are >= start, in ascending
 // order, and whether more follow.
-// ponytail: sorts every id per page, O(n log n); keep a sorted index if
+// Known limit: sorts every id per page, O(n log n); keep a sorted index if
 // paging through big tenants gets slow.
 func (e *Engine) List(start uint64, limit int) (ids []uint64, more bool) {
 	all := e.graph.Load().IDs()

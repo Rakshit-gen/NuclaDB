@@ -520,7 +520,7 @@ func (s *Store) Engine(tenantID string) (*Engine, error) {
 // CloseIdle snapshots and closes the engines of tenants unused for longer
 // than maxIdle, releasing their memory and file handles. The next request
 // for one reopens it. Returns how many were closed.
-// ponytail: closes under the store-wide lock, so every tenant waits on the
+// Known limit: closes under the store-wide lock, so every tenant waits on the
 // snapshots; fine for an occasional sweep, a per-tenant open/close state if
 // sweeps ever get slow.
 func (s *Store) CloseIdle(maxIdle time.Duration) (int, error) {
