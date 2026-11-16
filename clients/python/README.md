@@ -104,6 +104,23 @@ than failing on the first write.
 claude mcp add nucladb -e NUCLADB_ADDR=localhost:9090 -e NUCLADB_TENANT=memory -- nucladb-mcp
 ```
 
+### A hosted server
+
+A hosted server, like the one behind the NuclaDB console, only exposes
+REST, so point `NUCLADB_URL` at it instead of `NUCLADB_ADDR`. With a
+console key, set up the index with 384 dimensions (the model's size) and
+use the `tenant_id` the console shows:
+
+```
+claude mcp add nucladb \
+  -e NUCLADB_URL=https://nucladb-demo.onrender.com \
+  -e NUCLADB_TENANT=u-... -e NUCLADB_API_KEY=nk_... -- nucladb-mcp
+```
+
+Over REST, `add_texts` sends 10 texts per request and waits out HTTP 429
+answers, so it works within a tenant's rate limit: 256 texts take about
+26 seconds at 10 per second.
+
 ### Claude Desktop
 
 Add this to `claude_desktop_config.json`. Desktop apps often don't see
@@ -133,18 +150,23 @@ the shell's `PATH`, so give the full path from `which nucladb-mcp`:
 `search`, `get` and `count` are marked read-only, and `delete` is marked
 destructive, so clients that read those hints can skip the approval
 prompt for lookups. When the server rejects a call, the agent sees the
-reason (`nucladb: INVALID_ARGUMENT: ...`), not just "Error executing tool".
+reason (`nucladb: INVALID_ARGUMENT: ...` over gRPC, `nucladb: HTTP 400: ...`
+over REST), not just "Error executing tool". A text over 12 KiB is refused
+with a message to split it, since the server caps a vector's metadata at
+16 KiB.
 
 ### Settings
 
-All environment variables, the first four shared with the `nucladb` CLI:
+All environment variables. `NUCLADB_ADDR`, `NUCLADB_TENANT`,
+`NUCLADB_API_KEY` and `NUCLADB_TLS` are shared with the `nucladb` CLI:
 
 | Variable | Default | |
 |---|---|---|
 | `NUCLADB_ADDR` | `localhost:9090` | gRPC address |
-| `NUCLADB_TENANT` | the `default` tenant | Created on first start if missing |
-| `NUCLADB_API_KEY` | none | With a tenant-scoped key the startup size check is skipped, since listing tenants needs an admin key |
-| `NUCLADB_TLS` | off | `1` to connect over TLS |
+| `NUCLADB_URL` | none | REST base URL, e.g. `https://nucladb-demo.onrender.com`. When set, it is used instead of `NUCLADB_ADDR` |
+| `NUCLADB_TENANT` | the `default` tenant | Created on first start if missing (needs an admin key) |
+| `NUCLADB_API_KEY` | none | With a tenant-scoped key, the startup size check runs one search instead of listing tenants |
+| `NUCLADB_TLS` | off | `1` to connect over TLS (gRPC only; for REST use an `https://` URL) |
 | `NUCLADB_MCP_MODEL` | `all-MiniLM-L6-v2` | Any sentence-transformers model. A different size needs a tenant made for it |
 
 The `default` tenant takes the server's `-dim`, which is 128 unless you
@@ -182,5 +204,5 @@ python tests/mcp_test.py
 
 `tests/mcp_test.py` does the same for `nucladb-mcp`: every tool, the
 refusals, a server-side error reaching the agent, and the startup tenant
-check. It swaps the real model for a stand-in that counts four words, so
+check, over gRPC and then over REST with a scoped key and a 10/s tenant. It swaps the real model for a stand-in that counts four words, so
 it needs the `mcp` package but not torch or a model download.

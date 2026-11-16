@@ -23,7 +23,16 @@ claude mcp add nucladb -e NUCLADB_TENANT=memory -- nucladb-mcp
 ```
 
 Then ask Claude to remember something, and in a later session ask about
-it. The full tool list and settings are in the
+it.
+
+To use the hosted server instead of running your own, create a key in
+the console (set the index to 384 dimensions) and register it over REST:
+
+```sh
+claude mcp add nucladb -e NUCLADB_URL=https://nucladb-demo.onrender.com \
+  -e NUCLADB_TENANT=u-... -e NUCLADB_API_KEY=nk_... -- nucladb-mcp
+```
+ The full tool list and settings are in the
 [Python client README](../../clients/python/README.md#mcp-server).
 
 ## What a search looks like
@@ -59,7 +68,10 @@ the model cache empty and then warm.
 - One tenant per running server. To keep work and personal notes apart,
   register two servers with different `NUCLADB_TENANT` values.
 - Up to 256 texts per `add_texts` call and 50 results per search, to keep
-  a single tool call from stalling or flooding the agent's context.
+  a single tool call from stalling or flooding the agent's context. Each
+  text can be at most 12 KiB.
+- On a rate-limited tenant like the console's (10 per second), adding 256
+  texts takes about 26 seconds, since every text counts.
 - Search filters are exact key=value matches. The richer `where` operators
   the client has (ranges, `in`, `exists`) aren't exposed yet.
 - The model only reads the first 256 tokens of a text (roughly 200
