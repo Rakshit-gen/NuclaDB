@@ -144,6 +144,9 @@ func main() {
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor(), auth.UnaryServerInterceptor()),
 	}
+	if configuredKeys != nil {
+		opts = append(opts, grpc.InTapHandle(auth.TapHandle(configuredKeys)))
+	}
 	if *tlsCert != "" {
 		creds, err := credentials.NewServerTLSFromFile(*tlsCert, *tlsKey)
 		if err != nil {

@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -307,5 +308,39 @@ func TestRESTIssuedKeys(t *testing.T) {
 	}
 	if code := call("DELETE", "/v1/keys/"+created.Info.ID, admin, nil, nil); code != 404 {
 		t.Fatalf("second revoke: %d, want 404", code)
+	}
+}
+
+// explodingBody fails the test if the handler reads it.
+type explodingBody struct{ t *testing.T }
+
+func (b explodingBody) Read([]byte) (int, error) {
+	b.t.Error("body read before the key was checked")
+	return 0, io.EOF
+}
+
+func TestRESTChecksKeyBeforeReadingBody(t *testing.T) {
+	store, err := engine.OpenStore(t.TempDir(), hnsw.Config{Dim: 4, Metric: hnsw.L2(), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	svc := grpcapi.New(store)
+	keys, err := auth.New([]auth.Key{{Key: "admin-key-0123456789", Tenants: []string{"*"}, Admin: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.RequireKeys(keys)
+	h := New(svc, 1<<20)
+	for _, key := range []string{"", "wrong-key-0123456789"} {
+		req := httptest.NewRequest("POST", "/v1/vectors:batch", io.NopCloser(explodingBody{t}))
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != 401 {
+			t.Fatalf("key %q: code %d, want 401", key, rec.Code)
+		}
 	}
 }

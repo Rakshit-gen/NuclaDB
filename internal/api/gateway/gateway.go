@@ -7,11 +7,13 @@ package gateway
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -79,7 +81,16 @@ func New(svc pb.NuclaDBServer, maxBodyBytes int64) *Handler {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxBody)
 	key := auth.FromHeader(r.Header.Get("Authorization"), r.Header.Get("X-API-Key"))
-	h.mux.ServeHTTP(w, r.WithContext(auth.WithKey(r.Context(), key)))
+	ctx := auth.WithKey(r.Context(), key)
+	// Refuse a missing or unknown key before the body is read, so callers
+	// without one can't make the server buffer and decode large requests.
+	if kc, ok := h.svc.(interface{ KnownKey(context.Context) error }); ok && strings.HasPrefix(r.URL.Path, "/v1/") {
+		if err := kc.KnownKey(ctx); err != nil {
+			writeResult(w, nil, err)
+			return
+		}
+	}
+	h.mux.ServeHTTP(w, r.WithContext(ctx))
 }
 
 type tenantJSON struct {

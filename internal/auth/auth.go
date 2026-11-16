@@ -17,7 +17,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/tap"
 )
 
 var (
@@ -82,9 +85,36 @@ func New(keys []Key) (*Keys, error) {
 // Allow reports whether the key in ctx may use tenant, and admin calls if
 // admin is set. An empty tenant is the default tenant.
 func (k *Keys) Allow(ctx context.Context, tenant string, admin bool) error {
+	found := k.lookup(ctx)
+	if found == nil {
+		return ErrNoKey
+	}
+	if admin && !found.Admin {
+		return ErrForbidden
+	}
+	if tenant == "" {
+		tenant = "default"
+	}
+	if !admin && !slices.Contains(found.Tenants, "*") && !slices.Contains(found.Tenants, tenant) {
+		return ErrForbidden
+	}
+	return nil
+}
+
+// Known reports ErrNoKey unless ctx carries a valid key. Servers call it
+// before reading a request body, so a caller without a key can't make the
+// server buffer or decode anything.
+func (k *Keys) Known(ctx context.Context) error {
+	if k.lookup(ctx) == nil {
+		return ErrNoKey
+	}
+	return nil
+}
+
+func (k *Keys) lookup(ctx context.Context) *Key {
 	given, _ := ctx.Value(ctxKey{}).(string)
 	if given == "" {
-		return ErrNoKey
+		return nil
 	}
 	var found *Key
 	for i := range k.keys {
@@ -104,19 +134,7 @@ func (k *Keys) Allow(ctx context.Context, tenant string, admin bool) error {
 			found = &Key{Tenants: is.Tenants, Admin: is.Admin}
 		}
 	}
-	if found == nil {
-		return ErrNoKey
-	}
-	if admin && !found.Admin {
-		return ErrForbidden
-	}
-	if tenant == "" {
-		tenant = "default"
-	}
-	if !admin && !slices.Contains(found.Tenants, "*") && !slices.Contains(found.Tenants, tenant) {
-		return ErrForbidden
-	}
-	return nil
+	return found
 }
 
 type ctxKey struct{}
@@ -146,6 +164,27 @@ func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 			return ""
 		}
 		return handler(WithKey(ctx, FromHeader(first("authorization"), first("x-api-key"))), req)
+	}
+}
+
+// TapHandle refuses a gRPC call whose metadata carries no valid key,
+// before its message is read off the wire. The health service stays open
+// for load balancers.
+func TapHandle(keys *Keys) tap.ServerInHandle {
+	return func(ctx context.Context, info *tap.Info) (context.Context, error) {
+		if strings.HasPrefix(info.FullMethodName, "/grpc.health.v1.Health/") {
+			return ctx, nil
+		}
+		first := func(name string) string {
+			if v := info.Header.Get(name); len(v) > 0 {
+				return v[0]
+			}
+			return ""
+		}
+		if keys.Known(WithKey(ctx, FromHeader(first("authorization"), first("x-api-key")))) != nil {
+			return nil, status.Error(codes.Unauthenticated, ErrNoKey.Error())
+		}
+		return ctx, nil
 	}
 }
 

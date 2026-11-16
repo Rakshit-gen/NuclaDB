@@ -32,6 +32,7 @@ func startKeyedServer(t *testing.T, withKeys bool) pb.NuclaDBClient {
 	}
 	t.Cleanup(func() { store.Close() })
 	svc := New(store)
+	opts := []grpc.ServerOption{grpc.UnaryInterceptor(auth.UnaryServerInterceptor())}
 	if withKeys {
 		keys, err := auth.New([]auth.Key{{Key: rootKey, Tenants: []string{"*"}, Admin: true}})
 		if err != nil {
@@ -41,10 +42,11 @@ func startKeyedServer(t *testing.T, withKeys bool) pb.NuclaDBClient {
 			t.Fatal(err)
 		}
 		svc.RequireKeys(keys)
+		opts = append(opts, grpc.InTapHandle(auth.TapHandle(keys)))
 	}
 
 	lis := bufconn.Listen(1 << 20)
-	s := grpc.NewServer(grpc.UnaryInterceptor(auth.UnaryServerInterceptor()))
+	s := grpc.NewServer(opts...)
 	pb.RegisterNuclaDBServer(s, svc)
 	go func() { _ = s.Serve(lis) }()
 	t.Cleanup(s.Stop)
@@ -135,5 +137,23 @@ func TestAPIKeysNeedKeyedServer(t *testing.T) {
 	_, err := c.CreateAPIKey(context.Background(), &pb.CreateAPIKeyRequest{Admin: true})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("got %v, want FailedPrecondition", err)
+	}
+}
+
+func TestTapRefusesUnknownKeyBeforeDecoding(t *testing.T) {
+	c := startKeyedServer(t, true)
+	for _, key := range []string{"", "not-a-real-key-0123456789"} {
+		ctx := context.Background()
+		if key != "" {
+			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+key)
+		}
+		_, err := c.Search(ctx, &pb.SearchRequest{Query: []float32{1, 0}, TopK: 1})
+		if status.Code(err) != codes.Unauthenticated {
+			t.Fatalf("key %q: got %v, want Unauthenticated", key, err)
+		}
+	}
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer "+rootKey)
+	if _, err := c.Search(ctx, &pb.SearchRequest{Query: []float32{1, 0}, TopK: 1}); err != nil {
+		t.Fatalf("root key: %v", err)
 	}
 }

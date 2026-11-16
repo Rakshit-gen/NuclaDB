@@ -49,6 +49,18 @@ func (s *Server) allow(ctx context.Context, tenantID string, admin bool) error {
 	return nil
 }
 
+// KnownKey is nil if keys aren't required or ctx carries a valid key, for
+// checks that run before a request body is read (see the REST gateway).
+func (s *Server) KnownKey(ctx context.Context) error {
+	if s.keys == nil {
+		return nil
+	}
+	if err := s.keys.Known(ctx); err != nil {
+		return status.Error(codes.Unauthenticated, err.Error())
+	}
+	return nil
+}
+
 // New wraps store as a gRPC service.
 func New(store *engine.Store) *Server {
 	return &Server{store: store}
