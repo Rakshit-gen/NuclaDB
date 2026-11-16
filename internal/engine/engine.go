@@ -24,6 +24,17 @@ import (
 
 var ErrNotFound = errors.New("engine: id not found")
 
+// Metadata limits. Quotas count vectors, not bytes, so without these one
+// vector could carry megabytes of metadata.
+const (
+	MaxMetadataKeys  = 64
+	MaxMetadataBytes = 16 << 10
+)
+
+// ErrMetadataTooLarge is returned when metadata has more than
+// MaxMetadataKeys keys or more than MaxMetadataBytes of keys and values.
+var ErrMetadataTooLarge = fmt.Errorf("engine: metadata is limited to %d keys and %d bytes", MaxMetadataKeys, MaxMetadataBytes)
+
 const (
 	snapshotFile = "snapshot.bin"
 	metadataFile = "metadata.json"
@@ -199,6 +210,9 @@ func (e *Engine) Insert(id uint64, vector []float32, metadata map[string]string)
 	if err := validateFiniteVector(vector, e.cfg.Dim); err != nil {
 		return err
 	}
+	if err := validateMetadata(metadata); err != nil {
+		return err
+	}
 	var extra []byte
 	if len(metadata) > 0 {
 		b, err := json.Marshal(metadata)
@@ -303,6 +317,9 @@ func (e *Engine) InsertBatch(items []InsertItem) error {
 		if err := validateFiniteVector(it.Vector, e.cfg.Dim); err != nil {
 			return err
 		}
+		if err := validateMetadata(it.Metadata); err != nil {
+			return err
+		}
 	}
 
 	records := make([]wal.Record, len(items))
@@ -371,6 +388,9 @@ func (e *Engine) commitLocked(records []wal.Record, metas []map[string]string) e
 // UpdateMetadata durably replaces id's metadata without touching its
 // vector. nil or empty clears it. Returns ErrNotFound if id isn't stored.
 func (e *Engine) UpdateMetadata(id uint64, metadata map[string]string) error {
+	if err := validateMetadata(metadata); err != nil {
+		return err
+	}
 	if e.CountNew([]uint64{id}) == 1 {
 		return ErrNotFound
 	}
@@ -1200,6 +1220,20 @@ func cloneMetadata(md map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func validateMetadata(md map[string]string) error {
+	if len(md) > MaxMetadataKeys {
+		return ErrMetadataTooLarge
+	}
+	n := 0
+	for k, v := range md {
+		n += len(k) + len(v)
+	}
+	if n > MaxMetadataBytes {
+		return ErrMetadataTooLarge
+	}
+	return nil
 }
 
 func validateFiniteVector(v []float32, dim int) error {

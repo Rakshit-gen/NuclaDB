@@ -346,7 +346,7 @@ overwriting the list on the next issue.
 
 Other server limits worth knowing: `-max-message-bytes` (64 MiB) caps a
 gRPC message or REST body, `top_k` is capped at 1000, `ef_search` at
-10000, and `-tenant-idle-timeout` (30m) closes tenants nobody has used so
+10000, a vector's metadata at 64 keys and 16 KiB, and `-tenant-idle-timeout` (30m) closes tenants nobody has used so
 thousands of them don't all hold files open.
 
 ## Feature guides

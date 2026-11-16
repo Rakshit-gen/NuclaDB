@@ -1,12 +1,14 @@
 package engine
 
 import (
+	"errors"
 	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Rakshit-gen/nucladb/internal/index/hnsw"
@@ -337,5 +339,33 @@ func TestUpdateMetadataIsDurable(t *testing.T) {
 	got, md, ok := e2.Get(1)
 	if !ok || md["tier"] != "pro" || got[0] != 1 {
 		t.Fatalf("after restart: %v %v %v", got, md, ok)
+	}
+}
+
+func TestMetadataLimits(t *testing.T) {
+	e, err := Open(t.TempDir(), hnsw.Config{Dim: 2, Metric: hnsw.L2(), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	v := []float32{1, 0}
+	big := map[string]string{"blob": strings.Repeat("x", MaxMetadataBytes)}
+	many := map[string]string{}
+	for i := 0; i <= MaxMetadataKeys; i++ {
+		many[strconv.Itoa(i)] = ""
+	}
+	for name, md := range map[string]map[string]string{"bytes": big, "keys": many} {
+		if err := e.Insert(1, v, md); !errors.Is(err, ErrMetadataTooLarge) {
+			t.Fatalf("Insert %s: %v", name, err)
+		}
+		if err := e.InsertBatch([]InsertItem{{ID: 1, Vector: v, Metadata: md}}); !errors.Is(err, ErrMetadataTooLarge) {
+			t.Fatalf("InsertBatch %s: %v", name, err)
+		}
+	}
+	if err := e.Insert(1, v, map[string]string{"team": "search"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.UpdateMetadata(1, big); !errors.Is(err, ErrMetadataTooLarge) {
+		t.Fatalf("UpdateMetadata: %v", err)
 	}
 }
