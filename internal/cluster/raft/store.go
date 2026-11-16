@@ -55,7 +55,18 @@ func NewTCPTransport(bindAddr string) (*raft.NetworkTransport, error) {
 // address differ from the local bind address — e.g. binding to the real
 // local port while advertising a fault-injection proxy address, so peers
 // dial through the proxy without the transport itself knowing.
+//
+// Raft's TCP transport has no authentication or encryption, so anyone who
+// can reach it can vote and append to the log. Like replication.Serve, it
+// refuses to bind anywhere but loopback until the transport is secured.
 func NewTCPTransportAdvertise(bindAddr, advertiseAddr string) (*raft.NetworkTransport, error) {
+	bind, err := net.ResolveTCPAddr("tcp", bindAddr)
+	if err != nil {
+		return nil, fmt.Errorf("raft: resolve bind addr %q: %w", bindAddr, err)
+	}
+	if bind.IP == nil || !bind.IP.IsLoopback() {
+		return nil, fmt.Errorf("raft: refusing unauthenticated non-loopback transport %s", bindAddr)
+	}
 	addr, err := net.ResolveTCPAddr("tcp", advertiseAddr)
 	if err != nil {
 		return nil, fmt.Errorf("raft: resolve advertise addr %q: %w", advertiseAddr, err)
