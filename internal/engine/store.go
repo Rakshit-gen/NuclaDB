@@ -28,6 +28,7 @@ var (
 	ErrTenantNotFound  = errors.New("engine: tenant not found")
 	ErrQuotaExceeded   = errors.New("engine: tenant storage quota exceeded")
 	ErrRateLimited     = errors.New("engine: tenant request rate limit exceeded")
+	ErrBatchTooLarge   = errors.New("engine: batch is larger than the tenant's rate limit allows in one request")
 	ErrInvalidTenantID = errors.New("engine: tenant_id must be 1-128 characters without path separators or control characters")
 	ErrDefaultTenant   = errors.New("engine: the default tenant can't be deleted")
 	ErrInvalidQuota    = errors.New("engine: quota values must be finite and non-negative")
@@ -358,18 +359,24 @@ func (t *tenant) spec() IndexSpec {
 }
 
 // allow takes n tokens from the tenant's rate limiter, so a batch of n
-// vectors costs the same as n single inserts. A batch bigger than the whole
-// bucket is rejected instead of silently being charged fewer tokens.
+// vectors costs the same as n single inserts. Callers check fitsBurst first,
+// so a batch bigger than the whole bucket is never silently undercharged.
 func (t *tenant) allow(n int) bool {
 	lim := t.limits.Load().limiter
 	if lim == nil {
 		return true
 	}
-	n = max(n, 1)
-	if n > lim.Burst() {
-		return false
+	return lim.AllowN(time.Now(), max(n, 1))
+}
+
+// fitsBurst is ErrBatchTooLarge if a batch of n could never pass allow,
+// because it is bigger than the tenant's whole bucket. Retrying would never
+// help, so it isn't reported as a rate limit.
+func (t *tenant) fitsBurst(n int) error {
+	if lim := t.limits.Load().limiter; lim != nil && n > lim.Burst() {
+		return fmt.Errorf("%w: %d vectors, this tenant takes at most %d per request", ErrBatchTooLarge, n, lim.Burst())
 	}
-	return lim.AllowN(time.Now(), n)
+	return nil
 }
 
 func validateQuota(q Quota) error {
@@ -708,6 +715,9 @@ func (s *Store) InsertBatches(batches []TenantBatch) error {
 			if err := validateFiniteVector(it.Vector, t.cfg.Dim); err != nil {
 				return err
 			}
+		}
+		if err := t.fitsBurst(len(b.Items)); err != nil {
+			return err
 		}
 		tenants[i] = t
 	}

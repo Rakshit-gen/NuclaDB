@@ -263,6 +263,28 @@ func TestStoreRateLimitEnforced(t *testing.T) {
 	}
 }
 
+func TestStoreBatchBiggerThanBurstIsNotARateLimit(t *testing.T) {
+	s, err := OpenStore(t.TempDir(), testStoreConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.CreateTenant("small", Quota{MaxQPS: 2}); err != nil {
+		t.Fatal(err)
+	}
+	items := make([]InsertItem, 3)
+	for i := range items {
+		items[i] = InsertItem{ID: uint64(i + 1), Vector: []float32{1, 0, 0, 0}}
+	}
+	err = s.InsertBatches([]TenantBatch{{TenantID: "small", Items: items}})
+	if !errors.Is(err, ErrBatchTooLarge) {
+		t.Fatalf("batch of 3 at burst 2: got %v, want ErrBatchTooLarge", err)
+	}
+	if err := s.InsertBatches([]TenantBatch{{TenantID: "small", Items: items[:2]}}); err != nil {
+		t.Fatalf("batch of 2 at burst 2: %v", err)
+	}
+}
+
 func TestStoreUnlimitedTenantNeverRateLimited(t *testing.T) {
 	s, err := OpenStore(t.TempDir(), testStoreConfig())
 	if err != nil {

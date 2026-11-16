@@ -463,7 +463,8 @@ func toStatus(err error) error {
 		errors.Is(err, hnsw.ErrDimensionMismatch),
 		errors.Is(err, hnsw.ErrNonFiniteVector),
 		errors.Is(err, engine.ErrDefaultTenant), errors.Is(err, engine.ErrBadFilter),
-		errors.Is(err, engine.ErrBadIndexSpec), errors.Is(err, engine.ErrMetadataTooLarge):
+		errors.Is(err, engine.ErrBadIndexSpec), errors.Is(err, engine.ErrMetadataTooLarge),
+		errors.Is(err, engine.ErrBatchTooLarge):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, engine.ErrQuotaExceeded), errors.Is(err, engine.ErrRateLimited):
 		return status.Error(codes.ResourceExhausted, err.Error())

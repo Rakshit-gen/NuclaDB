@@ -258,7 +258,10 @@ nucladb-cli: rpc error: code = NotFound desc = engine: tenant not found
 ```
 
 Exceeding `-max-qps` returns the same `ResourceExhausted` code with a
-"rate limit exceeded" message.
+"rate limit exceeded" message. Each vector in a batch counts as one
+request, so a tenant with `-max-qps=10` takes at most 10 vectors per batch;
+a bigger batch fails with `InvalidArgument` because retrying it would never
+succeed.
 
 ## REST equivalent
 
