@@ -27,6 +27,8 @@ Embedder = Callable[[list[str]], list[list[float]]]
 DEFAULT_MODEL = "all-MiniLM-L6-v2"  # 384-dim, small enough for CPU
 MAX_TOP_K = 50  # more than this floods the agent's context with text
 MAX_BATCH = 256  # one embed call; bigger batches stall the agent with no feedback
+# The server caps a vector's metadata at 16 KiB, and the text is stored there.
+MAX_TEXT_BYTES = 12 * 1024
 
 READ_ONLY = ToolAnnotations(read_only_hint=True)
 DESTRUCTIVE = ToolAnnotations(destructive_hint=True, idempotent_hint=True)
@@ -69,6 +71,8 @@ def build(db: Client, embed: Embedder) -> MCPServer:
             raise ToolError(f"at most {MAX_BATCH} texts per call, got {len(texts)}")
         if any(not t.strip() for t in texts):
             raise ToolError("every text has to have some non-whitespace content")
+        if any(len(t.encode()) > MAX_TEXT_BYTES for t in texts):
+            raise ToolError(f"each text has to be at most {MAX_TEXT_BYTES} bytes; split longer documents into chunks")
         if metadata and "text" in metadata:
             raise ToolError("metadata key \"text\" is reserved for the text itself")
         ids = [text_id(t) for t in texts]

@@ -107,6 +107,7 @@ def main() -> None:
                 assert "non-whitespace" in fails(server, "add_texts", texts=["ok", "  "])
                 assert "at most 256" in fails(server, "add_texts", texts=["cat"] * 257)
                 assert "reserved" in fails(server, "add_texts", texts=["cat"], metadata={"text": "x"})
+                assert "split longer" in fails(server, "add_texts", texts=["cat" * 5000])
 
                 assert "empty" in fails(server, "search", query=" ")
                 assert "between 1 and 50" in fails(server, "search", query="cat", top_k=0)
